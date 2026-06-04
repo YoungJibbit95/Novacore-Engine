@@ -1,0 +1,111 @@
+# 13 Testing Acceptance
+
+## Testing Goal
+
+The project needs tests that protect feel and networking, not only code correctness. Movement, recoil, and replication must be measurable.
+
+## Build Tests
+
+Targets:
+
+- Windows MSVC.
+- Linux Clang.
+- macOS later.
+
+Checks:
+
+- Configure.
+- Build engine.
+- Build game.
+- Build server.
+- Shader compile.
+
+## Unit Tests
+
+Initial unit areas:
+
+- Entity ID generation/liveness.
+- Component attach/remove.
+- Fixed timestep accumulator.
+- Config parsing.
+- Packet sequence math.
+- Input curve mapping.
+
+## Movement Replay Tests
+
+Movement tests record:
+
+- Input command stream.
+- Start state.
+- Expected final state.
+- Tolerance.
+
+Scenarios:
+
+- Sprint.
+- Slide.
+- Slide jump.
+- Air control.
+- Mantle.
+- Controller analog movement.
+- Advanced tech timing.
+
+## Netcode Tests
+
+Scenarios:
+
+- Latency.
+- Jitter.
+- Packet loss.
+- Packet reorder.
+- Prediction correction.
+- Snapshot interpolation.
+- Lag compensated hit.
+
+## Gameplay Tests
+
+Scenarios:
+
+- AR TTK.
+- SMG close-range TTK.
+- Shotgun pellet distribution.
+- Sidearm fallback.
+- Reload timing.
+- Objective scoring.
+- Spawn safety.
+
+## Renderer Tests
+
+Scenarios:
+
+- Swapchain create/recreate.
+- Clear frame.
+- Mesh render.
+- Missing material fallback.
+- Shader compile failure diagnostics.
+- Frame timing output.
+
+## Acceptance Dashboard
+
+The future debug UI should show:
+
+- FPS.
+- CPU frame time.
+- GPU frame time.
+- Server tick time.
+- RTT.
+- Packet loss.
+- Reconciliation error.
+- Entity count.
+- Draw call count.
+
+## Acceptance
+
+The first implementation is accepted when:
+
+- Docs exist and match the agreed criteria.
+- Project skeleton is clean.
+- Game/server targets exist.
+- Engine has core loop, ECS, input, renderer stub, net skeleton.
+- Missing external C++ tools are documented.
+

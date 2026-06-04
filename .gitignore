@@ -1,0 +1,33 @@
+# CMake build directories
+build/
+cmake-build-*/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vcpkg_installed/
+.vcpkg/
+
+# Compiled output
+*.o
+*.obj
+*.a
+*.lib
+*.exe
+*.dll
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# Temporary files
+*.tmp

@@ -1,0 +1,56 @@
+#include "fps/core/Application.hpp"
+#include "fps/core/Log.hpp"
+#include "fps/net/Server.hpp"
+
+#include <string_view>
+
+namespace {
+
+class DedicatedServerApp final : public riftline::core::IApplicationDelegate {
+public:
+    DedicatedServerApp()
+        : server_(riftline::net::ServerConfig{}) {
+    }
+
+    void onStartup() override {
+        riftline::core::logInfo("server", "Dedicated server startup");
+    }
+
+    void onShutdown() override {
+        riftline::core::logInfo("server", "Dedicated server shutdown");
+    }
+
+    void onFixedTick(const riftline::core::FrameContext& context) override {
+        server_.tick(context);
+    }
+
+    void onFrame(const riftline::core::FrameContext& context) override {
+        (void)context;
+    }
+
+private:
+    riftline::net::ServerWorld server_;
+};
+
+} // namespace
+
+int main(int argc, char** argv) {
+    bool runForever = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--forever") {
+            runForever = true;
+        }
+    }
+
+    DedicatedServerApp server;
+
+    riftline::core::ApplicationDesc desc{};
+    desc.name = "riftline_server";
+    desc.fixedTickHz = 60.0;
+    desc.maxFrames = runForever ? 0 : 120;
+
+    riftline::core::Application app(desc);
+    app.run(server);
+    return 0;
+}
+
