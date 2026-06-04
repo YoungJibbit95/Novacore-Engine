@@ -47,6 +47,8 @@ cmake --build --preset local-debug-no-deps
 ctest --test-dir build/local-debug-no-deps
 ```
 
+Current foundation primitives include fixed-step timing, math types, input action mapping, loopback net packets, and polling-based file change tracking for future hot reload.
+
 ## Documentation
 
 See `docs/` for detailed architecture and implementation guides.

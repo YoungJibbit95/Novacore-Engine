@@ -31,7 +31,7 @@ Initial unit areas:
 - Packet sequence math.
 - Input curve mapping.
 
-The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, and loopback packet flow.
+The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, input action state transitions, and file change tracking.
 
 ## Movement Replay Tests
 

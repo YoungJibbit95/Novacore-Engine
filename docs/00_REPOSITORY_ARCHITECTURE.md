@@ -6,6 +6,7 @@ NovaCore is the engine repository. It owns reusable runtime code only: core loop
 
 - `engine/include/novacore`: public engine API, stable enough for Nemisis to include.
 - `engine/src`: private engine implementation.
+- `engine/include/novacore/io`: file reads, snapshots, and polling hot-reload primitives.
 - `server`: NovaCore dedicated server executable and server-runtime entrypoint.
 - `configs/net`: engine-owned server, tick, snapshot, and packet-simulation defaults.
 - `tests`: dependency-free smoke tests for engine primitives.

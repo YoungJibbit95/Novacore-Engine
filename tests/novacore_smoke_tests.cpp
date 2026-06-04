@@ -1,6 +1,8 @@
 #include "novacore/Novacore.hpp"
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string_view>
 
@@ -61,12 +63,60 @@ void testLoopbackChannel() {
     expect(received.payload.size() == 4, "packet payload survives loopback");
 }
 
+void testInputActions() {
+    novacore::platform::InputActionMap actionMap;
+    novacore::platform::InputControl jumpKey{
+        novacore::platform::InputControlKind::KeyboardKey,
+        32,
+    };
+
+    actionMap.bind(novacore::platform::InputBinding{"jump", jumpKey, 1.0F, 0.5F});
+
+    novacore::platform::InputSnapshot snapshot;
+    snapshot.setButton(jumpKey, true, novacore::platform::InputDeviceKind::KeyboardMouse);
+    actionMap.update(snapshot);
+
+    const auto jump = actionMap.stateOrDefault("jump");
+    expect(jump.down, "bound button drives action down state");
+    expect(jump.pressed, "first down frame reports pressed");
+
+    actionMap.update(snapshot);
+    expect(!actionMap.stateOrDefault("jump").pressed, "held button does not repeat pressed");
+
+    snapshot.setButton(jumpKey, false, novacore::platform::InputDeviceKind::KeyboardMouse);
+    actionMap.update(snapshot);
+    expect(actionMap.stateOrDefault("jump").released, "button release reports released");
+}
+
+void testFileChangeTracker() {
+    const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_file.txt";
+    {
+        std::ofstream file(path);
+        file << "first";
+    }
+
+    novacore::io::FileChangeTracker tracker;
+    tracker.track(path);
+    expect(tracker.trackedCount() == 1, "file tracker records tracked file");
+    expect(tracker.pollChanges().empty(), "unchanged file does not emit change");
+
+    {
+        std::ofstream file(path, std::ios::app);
+        file << "second";
+    }
+
+    expect(!tracker.pollChanges().empty(), "modified file emits change");
+    std::filesystem::remove(path);
+}
+
 } // namespace
 
 int main() {
     testWorldLifetime();
     testFixedStepAccumulator();
     testLoopbackChannel();
+    testInputActions();
+    testFileChangeTracker();
 
     if (failures > 0) {
         std::cerr << failures << " NovaCore smoke test(s) failed\n";
@@ -76,4 +126,3 @@ int main() {
     std::cout << "NovaCore smoke tests passed\n";
     return EXIT_SUCCESS;
 }
-

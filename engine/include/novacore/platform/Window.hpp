@@ -8,7 +8,7 @@
 namespace novacore::platform {
 
 struct WindowDesc final {
-    std::string title = "Nemesis";
+    std::string title = "NovaCore";
     std::int32_t width = 1280;
     std::int32_t height = 720;
     bool preferVulkan = true;

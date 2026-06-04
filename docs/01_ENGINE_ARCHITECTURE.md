@@ -8,7 +8,8 @@ The engine is a modular C++23 runtime shared by the game client and server. It m
 
 - `Core`: logging, asserts, time, config, fixed-step accumulator, memory hooks, jobs.
 - `Math`: lightweight vector/quaternion primitives used by ECS, renderer, physics, and game code.
-- `Platform`: window, input, filesystem, dynamic libraries, OS timing.
+- `IO`: text-file reads, file snapshots, and polling-based reload detection.
+- `Platform`: window, input, action mapping, dynamic libraries, OS timing.
 - `Render`: Vulkan backend, render graph, resources, frame scheduling, UI composition.
 - `ECS`: entities, components, systems, lifetime, serialization, replication metadata.
 - `Physics`: custom character controller, collision queries, triggers.
@@ -103,6 +104,7 @@ Asset manager responsibilities:
 - Stable handles.
 - Async load requests.
 - Hot reload for data.
+- Polling-based file change tracking for early hot-reload workflows.
 - Cooked asset lookup.
 - Dependency tracking.
 

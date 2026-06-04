@@ -22,9 +22,11 @@ add_library(novacore_engine
     engine/src/core/FixedStep.cpp
     engine/src/core/Log.cpp
     engine/src/ecs/World.cpp
+    engine/src/io/FileSystem.cpp
     engine/src/net/Client.cpp
     engine/src/net/Loopback.cpp
     engine/src/net/Server.cpp
+    engine/src/platform/InputAction.cpp
     engine/src/platform/Input.cpp
     engine/src/platform/Window.cpp
     engine/src/render/Renderer.cpp
