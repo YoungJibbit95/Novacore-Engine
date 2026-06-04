@@ -6,7 +6,8 @@ The engine is a modular C++23 runtime shared by the game client and server. It m
 
 ## Top-Level Modules
 
-- `Core`: logging, asserts, time, config, deterministic tick loop, memory hooks, jobs.
+- `Core`: logging, asserts, time, config, fixed-step accumulator, memory hooks, jobs.
+- `Math`: lightweight vector/quaternion primitives used by ECS, renderer, physics, and game code.
 - `Platform`: window, input, filesystem, dynamic libraries, OS timing.
 - `Render`: Vulkan backend, render graph, resources, frame scheduling, UI composition.
 - `ECS`: entities, components, systems, lifetime, serialization, replication metadata.
@@ -46,7 +47,7 @@ The engine loop separates fixed update from variable rendering:
 1. Poll platform events.
 2. Collect input for current frame.
 3. Accumulate elapsed time.
-4. Run zero or more fixed ticks at 60Hz.
+4. Run zero or more fixed ticks through `FixedStepAccumulator` at 60Hz.
 5. Run client prediction and game systems that need fixed time.
 6. Render one frame if a renderer exists.
 7. Sleep/yield when appropriate.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/core/Application.hpp"
+#include "novacore/net/Types.hpp"
 
 #include <cstdint>
 
@@ -9,6 +10,8 @@ namespace novacore::net {
 struct ServerConfig final {
     double tickHz = 60.0;
     std::uint16_t port = 27015;
+    std::uint16_t maxPlayers = 12;
+    NetworkRate rate{};
     bool listenServer = false;
 };
 

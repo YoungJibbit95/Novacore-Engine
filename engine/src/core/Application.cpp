@@ -1,5 +1,6 @@
 #include "novacore/core/Application.hpp"
 
+#include "novacore/core/FixedStep.hpp"
 #include "novacore/core/Log.hpp"
 #include "novacore/core/Time.hpp"
 
@@ -21,11 +22,10 @@ void Application::run(IApplicationDelegate& delegate) {
 
     delegate.onStartup();
 
-    const double fixedDelta = 1.0 / desc_.fixedTickHz;
     auto previous = Clock::now();
-    double accumulator = 0.0;
+    FixedStepAccumulator fixedStep(FixedStepConfig{desc_.fixedTickHz, 0.25});
     FrameContext context{};
-    context.fixedDeltaSeconds = fixedDelta;
+    context.fixedDeltaSeconds = fixedStep.fixedDeltaSeconds();
 
     while (!stopRequested_ && !delegate.shouldQuit()) {
         const auto now = Clock::now();
@@ -33,15 +33,15 @@ void Application::run(IApplicationDelegate& delegate) {
         previous = now;
 
         context.deltaSeconds = std::clamp(deltaSeconds, 0.0, 0.25);
-        accumulator += context.deltaSeconds;
+        fixedStep.advance(context.deltaSeconds);
 
-        while (accumulator >= fixedDelta) {
+        while (fixedStep.shouldStep()) {
             delegate.onFixedTick(context);
-            accumulator -= fixedDelta;
+            fixedStep.consumeStep();
             ++context.tickIndex;
         }
 
-        context.alpha = accumulator / fixedDelta;
+        context.alpha = fixedStep.alpha();
         delegate.onFrame(context);
         ++context.frameIndex;
 

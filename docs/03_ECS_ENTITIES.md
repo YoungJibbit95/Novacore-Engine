@@ -20,6 +20,8 @@ M1 components:
 - `NameComponent`
 - `TransformComponent`
 
+`TransformComponent` uses `novacore::math` primitives rather than ECS-owned vector types. That keeps math reusable for renderer, physics, networking, and game code.
+
 Future components:
 
 - `RenderMeshComponent`

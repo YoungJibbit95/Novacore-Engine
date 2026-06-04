@@ -8,6 +8,7 @@ NovaCore is the engine repository. It owns reusable runtime code only: core loop
 - `engine/src`: private engine implementation.
 - `server`: NovaCore dedicated server executable and server-runtime entrypoint.
 - `configs/net`: engine-owned server, tick, snapshot, and packet-simulation defaults.
+- `tests`: dependency-free smoke tests for engine primitives.
 - `shaders`: engine shader source and shader build notes.
 - `tools`: future engine/editor/cooking tools.
 - `docs`: engine architecture and subsystem plans.

@@ -17,6 +17,7 @@ A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the g
 - `engine/` - Core engine library
 - `server/` - Dedicated server executable
 - `configs/` - Engine/server runtime defaults
+- `tests/` - Dependency-free engine smoke tests
 - `shaders/` - Vulkan shader files
 - `tools/` - Development tools
 - `docs/` - Engine documentation
@@ -43,6 +44,7 @@ cmake --build --preset windows-msvc-debug
 ```powershell
 cmake --preset local-debug-no-deps
 cmake --build --preset local-debug-no-deps
+ctest --test-dir build/local-debug-no-deps
 ```
 
 ## Documentation

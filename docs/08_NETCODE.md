@@ -16,6 +16,14 @@ Use UDP for real networking:
 
 M1 uses loopback/direct abstraction before real UDP is implemented.
 
+The first code foundation defines stable network primitive types:
+
+- `SimulationTick`
+- `PacketSequence`
+- `NetworkRate`
+- `Packet`
+- `LoopbackChannel`
+
 ## Simulation Rates
 
 - Server simulation: 60Hz.

@@ -1,14 +1,15 @@
 #pragma once
 
+#include "novacore/net/Types.hpp"
+
 #include <cstdint>
 #include <queue>
-#include <span>
 #include <vector>
 
 namespace novacore::net {
 
 struct Packet final {
-    std::uint32_t sequence = 0;
+    PacketSequence sequence{};
     std::vector<std::uint8_t> payload;
 };
 

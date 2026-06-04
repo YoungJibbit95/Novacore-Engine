@@ -1,27 +1,15 @@
 #pragma once
 
-#include <array>
+#include "novacore/math/Types.hpp"
+
 #include <string>
 
 namespace novacore::ecs {
 
-struct Vec3 final {
-    float x = 0.0F;
-    float y = 0.0F;
-    float z = 0.0F;
-};
-
-struct Quat final {
-    float x = 0.0F;
-    float y = 0.0F;
-    float z = 0.0F;
-    float w = 1.0F;
-};
-
 struct TransformComponent final {
-    Vec3 position{};
-    Quat rotation{};
-    Vec3 scale{1.0F, 1.0F, 1.0F};
+    math::Vec3 position{};
+    math::Quat rotation{};
+    math::Vec3 scale{1.0F, 1.0F, 1.0F};
 };
 
 struct NameComponent final {

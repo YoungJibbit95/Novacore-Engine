@@ -13,11 +13,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(NOVACORE_ENABLE_SDL3 "Enable SDL3 platform window/input backend when available" ON)
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
 option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
+option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 
 add_library(novacore_engine
     engine/src/core/Application.cpp
     engine/src/core/Config.cpp
+    engine/src/core/FixedStep.cpp
     engine/src/core/Log.cpp
     engine/src/ecs/World.cpp
     engine/src/net/Client.cpp
@@ -84,6 +86,14 @@ if(NOVACORE_BUILD_SERVER)
     target_link_libraries(novacore_server PRIVATE novacore_engine)
 endif()
 
+enable_testing()
+
+if(NOVACORE_BUILD_TESTS)
+    add_executable(novacore_smoke_tests tests/novacore_smoke_tests.cpp)
+    target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
+    add_test(NAME novacore_smoke_tests COMMAND novacore_smoke_tests)
+endif()
+
 include(CMakePackageConfigHelpers)
 
 install(
@@ -123,5 +133,3 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/NovacoreConfigVersion.cmake
     DESTINATION lib/cmake/Novacore
 )
-
-enable_testing()
