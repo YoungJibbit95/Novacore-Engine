@@ -16,6 +16,7 @@ A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the g
 
 - `engine/` - Core engine library
 - `server/` - Dedicated server executable
+- `configs/` - Engine/server runtime defaults
 - `shaders/` - Vulkan shader files
 - `tools/` - Development tools
 - `docs/` - Engine documentation

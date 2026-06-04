@@ -7,11 +7,12 @@ NovaCore is the engine repository. It owns reusable runtime code only: core loop
 - `engine/include/novacore`: public engine API, stable enough for Nemisis to include.
 - `engine/src`: private engine implementation.
 - `server`: NovaCore dedicated server executable and server-runtime entrypoint.
+- `configs/net`: engine-owned server, tick, snapshot, and packet-simulation defaults.
 - `shaders`: engine shader source and shader build notes.
 - `tools`: future engine/editor/cooking tools.
 - `docs`: engine architecture and subsystem plans.
 
-NovaCore must not include Nemisis headers, assets, configs, or game rules. The dependency direction is always Nemisis -> NovaCore.
+NovaCore must not include Nemisis headers, assets, game tuning, or game rules. Network/server runtime defaults belong here; match rules, weapons, movement, input feel, and assets belong in Nemisis. The dependency direction is always Nemisis -> NovaCore.
 
 ## Code Quality Rules
 
@@ -32,4 +33,3 @@ NovaCore must not include Nemisis headers, assets, configs, or game rules. The d
 ## Push Rule
 
 Large engine work should be committed and pushed to `YoungJibbit95/Novacore-Engine` before starting the next large game-only step.
-

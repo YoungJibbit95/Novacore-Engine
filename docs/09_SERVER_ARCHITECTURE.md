@@ -13,6 +13,7 @@ Dedicated server:
 - No game UI.
 - Logs to console/file.
 - Hosts LAN/direct-connect matches first.
+- Reads server runtime defaults from engine-owned net config data.
 
 Listen server:
 
@@ -91,6 +92,18 @@ V1 online flow:
 - No Steam/EOS dependency in first phase.
 
 Future services can wrap the session layer without replacing core simulation.
+
+## Runtime Defaults
+
+Server runtime defaults belong in NovaCore because they describe engine/server behavior rather than game balance:
+
+- Tick rate.
+- Snapshot rate.
+- Port defaults.
+- Max session capacity defaults.
+- Packet simulation defaults.
+
+Nemisis may request mode-specific limits, but the server loop owns enforcement.
 
 ## Acceptance
 

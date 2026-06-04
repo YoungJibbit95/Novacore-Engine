@@ -1,0 +1,19 @@
+{
+  "tick_rate": 60,
+  "snapshot_rate": 30,
+  "port": 27015,
+  "max_players": 12,
+  "packet_simulation": {
+    "latency_ms": 0,
+    "jitter_ms": 0,
+    "loss_percent": 0
+  }
+}
+
+
+
+
+
+
+
+
