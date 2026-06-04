@@ -1,6 +1,6 @@
 # NovaCore Engine
 
-A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the ground up for modern graphics APIs.
+A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the ground up for modern graphics APIs. Engine for Project Nemisis, a fps game planned to release in 2027.
 
 ## Features
 
@@ -51,9 +51,3 @@ See `docs/` for detailed architecture and implementation guides.
 ## License
 
 See LICENSE file for details.
-
-
-
-
-
-
