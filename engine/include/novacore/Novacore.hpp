@@ -3,6 +3,8 @@
 #include "novacore/core/Application.hpp"
 #include "novacore/core/Assert.hpp"
 #include "novacore/core/Config.hpp"
+#include "novacore/core/ConfigDocument.hpp"
+#include "novacore/core/ConfigRegistry.hpp"
 #include "novacore/core/FixedStep.hpp"
 #include "novacore/core/Log.hpp"
 #include "novacore/ecs/Components.hpp"

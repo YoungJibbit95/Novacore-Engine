@@ -74,6 +74,13 @@ Configuration is split into:
 
 The final engine should hot-reload gameplay data but not silently hot-reload boot-critical platform settings.
 
+The current foundation provides `ConfigDocument` and `ConfigRegistry`:
+
+- JSON-like files parse into dotted keys such as `movement.sprint_speed`.
+- Arrays use numeric path segments such as `weapons.0.id`.
+- The registry watches files through `FileChangeTracker`.
+- Reload events report parse errors without crashing the runtime.
+
 ## Logging and Diagnostics
 
 Logging categories:

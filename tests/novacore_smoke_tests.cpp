@@ -109,6 +109,55 @@ void testFileChangeTracker() {
     std::filesystem::remove(path);
 }
 
+void testConfigDocument() {
+    constexpr std::string_view json = R"({
+        "movement": {
+            "sprint_speed": 7.4,
+            "enabled": true
+        },
+        "weapons": [
+            { "id": "ar_01", "magazine_size": 30 }
+        ]
+    })";
+
+    novacore::core::ConfigDocument document;
+    const auto result = novacore::core::parseJsonConfig(json, document);
+
+    expect(result.ok(), "json config parses successfully");
+    expect(document.numberOr("movement.sprint_speed", 0.0) > 7.3, "nested number can be read");
+    expect(document.boolOr("movement.enabled", false), "nested bool can be read");
+    expect(document.stringOr("weapons.0.id", "") == "ar_01", "array object string can be read");
+    expect(document.intOr("weapons.0.magazine_size", 0) == 30, "array object int can be read");
+}
+
+void testConfigRegistry() {
+    const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_config.json";
+    {
+        std::ofstream file(path);
+        file << R"({ "value": 1 })";
+    }
+
+    novacore::core::ConfigRegistry registry;
+    const auto initial = registry.watchJson("smoke", path);
+    expect(initial.loaded, "registry loads watched json file");
+    expect(registry.watchedCount() == 1, "registry tracks watched config");
+
+    const auto* document = registry.find("smoke");
+    expect(document != nullptr, "watched config is available");
+    expect(document != nullptr && document->intOr("value", 0) == 1, "watched config value can be read");
+
+    {
+        std::ofstream file(path);
+        file << R"({ "value": 22 })";
+    }
+
+    const auto events = registry.pollReloads();
+    expect(!events.empty(), "registry emits reload event after file change");
+    document = registry.find("smoke");
+    expect(document != nullptr && document->intOr("value", 0) == 22, "registry reload updates document");
+    std::filesystem::remove(path);
+}
+
 } // namespace
 
 int main() {
@@ -117,6 +166,8 @@ int main() {
     testLoopbackChannel();
     testInputActions();
     testFileChangeTracker();
+    testConfigDocument();
+    testConfigRegistry();
 
     if (failures > 0) {
         std::cerr << failures << " NovaCore smoke test(s) failed\n";

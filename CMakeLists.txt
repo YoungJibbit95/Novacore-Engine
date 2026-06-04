@@ -19,6 +19,8 @@ option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 add_library(novacore_engine
     engine/src/core/Application.cpp
     engine/src/core/Config.cpp
+    engine/src/core/ConfigDocument.cpp
+    engine/src/core/ConfigRegistry.cpp
     engine/src/core/FixedStep.cpp
     engine/src/core/Log.cpp
     engine/src/ecs/World.cpp
