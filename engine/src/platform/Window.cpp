@@ -1,6 +1,6 @@
-#include "fps/platform/Window.hpp"
+#include "novacore/platform/Window.hpp"
 
-#include "fps/core/Log.hpp"
+#include "novacore/core/Log.hpp"
 
 #if NOVACORE_HAS_SDL3
 #include <SDL3/SDL.h>

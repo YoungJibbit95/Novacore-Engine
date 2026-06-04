@@ -1,6 +1,6 @@
-#include "fps/render/Renderer.hpp"
+#include "novacore/render/Renderer.hpp"
 
-#include "fps/core/Log.hpp"
+#include "novacore/core/Log.hpp"
 
 namespace novacore::render {
 

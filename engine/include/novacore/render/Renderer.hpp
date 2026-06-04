@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fps/platform/Window.hpp"
+#include "novacore/platform/Window.hpp"
 
 #include <array>
 #include <string_view>

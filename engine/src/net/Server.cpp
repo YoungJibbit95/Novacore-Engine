@@ -1,6 +1,6 @@
-#include "fps/net/Server.hpp"
+#include "novacore/net/Server.hpp"
 
-#include "fps/core/Log.hpp"
+#include "novacore/core/Log.hpp"
 
 namespace novacore::net {
 

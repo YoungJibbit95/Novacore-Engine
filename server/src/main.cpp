@@ -1,6 +1,6 @@
-#include "fps/core/Application.hpp"
-#include "fps/core/Log.hpp"
-#include "fps/net/Server.hpp"
+#include "novacore/core/Application.hpp"
+#include "novacore/core/Log.hpp"
+#include "novacore/net/Server.hpp"
 
 #include <string_view>
 

@@ -1,4 +1,4 @@
-#include "fps/ecs/World.hpp"
+#include "novacore/ecs/World.hpp"
 
 #include <memory>
 #include <stdexcept>

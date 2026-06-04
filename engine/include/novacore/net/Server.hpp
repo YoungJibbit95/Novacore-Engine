@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fps/core/Application.hpp"
+#include "novacore/core/Application.hpp"
 
 #include <cstdint>
 

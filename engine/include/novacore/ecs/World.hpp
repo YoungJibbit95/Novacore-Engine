@@ -1,7 +1,7 @@
 #pragma once
 
-#include "fps/ecs/Components.hpp"
-#include "fps/ecs/Entity.hpp"
+#include "novacore/ecs/Components.hpp"
+#include "novacore/ecs/Entity.hpp"
 
 #include <cstddef>
 #include <memory>

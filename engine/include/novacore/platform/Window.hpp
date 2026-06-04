@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fps/platform/Input.hpp"
+#include "novacore/platform/Input.hpp"
 
 #include <cstdint>
 #include <string>

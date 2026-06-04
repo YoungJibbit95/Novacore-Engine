@@ -1,6 +1,6 @@
-#include "fps/net/Client.hpp"
+#include "novacore/net/Client.hpp"
 
-#include "fps/core/Log.hpp"
+#include "novacore/core/Log.hpp"
 
 #include <utility>
 

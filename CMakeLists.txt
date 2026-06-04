@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(NOVACORE_ENABLE_SDL3 "Enable SDL3 platform window/input backend when available" ON)
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
+option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 
 add_library(novacore_engine
@@ -29,10 +30,13 @@ add_library(novacore_engine
 
 target_include_directories(novacore_engine
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/engine/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/engine/include>
+        $<INSTALL_INTERFACE:include>
 )
 
 target_compile_features(novacore_engine PUBLIC cxx_std_23)
+add_library(Novacore::Engine ALIAS novacore_engine)
+set_target_properties(novacore_engine PROPERTIES EXPORT_NAME Engine)
 
 if(MSVC)
     target_compile_options(novacore_engine PRIVATE /W4 /permissive-)
@@ -75,8 +79,49 @@ target_compile_definitions(novacore_engine
         NOVACORE_PROJECT_VERSION="${PROJECT_VERSION}"
 )
 
-# Optional: Build dedicated server
-add_executable(novacore_server server/src/main.cpp)
-target_link_libraries(novacore_server PRIVATE novacore_engine)
+if(NOVACORE_BUILD_SERVER)
+    add_executable(novacore_server server/src/main.cpp)
+    target_link_libraries(novacore_server PRIVATE novacore_engine)
+endif()
+
+include(CMakePackageConfigHelpers)
+
+install(
+    TARGETS novacore_engine
+    EXPORT NovacoreTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin
+)
+
+install(
+    DIRECTORY engine/include/
+    DESTINATION include
+)
+
+install(
+    EXPORT NovacoreTargets
+    NAMESPACE Novacore::
+    DESTINATION lib/cmake/Novacore
+)
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/NovacoreConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/NovacoreConfig.cmake
+    INSTALL_DESTINATION lib/cmake/Novacore
+)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/NovacoreConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/NovacoreConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/NovacoreConfigVersion.cmake
+    DESTINATION lib/cmake/Novacore
+)
 
 enable_testing()

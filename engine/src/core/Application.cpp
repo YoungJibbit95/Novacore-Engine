@@ -1,7 +1,7 @@
-#include "fps/core/Application.hpp"
+#include "novacore/core/Application.hpp"
 
-#include "fps/core/Log.hpp"
-#include "fps/core/Time.hpp"
+#include "novacore/core/Log.hpp"
+#include "novacore/core/Time.hpp"
 
 #include <algorithm>
 #include <thread>
