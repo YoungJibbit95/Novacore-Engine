@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace riftline::net {
+namespace novacore::net {
 
 void LoopbackChannel::sendToServer(Packet packet) {
     clientToServer_.push(std::move(packet));
@@ -30,5 +30,11 @@ bool LoopbackChannel::tryReceiveForClient(Packet& outPacket) {
     return true;
 }
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

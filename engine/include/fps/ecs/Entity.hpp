@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <limits>
 
-namespace riftline::ecs {
+namespace novacore::ecs {
 
 struct EntityId final {
     std::uint32_t index = std::numeric_limits<std::uint32_t>::max();
@@ -26,5 +26,11 @@ inline bool operator!=(EntityId lhs, EntityId rhs) {
     return !(lhs == rhs);
 }
 
-} // namespace riftline::ecs
+} // namespace novacore::ecs
+
+
+
+
+
+
 

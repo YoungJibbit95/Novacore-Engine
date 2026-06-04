@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace riftline::platform {
+namespace novacore::platform {
 
 void InputSystem::beginFrame() {
     keyboardMouseActiveThisFrame_ = false;
@@ -48,5 +48,11 @@ InputDeviceKind InputSystem::lastActiveDevice() const {
     return lastActiveDevice_;
 }
 
-} // namespace riftline::platform
+} // namespace novacore::platform
+
+
+
+
+
+
 

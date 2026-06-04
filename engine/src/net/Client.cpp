@@ -4,7 +4,7 @@
 
 #include <utility>
 
-namespace riftline::net {
+namespace novacore::net {
 
 void ClientSession::connectDirect(std::string host, std::uint16_t port) {
     host_ = std::move(host);
@@ -31,5 +31,11 @@ std::uint16_t ClientSession::port() const {
     return port_;
 }
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

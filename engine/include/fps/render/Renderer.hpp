@@ -5,7 +5,7 @@
 #include <array>
 #include <string_view>
 
-namespace riftline::render {
+namespace novacore::render {
 
 struct RendererCreateInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
@@ -31,5 +31,11 @@ private:
     std::array<float, 4> clearColor_{0.03F, 0.04F, 0.06F, 1.0F};
 };
 
-} // namespace riftline::render
+} // namespace novacore::render
+
+
+
+
+
+
 

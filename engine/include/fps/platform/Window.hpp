@@ -5,10 +5,10 @@
 #include <cstdint>
 #include <string>
 
-namespace riftline::platform {
+namespace novacore::platform {
 
 struct WindowDesc final {
-    std::string title = "Project Riftline";
+    std::string title = "Nemesis";
     std::int32_t width = 1280;
     std::int32_t height = 720;
     bool preferVulkan = true;
@@ -40,5 +40,11 @@ private:
     std::int32_t height_ = 0;
 };
 
-} // namespace riftline::platform
+} // namespace novacore::platform
+
+
+
+
+
+
 

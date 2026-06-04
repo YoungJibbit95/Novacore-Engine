@@ -2,11 +2,11 @@
 
 #include "fps/core/Log.hpp"
 
-#if RIFTLINE_HAS_SDL3
+#if NOVACORE_HAS_SDL3
 #include <SDL3/SDL.h>
 #endif
 
-namespace riftline::platform {
+namespace novacore::platform {
 
 Window::~Window() {
     shutdown();
@@ -16,7 +16,7 @@ bool Window::create(const WindowDesc& desc) {
     width_ = desc.width;
     height_ = desc.height;
 
-#if RIFTLINE_HAS_SDL3
+#if NOVACORE_HAS_SDL3
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_EVENTS)) {
         core::logError("platform", SDL_GetError());
         headless_ = true;
@@ -50,7 +50,7 @@ bool Window::create(const WindowDesc& desc) {
 void Window::pollEvents(InputSystem& input) {
     input.beginFrame();
 
-#if RIFTLINE_HAS_SDL3
+#if NOVACORE_HAS_SDL3
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
@@ -80,7 +80,7 @@ void Window::pollEvents(InputSystem& input) {
 }
 
 void Window::shutdown() {
-#if RIFTLINE_HAS_SDL3
+#if NOVACORE_HAS_SDL3
     if (handle_ != nullptr) {
         SDL_DestroyWindow(static_cast<SDL_Window*>(handle_));
         handle_ = nullptr;
@@ -111,5 +111,11 @@ std::int32_t Window::height() const {
     return height_;
 }
 
-} // namespace riftline::platform
+} // namespace novacore::platform
+
+
+
+
+
+
 

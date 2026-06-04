@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace riftline::ecs {
+namespace novacore::ecs {
 
 class World final {
 public:
@@ -127,4 +127,10 @@ const World::ComponentStore<TComponent>* World::storeIfExists() const {
     return static_cast<const ComponentStore<TComponent>*>(it->second.get());
 }
 
-} // namespace riftline::ecs
+} // namespace novacore::ecs
+
+
+
+
+
+

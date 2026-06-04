@@ -3,7 +3,7 @@
 #include <mutex>
 #include <string_view>
 
-namespace riftline::core {
+namespace novacore::core {
 
 enum class LogLevel {
     Trace,
@@ -27,5 +27,11 @@ void logInfo(std::string_view category, std::string_view message);
 void logWarning(std::string_view category, std::string_view message);
 void logError(std::string_view category, std::string_view message);
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+
 

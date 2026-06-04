@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-namespace riftline::net {
+namespace novacore::net {
 
 enum class ClientConnectionState {
     Disconnected,
@@ -26,5 +26,11 @@ private:
     std::uint16_t port_ = 0;
 };
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

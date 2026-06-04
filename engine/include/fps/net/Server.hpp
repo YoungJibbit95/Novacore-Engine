@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace riftline::net {
+namespace novacore::net {
 
 struct ServerConfig final {
     double tickHz = 60.0;
@@ -25,5 +25,11 @@ private:
     std::uint64_t tickCount_ = 0;
 };
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

@@ -4,10 +4,10 @@
 #include <cstdint>
 #include <string>
 
-namespace riftline::core {
+namespace novacore::core {
 
 struct ApplicationDesc final {
-    std::string name = "Riftline";
+    std::string name = "NovaCore";
     double fixedTickHz = 60.0;
     std::uint64_t maxFrames = 0;
 };
@@ -42,5 +42,11 @@ private:
     bool stopRequested_ = false;
 };
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+
 

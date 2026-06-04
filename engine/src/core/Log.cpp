@@ -3,7 +3,7 @@
 #include <chrono>
 #include <iostream>
 
-namespace riftline::core {
+namespace novacore::core {
 
 namespace {
 
@@ -49,5 +49,11 @@ void logError(std::string_view category, std::string_view message) {
     Logger::instance().write(LogLevel::Error, category, message);
 }
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+
 

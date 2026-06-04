@@ -2,7 +2,7 @@
 
 #include "fps/core/Log.hpp"
 
-namespace riftline::net {
+namespace novacore::net {
 
 ServerWorld::ServerWorld(ServerConfig config)
     : config_(config) {
@@ -22,5 +22,11 @@ const ServerConfig& ServerWorld::config() const {
     return config_;
 }
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

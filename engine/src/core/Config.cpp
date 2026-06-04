@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace riftline::core {
+namespace novacore::core {
 
 void Config::set(std::string key, std::string value) {
     values_.insert_or_assign(std::move(key), std::move(value));
@@ -24,4 +24,10 @@ std::string Config::getOr(std::string_view key, std::string fallback) const {
     return *value;
 }
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+

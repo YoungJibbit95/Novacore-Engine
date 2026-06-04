@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <iostream>
 
-#define RIFTLINE_ASSERT(condition, message)                                      \
+#define NOVACORE_ASSERT(condition, message)                                      \
     do {                                                                         \
         if (!(condition)) {                                                       \
             std::cerr << "[assert] " << (message) << " (" << __FILE__ << ":"    \
@@ -11,4 +11,10 @@
             std::abort();                                                        \
         }                                                                        \
     } while (false)
+
+
+
+
+
+
 

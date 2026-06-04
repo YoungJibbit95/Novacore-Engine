@@ -6,30 +6,30 @@
 
 namespace {
 
-class DedicatedServerApp final : public riftline::core::IApplicationDelegate {
+class DedicatedServerApp final : public novacore::core::IApplicationDelegate {
 public:
     DedicatedServerApp()
-        : server_(riftline::net::ServerConfig{}) {
+        : server_(novacore::net::ServerConfig{}) {
     }
 
     void onStartup() override {
-        riftline::core::logInfo("server", "Dedicated server startup");
+        novacore::core::logInfo("server", "Dedicated server startup");
     }
 
     void onShutdown() override {
-        riftline::core::logInfo("server", "Dedicated server shutdown");
+        novacore::core::logInfo("server", "Dedicated server shutdown");
     }
 
-    void onFixedTick(const riftline::core::FrameContext& context) override {
+    void onFixedTick(const novacore::core::FrameContext& context) override {
         server_.tick(context);
     }
 
-    void onFrame(const riftline::core::FrameContext& context) override {
+    void onFrame(const novacore::core::FrameContext& context) override {
         (void)context;
     }
 
 private:
-    riftline::net::ServerWorld server_;
+    novacore::net::ServerWorld server_;
 };
 
 } // namespace
@@ -44,13 +44,19 @@ int main(int argc, char** argv) {
 
     DedicatedServerApp server;
 
-    riftline::core::ApplicationDesc desc{};
-    desc.name = "riftline_server";
+    novacore::core::ApplicationDesc desc{};
+    desc.name = "novacore_server";
     desc.fixedTickHz = 60.0;
     desc.maxFrames = runForever ? 0 : 120;
 
-    riftline::core::Application app(desc);
+    novacore::core::Application app(desc);
     app.run(server);
     return 0;
 }
+
+
+
+
+
+
 

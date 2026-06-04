@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-namespace riftline::net {
+namespace novacore::net {
 
 struct Packet final {
     std::uint32_t sequence = 0;
@@ -25,5 +25,11 @@ private:
     std::queue<Packet> serverToClient_;
 };
 
-} // namespace riftline::net
+} // namespace novacore::net
+
+
+
+
+
+
 

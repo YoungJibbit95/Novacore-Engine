@@ -103,3 +103,9 @@ ECS M1 is acceptable when:
 - Destroy removes components.
 - Game can create a camera entity.
 
+
+
+
+
+
+

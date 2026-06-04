@@ -5,7 +5,7 @@
 #include <string_view>
 #include <unordered_map>
 
-namespace riftline::core {
+namespace novacore::core {
 
 class Config final {
 public:
@@ -17,5 +17,11 @@ private:
     std::unordered_map<std::string, std::string> values_;
 };
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+
 

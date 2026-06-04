@@ -3,7 +3,7 @@
 #include <array>
 #include <string>
 
-namespace riftline::ecs {
+namespace novacore::ecs {
 
 struct Vec3 final {
     float x = 0.0F;
@@ -34,5 +34,11 @@ struct CameraComponent final {
     float farPlane = 1000.0F;
 };
 
-} // namespace riftline::ecs
+} // namespace novacore::ecs
+
+
+
+
+
+
 

@@ -1,5 +1,5 @@
 {
-  "name": "project-riftline",
+  "name": "novacore",
   "version-string": "0.1.0",
   "description": "Ground-up Vulkan-first FPS engine skeleton",
   "dependencies": [
@@ -15,4 +15,11 @@
     "nlohmann-json"
   ]
 }
+
+
+
+
+
+
+
 

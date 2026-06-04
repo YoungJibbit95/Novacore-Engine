@@ -7,7 +7,7 @@
 #include <thread>
 #include <utility>
 
-namespace riftline::core {
+namespace novacore::core {
 
 Application::Application(ApplicationDesc desc)
     : desc_(std::move(desc)) {
@@ -60,4 +60,10 @@ void Application::requestStop() {
     stopRequested_ = true;
 }
 
-} // namespace riftline::core
+} // namespace novacore::core
+
+
+
+
+
+

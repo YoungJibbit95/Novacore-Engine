@@ -5,7 +5,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace riftline::platform {
+namespace novacore::platform {
 
 enum class InputDeviceKind {
     KeyboardMouse,
@@ -37,5 +37,11 @@ private:
     std::unordered_set<std::int32_t> knownControllerIds_;
 };
 
-} // namespace riftline::platform
+} // namespace novacore::platform
+
+
+
+
+
+
 

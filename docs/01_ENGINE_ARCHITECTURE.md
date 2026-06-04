@@ -57,9 +57,8 @@ Server builds run only fixed ticks. Client builds run both fixed and variable wo
 
 The root project contains:
 
-- `riftline_engine`: static or shared engine library.
-- `riftline_game`: client/game executable.
-- `riftline_server`: dedicated server executable.
+- `novacore_engine`: static or shared engine library.
+- `novacore_server`: dedicated server executable.
 
 The engine must not depend on game-specific code. Game systems may depend on engine modules.
 
@@ -116,4 +115,10 @@ The architecture is acceptable when:
 - Server can run without platform window/render systems.
 - Game can create a world, renderer, and input layer.
 - Future modules can be added without changing the root process split.
+
+
+
+
+
+
 

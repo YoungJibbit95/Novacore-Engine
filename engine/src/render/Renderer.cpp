@@ -2,12 +2,12 @@
 
 #include "fps/core/Log.hpp"
 
-namespace riftline::render {
+namespace novacore::render {
 
 bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) {
     clearColor_ = info.clearColor;
 
-#if RIFTLINE_HAS_VULKAN
+#if NOVACORE_HAS_VULKAN
     vulkanCapable_ = !window.isHeadless();
     if (vulkanCapable_) {
         ready_ = true;
@@ -47,5 +47,11 @@ bool Renderer::isReady() const {
     return ready_;
 }
 
-} // namespace riftline::render
+} // namespace novacore::render
+
+
+
+
+
+
 

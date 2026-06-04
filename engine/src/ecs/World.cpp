@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace riftline::ecs {
+namespace novacore::ecs {
 
 EntityId World::createEntity() {
     std::uint32_t index = 0;
@@ -53,5 +53,11 @@ std::size_t World::aliveCount() const {
     return aliveCount_;
 }
 
-} // namespace riftline::ecs
+} // namespace novacore::ecs
+
+
+
+
+
+
 
