@@ -1,5 +1,9 @@
 #pragma once
 
+#include "novacore/assets/AssetManifest.hpp"
+#include "novacore/assets/AssetRegistry.hpp"
+#include "novacore/assets/AssetStreamer.hpp"
+#include "novacore/assets/AssetTypes.hpp"
 #include "novacore/core/Application.hpp"
 #include "novacore/core/Assert.hpp"
 #include "novacore/core/Config.hpp"

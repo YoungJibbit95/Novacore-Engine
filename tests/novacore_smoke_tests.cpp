@@ -183,6 +183,78 @@ void testConfigRegistry() {
     std::filesystem::remove(path);
 }
 
+void testAssetManifestAndRegistry() {
+    const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_assets.json";
+    {
+        std::ofstream file(path);
+        file << R"({
+            "manifest": {
+                "name": "smoke_assets",
+                "root": "assets"
+            },
+            "assets": [
+                {
+                    "id": "mesh_crate_01",
+                    "kind": "mesh",
+                    "source": "assets/source/blender/props/mesh_crate_01.blend",
+                    "cooked": "assets/export/gltf/props/mesh_crate_01.glb",
+                    "streamable": true,
+                    "priority": 75,
+                    "estimated_bytes": 4096,
+                    "tags": ["prop", "smoke"],
+                    "dependencies": ["mat_crate_01"]
+                },
+                {
+                    "id": "mat_crate_01",
+                    "kind": "material",
+                    "source": "assets/materials/mat_crate_01.json",
+                    "tags": ["material"]
+                }
+            ]
+        })";
+    }
+
+    novacore::assets::AssetManifest manifest;
+    const auto loadResult = novacore::assets::loadAssetManifestFromJson(path, manifest);
+    expect(loadResult.ok(), "asset manifest loads from json");
+    expect(manifest.name() == "smoke_assets", "asset manifest keeps name");
+    expect(manifest.recordCount() == 2, "asset manifest keeps records");
+
+    const auto* crate = manifest.find("mesh_crate_01");
+    expect(crate != nullptr, "asset manifest finds mesh");
+    expect(crate != nullptr && crate->kind == novacore::assets::AssetKind::Mesh, "asset kind parses");
+    expect(crate != nullptr && crate->streamable, "asset streamable flag parses");
+    expect(crate != nullptr && crate->dependencies.size() == 1, "asset dependencies parse");
+
+    novacore::assets::AssetRegistry registry;
+    registry.mountManifest(manifest);
+    expect(registry.assetCount() == 2, "asset registry mounts manifest");
+    expect(registry.contains("mat_crate_01"), "asset registry finds dependency asset");
+    expect(registry.idsForTag("smoke").size() == 1, "asset registry filters by tag");
+    expect(registry.streamableAssetIds().size() == 1, "asset registry filters streamable assets");
+
+    std::filesystem::remove(path);
+}
+
+void testAssetStreamer() {
+    novacore::assets::AssetStreamer streamer;
+    streamer.request("low_priority", 1, 10);
+    streamer.request("high_priority", 90, 11);
+    streamer.request("low_priority", 20, 12);
+
+    expect(streamer.pendingCount() == 2, "asset streamer coalesces duplicate requests");
+    const auto selected = streamer.popBudgeted(1);
+    expect(selected.size() == 1, "asset streamer respects request budget");
+    expect(selected[0].id == "high_priority", "asset streamer pops highest priority first");
+    expect(streamer.pendingCount() == 1, "asset streamer keeps unpopped requests");
+
+    novacore::assets::AssetStreamingZone zone{};
+    zone.name = "smoke_zone";
+    zone.preloadAssets = {"zone_a", "zone_b"};
+    streamer.requestZone(zone, 20);
+    expect(streamer.pendingCount() == 3, "asset streamer accepts zone preloads");
+}
+
 } // namespace
 
 int main() {
@@ -195,6 +267,8 @@ int main() {
     testFileChangeTracker();
     testConfigDocument();
     testConfigRegistry();
+    testAssetManifestAndRegistry();
+    testAssetStreamer();
 
     if (failures > 0) {
         std::cerr << failures << " NovaCore smoke test(s) failed\n";

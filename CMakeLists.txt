@@ -17,6 +17,10 @@ option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 
 add_library(novacore_engine
+    engine/src/assets/AssetManifest.cpp
+    engine/src/assets/AssetRegistry.cpp
+    engine/src/assets/AssetStreamer.cpp
+    engine/src/assets/AssetTypes.cpp
     engine/src/core/Application.cpp
     engine/src/core/Config.cpp
     engine/src/core/ConfigDocument.cpp

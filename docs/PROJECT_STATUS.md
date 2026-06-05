@@ -12,19 +12,19 @@
 - Window event polling now maintains a persistent `InputSnapshot` for action maps.
 - Mouse movement is exposed as transient per-frame mouse axes.
 - Vulkan/null renderer placeholder.
+- Asset manifest, registry, and streaming request queue backbone under `novacore::assets`.
 - Loopback net packet foundation.
 - Engine-owned server defaults in `configs/net`.
 - Dependency-free smoke test target.
 
 ## Added In Latest Block
 
-- Added controller activity tracking to `InputSystem`.
-- Added persistent `Window::inputSnapshot()` state.
-- SDL key, mouse, gamepad button, and gamepad axis events now update the window input snapshot.
-- Added `InputControlKind::MouseAxis` and per-frame transient axis reset.
-- SDL mouse motion now accumulates into mouse X/Y axis deltas each frame.
-- Smoke coverage now checks keyboard/mouse and controller active-device transitions.
-- Smoke coverage now checks transient mouse-axis accumulation/reset behavior.
+- Added `AssetRecord`, `AssetManifest`, `AssetRegistry`, and `AssetStreamer`.
+- Asset manifests now load from JSON through the existing NovaCore config parser.
+- Asset registry supports lookup by id, tags, and streamable state.
+- Asset streaming requests coalesce duplicate ids and pop by priority/age.
+- Added Visual Studio 2022 no-deps CMake preset for IDE-friendly local bootstrapping.
+- Smoke coverage now checks manifest loading, registry filters, and streaming request behavior.
 
 ## Next Engine Blocks
 
@@ -33,3 +33,4 @@
 - Add typed config schemas for renderer, server, input, and network.
 - Add packet bitstream writer/reader for real netcode.
 - Add movement validation helpers for Nemisis.
+- Add first glTF metadata/import shim and renderer mesh-handle placeholders.

@@ -10,6 +10,7 @@ A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the g
 - **Dedicated Server** - Built-in dedicated server support
 - **Cross-platform** - Windows and Linux first, macOS via MoltenVK
 - **SDL3 Integration** - Modern window and input handling
+- **Asset Pipeline Backbone** - Manifest, registry, and streaming request queue foundation
 - **No Bloat** - Minimal dependencies, maximum control
 
 ## Project Structure
@@ -48,6 +49,10 @@ ctest --test-dir build/local-debug-no-deps
 ```
 
 Current foundation primitives include fixed-step timing, math types, input action mapping, loopback net packets, and polling-based file change tracking for future hot reload.
+
+IDE-friendly presets are available for Ninja and Visual Studio 2022. See `docs/14_IDE_AND_TOOLCHAIN_RUNBOOK.md`.
+
+Asset pipeline foundation includes JSON manifests, asset registry lookup, streamable tags, dependencies, and priority streaming requests. See `docs/12_ASSET_PIPELINE_STREAMING.md`.
 
 ## Documentation
 

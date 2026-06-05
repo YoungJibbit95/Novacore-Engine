@@ -28,6 +28,22 @@
       }
     },
     {
+      "name": "windows-vs2022-no-deps",
+      "displayName": "Windows Visual Studio 2022 without external dependencies",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-vs2022-no-deps",
+      "cacheVariables": {
+        "NOVACORE_ENABLE_SDL3": "OFF",
+        "NOVACORE_ENABLE_VULKAN": "OFF"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
       "name": "linux-clang-debug",
       "displayName": "Linux Clang Debug",
       "generator": "Ninja",
@@ -52,6 +68,11 @@
     {
       "name": "windows-msvc-debug",
       "configurePreset": "windows-msvc-debug"
+    },
+    {
+      "name": "windows-vs2022-no-deps",
+      "configurePreset": "windows-vs2022-no-deps",
+      "configuration": "Debug"
     },
     {
       "name": "linux-clang-debug",
