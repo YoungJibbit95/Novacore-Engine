@@ -41,10 +41,10 @@ namespace {
         break;
     }
 
-    if (key >= SDLK_a && key <= SDLK_z) {
-        return static_cast<std::uint16_t>('A' + (key - SDLK_a));
+    if (key >= SDLK_A && key <= SDLK_Z) {
+        return static_cast<std::uint16_t>('A' + (key - SDLK_A));
     }
-    if (key >= 0 && key <= std::numeric_limits<std::uint16_t>::max()) {
+    if (key <= static_cast<SDL_Keycode>(std::numeric_limits<std::uint16_t>::max())) {
         return static_cast<std::uint16_t>(key);
     }
     return 0;

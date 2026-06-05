@@ -9,6 +9,7 @@
 - Lightweight math primitives.
 - Custom ECS with entity lifetime and component storage.
 - SDL3/headless platform window foundation.
+- SDL3 can be consumed from an installed package or fetched automatically for visible dev builds.
 - Window event polling now maintains a persistent `InputSnapshot` for action maps.
 - Mouse movement is exposed as transient per-frame mouse axes.
 - Vulkan/null renderer placeholder plus SDL debug renderer for immediate visual tests.
@@ -34,6 +35,8 @@
 - Window title updates are exposed through `Window::setTitle`.
 - Added `PacketWriter`/`PacketReader` to make game protocol messages use engine-owned binary serialization.
 - Added `Window::setRelativeMouseMode` and `Window::relativeMouseMode` for raw-mouse-style FPS look capture through SDL3.
+- Added a CMake FetchContent fallback for SDL3 so normal dev builds no longer silently become headless when vcpkg is missing.
+- Updated SDL3 key handling to use SDL3 uppercase keycode names.
 - Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, and headless relative-mouse fallback.
 
 ## Next Engine Blocks

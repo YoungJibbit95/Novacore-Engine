@@ -10,11 +10,15 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+include(FetchContent)
+
 option(NOVACORE_ENABLE_SDL3 "Enable SDL3 platform window/input backend when available" ON)
+option(NOVACORE_FETCH_SDL3 "Fetch and build SDL3 when no installed SDL3 package is found" ON)
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
 option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
 option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
+set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
 
 add_library(novacore_engine
     engine/src/assets/AssetManifest.cpp
@@ -62,13 +66,38 @@ else()
 endif()
 
 set(NOVACORE_HAS_SDL3 0)
+set(NOVACORE_SDL3_TARGET "")
 if(NOVACORE_ENABLE_SDL3)
     find_package(SDL3 CONFIG QUIET)
-    if(SDL3_FOUND)
+
+    if(NOT SDL3_FOUND AND NOVACORE_FETCH_SDL3)
+        message(STATUS "SDL3 package was not found. Fetching SDL3 ${NOVACORE_SDL3_FETCH_TAG} for visible dev builds.")
+        set(SDL_SHARED OFF CACHE BOOL "Build SDL3 shared library" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "Build SDL3 static library" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "Build SDL3 test library" FORCE)
+        set(SDL_TESTS OFF CACHE BOOL "Build SDL3 tests" FORCE)
+        set(SDL_INSTALL OFF CACHE BOOL "Install SDL3" FORCE)
+        FetchContent_Declare(
+            SDL3
+            GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+            GIT_TAG ${NOVACORE_SDL3_FETCH_TAG}
+            GIT_SHALLOW TRUE
+        )
+        FetchContent_MakeAvailable(SDL3)
+    endif()
+
+    foreach(candidate IN ITEMS SDL3::SDL3 SDL3::SDL3-static SDL3::SDL3-shared SDL3-static SDL3-shared)
+        if(NOT NOVACORE_SDL3_TARGET AND TARGET "${candidate}")
+            set(NOVACORE_SDL3_TARGET "${candidate}")
+        endif()
+    endforeach()
+
+    if(NOVACORE_SDL3_TARGET)
         set(NOVACORE_HAS_SDL3 1)
-        target_link_libraries(novacore_engine PUBLIC SDL3::SDL3)
+        target_link_libraries(novacore_engine PUBLIC "$<BUILD_INTERFACE:${NOVACORE_SDL3_TARGET}>")
+        message(STATUS "NovaCore SDL3 platform backend enabled via ${NOVACORE_SDL3_TARGET}.")
     else()
-        message(WARNING "SDL3 was not found. Building with headless platform fallback.")
+        message(WARNING "SDL3 was not found or fetched. Building with headless platform fallback.")
     endif()
 endif()
 

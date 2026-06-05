@@ -30,6 +30,7 @@ Supported IDE paths:
 - Generator: Visual Studio 17 2022.
 - Does not require Ninja.
 - Does not require `VCPKG_ROOT`.
+- Fetches and statically builds SDL3 automatically when no installed SDL3 package is found.
 - Best default for VSCode/Visual Studio on Windows.
 
 `windows-ninja-vcpkg-debug`:
@@ -68,7 +69,14 @@ ctest --test-dir build/local-debug-no-deps
 
 ## Full Rendering Build
 
-Install:
+For the current SDL debug renderer, the default visible Windows dev build can fetch SDL3 automatically:
+
+```powershell
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug
+```
+
+Install these for future full Vulkan/dependency work:
 
 - Visual Studio 2022 Build Tools with Desktop development with C++.
 - CMake 3.27+.
