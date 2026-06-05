@@ -9,6 +9,7 @@
 - Lightweight math primitives.
 - Custom ECS with entity lifetime and component storage.
 - SDL3/headless platform window foundation.
+- Window event polling now maintains a persistent `InputSnapshot` for action maps.
 - Vulkan/null renderer placeholder.
 - Loopback net packet foundation.
 - Engine-owned server defaults in `configs/net`.
@@ -16,14 +17,14 @@
 
 ## Added In Latest Block
 
-- `ConfigDocument` for parsed dotted-key config values.
-- Lightweight JSON config parser for objects, arrays, strings, numbers, booleans, and nulls.
-- `ConfigRegistry` for watched JSON config files.
-- Config reload events wired through polling file snapshots.
-- Smoke coverage for config parsing and registry reload.
+- Added controller activity tracking to `InputSystem`.
+- Added persistent `Window::inputSnapshot()` state.
+- SDL key, mouse, gamepad button, and gamepad axis events now update the window input snapshot.
+- Smoke coverage now checks keyboard/mouse and controller active-device transitions.
 
 ## Next Engine Blocks
 
+- Add frame input snapshots for mouse look delta and raw mouse mode.
 - Replace placeholder renderer with real Vulkan instance/surface/swapchain.
 - Add typed config schemas for renderer, server, input, and network.
 - Add packet bitstream writer/reader for real netcode.

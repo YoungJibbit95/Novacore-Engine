@@ -15,6 +15,10 @@ void InputSystem::noteKeyboardMouseActivity() {
     lastActiveDevice_ = InputDeviceKind::KeyboardMouse;
 }
 
+void InputSystem::noteControllerActivity() {
+    lastActiveDevice_ = InputDeviceKind::Controller;
+}
+
 void InputSystem::noteControllerConnected(std::int32_t id, std::string name) {
     if (knownControllerIds_.contains(id)) {
         return;

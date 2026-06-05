@@ -1,5 +1,6 @@
 #pragma once
 
+#include "novacore/platform/InputAction.hpp"
 #include "novacore/platform/Input.hpp"
 
 #include <cstdint>
@@ -29,6 +30,7 @@ public:
     [[nodiscard]] bool shouldClose() const;
     [[nodiscard]] bool isHeadless() const;
     [[nodiscard]] void* nativeHandle() const;
+    [[nodiscard]] const InputSnapshot& inputSnapshot() const;
     [[nodiscard]] std::int32_t width() const;
     [[nodiscard]] std::int32_t height() const;
 
@@ -38,6 +40,7 @@ private:
     bool headless_ = true;
     std::int32_t width_ = 0;
     std::int32_t height_ = 0;
+    InputSnapshot inputSnapshot_;
 };
 
 } // namespace novacore::platform

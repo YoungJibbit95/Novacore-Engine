@@ -21,6 +21,7 @@ class InputSystem final {
 public:
     void beginFrame();
     void noteKeyboardMouseActivity();
+    void noteControllerActivity();
     void noteControllerConnected(std::int32_t id, std::string name);
     void noteControllerDisconnected(std::int32_t id);
 

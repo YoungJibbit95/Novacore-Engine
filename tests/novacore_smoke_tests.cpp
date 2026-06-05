@@ -88,6 +88,16 @@ void testInputActions() {
     expect(actionMap.stateOrDefault("jump").released, "button release reports released");
 }
 
+void testInputDeviceActivity() {
+    novacore::platform::InputSystem input;
+
+    expect(input.lastActiveDevice() == novacore::platform::InputDeviceKind::KeyboardMouse, "keyboard/mouse is default input device");
+    input.noteControllerActivity();
+    expect(input.lastActiveDevice() == novacore::platform::InputDeviceKind::Controller, "controller activity updates active device");
+    input.noteKeyboardMouseActivity();
+    expect(input.lastActiveDevice() == novacore::platform::InputDeviceKind::KeyboardMouse, "keyboard/mouse activity restores active device");
+}
+
 void testFileChangeTracker() {
     const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_file.txt";
     {
@@ -165,6 +175,7 @@ int main() {
     testFixedStepAccumulator();
     testLoopbackChannel();
     testInputActions();
+    testInputDeviceActivity();
     testFileChangeTracker();
     testConfigDocument();
     testConfigRegistry();
