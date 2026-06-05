@@ -24,6 +24,7 @@
 - Asset registry supports lookup by id, tags, and streamable state.
 - Asset streaming requests coalesce duplicate ids and pop by priority/age.
 - Added Visual Studio 2022 no-deps CMake preset for IDE-friendly local bootstrapping.
+- Application delegates can report headless mode so the runtime avoids tight busy-yield loops in fallback/server-style runs.
 - Smoke coverage now checks manifest loading, registry filters, and streaming request behavior.
 
 ## Next Engine Blocks

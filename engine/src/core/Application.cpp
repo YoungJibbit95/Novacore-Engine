@@ -49,7 +49,11 @@ void Application::run(IApplicationDelegate& delegate) {
             break;
         }
 
-        std::this_thread::yield();
+        if (delegate.isHeadless()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } else {
+            std::this_thread::yield();
+        }
     }
 
     delegate.onShutdown();

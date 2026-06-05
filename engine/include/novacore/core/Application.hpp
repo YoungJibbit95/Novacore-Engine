@@ -28,6 +28,7 @@ public:
     virtual void onFixedTick(const FrameContext& context) = 0;
     virtual void onFrame(const FrameContext& context) = 0;
     virtual bool shouldQuit() const { return false; }
+    virtual bool isHeadless() const { return false; }
 };
 
 class Application final {
