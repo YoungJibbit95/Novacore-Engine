@@ -24,6 +24,9 @@ The first code foundation defines stable network primitive types:
 - `Packet`
 - `LoopbackChannel`
 
+The current binary payload foundation is `novacore::net::PacketWriter` and `PacketReader`.
+They intentionally write deterministic little-endian primitive values and reject overreads, giving game protocol code one shared path for command packets, acknowledgements, and later snapshots.
+
 ## Simulation Rates
 
 - Server simulation: 60Hz.
@@ -100,6 +103,13 @@ Debug controls:
 - Reordering.
 
 These controls are required for testing before external online services exist.
+
+## Current Implementation Slice
+
+- `LoopbackChannel` supports deterministic in-process packet handoff for early client/server tests.
+- `PacketWriter` writes `u8`, `u16`, `u32`, `u64`, `float`, and raw byte spans.
+- `PacketReader` reads the same primitive set, tracks remaining bytes, and requires full packet consumption at protocol boundaries.
+- NovaCore smoke tests cover little-endian roundtrip, float roundtrip, byte-span reads, and rejected overreads.
 
 ## Acceptance
 

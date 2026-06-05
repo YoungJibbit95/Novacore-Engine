@@ -199,7 +199,29 @@ void Window::setTitle(const std::string& title) {
 #endif
 }
 
+bool Window::setRelativeMouseMode(bool enabled) {
+#if NOVACORE_HAS_SDL3
+    if (handle_ == nullptr) {
+        relativeMouseMode_ = false;
+        return false;
+    }
+
+    if (!SDL_SetWindowRelativeMouseMode(static_cast<SDL_Window*>(handle_), enabled)) {
+        core::logWarning("platform", "Relative mouse mode failed: " + std::string(SDL_GetError()));
+        relativeMouseMode_ = SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(handle_));
+        return false;
+    }
+
+    relativeMouseMode_ = SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(handle_));
+    return relativeMouseMode_ == enabled;
+#else
+    relativeMouseMode_ = false;
+    return false;
+#endif
+}
+
 void Window::shutdown() {
+    relativeMouseMode_ = false;
 #if NOVACORE_HAS_SDL3
     if (handle_ != nullptr) {
         SDL_DestroyWindow(static_cast<SDL_Window*>(handle_));
@@ -209,6 +231,7 @@ void Window::shutdown() {
 #else
     handle_ = nullptr;
 #endif
+    headless_ = true;
 }
 
 bool Window::shouldClose() const {
@@ -217,6 +240,10 @@ bool Window::shouldClose() const {
 
 bool Window::isHeadless() const {
     return headless_;
+}
+
+bool Window::relativeMouseMode() const {
+    return relativeMouseMode_;
 }
 
 void* Window::nativeHandle() const {

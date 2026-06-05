@@ -31,7 +31,7 @@ Initial unit areas:
 - Packet sequence math.
 - Input curve mapping.
 
-The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, input action state transitions, file change tracking, config parsing, and config registry reloads.
+The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, packet bitstream roundtrips, headless relative-mouse fallback, input action state transitions, file change tracking, config parsing, and config registry reloads.
 
 ## Movement Replay Tests
 
@@ -63,6 +63,8 @@ Scenarios:
 - Prediction correction.
 - Snapshot interpolation.
 - Lag compensated hit.
+- Packet primitive roundtrip.
+- Overread rejection.
 
 ## Gameplay Tests
 

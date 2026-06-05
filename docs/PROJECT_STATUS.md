@@ -15,6 +15,8 @@
 - Debug render primitives support rectangles and 5x7 bitmap text.
 - Asset manifest, registry, and streaming request queue backbone under `novacore::assets`.
 - Loopback net packet foundation.
+- Engine-owned packet bitstream writer/reader for deterministic little-endian command and ack payloads.
+- Window relative mouse mode helper for FPS camera capture, with safe headless fallback.
 - Engine-owned server defaults in `configs/net`.
 - Dependency-free smoke test target.
 
@@ -30,13 +32,14 @@
 - `windows-ninja-vcpkg-debug` keeps the old full-dependency Ninja/vcpkg path as an explicit preset.
 - Renderer now creates an SDL debug backend when SDL3 is available, with clear, debug rectangles, and bitmap debug text.
 - Window title updates are exposed through `Window::setTitle`.
-- Smoke coverage now checks manifest loading, registry filters, and streaming request behavior.
+- Added `PacketWriter`/`PacketReader` to make game protocol messages use engine-owned binary serialization.
+- Added `Window::setRelativeMouseMode` and `Window::relativeMouseMode` for raw-mouse-style FPS look capture through SDL3.
+- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, and headless relative-mouse fallback.
 
 ## Next Engine Blocks
 
-- Add raw mouse mode and cursor capture helpers for FPS camera control.
 - Replace placeholder renderer with real Vulkan instance/surface/swapchain while keeping SDL debug draw for early tools.
 - Add typed config schemas for renderer, server, input, and network.
-- Add packet bitstream writer/reader for real netcode.
+- Add UDP transport socket backend on top of the packet primitives.
 - Add movement validation helpers for Nemisis.
 - Add first glTF metadata/import shim and renderer mesh-handle placeholders.

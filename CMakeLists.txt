@@ -29,6 +29,7 @@ add_library(novacore_engine
     engine/src/core/Log.cpp
     engine/src/ecs/World.cpp
     engine/src/io/FileSystem.cpp
+    engine/src/net/BitStream.cpp
     engine/src/net/Client.cpp
     engine/src/net/Loopback.cpp
     engine/src/net/Server.cpp

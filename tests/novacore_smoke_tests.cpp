@@ -1,6 +1,7 @@
 #include "novacore/Novacore.hpp"
 
 #include <cstdlib>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -61,6 +62,42 @@ void testLoopbackChannel() {
     expect(loopback.tryReceiveForServer(received), "server receives loopback packet");
     expect(received.sequence == novacore::net::PacketSequence{7}, "packet sequence survives loopback");
     expect(received.payload.size() == 4, "packet payload survives loopback");
+}
+
+void testPacketBitStream() {
+    novacore::net::PacketWriter writer;
+    writer.writeU8(7);
+    writer.writeU16(513);
+    writer.writeU32(0xAABBCCDDU);
+    writer.writeU64(0x0102030405060708ULL);
+    writer.writeFloat(12.5F);
+    writer.writeBytes("ok");
+
+    const auto bytes = writer.finish();
+    novacore::net::PacketReader reader(bytes);
+
+    std::uint8_t u8 = 0;
+    std::uint16_t u16 = 0;
+    std::uint32_t u32 = 0;
+    std::uint64_t u64 = 0;
+    float value = 0.0F;
+
+    expect(reader.readU8(u8) && u8 == 7, "bitstream reads u8");
+    expect(reader.readU16(u16) && u16 == 513, "bitstream reads u16 little endian");
+    expect(reader.readU32(u32) && u32 == 0xAABBCCDDU, "bitstream reads u32");
+    expect(reader.readU64(u64) && u64 == 0x0102030405060708ULL, "bitstream reads u64");
+    expect(reader.readFloat(value) && std::abs(value - 12.5F) < 0.001F, "bitstream reads float");
+    const auto text = reader.readBytes(2);
+    expect(text.has_value() && *text == "ok", "bitstream reads bytes");
+    expect(reader.consumed(), "bitstream consumes payload");
+    expect(!reader.readU8(u8), "bitstream rejects overread");
+}
+
+void testHeadlessRelativeMouseFallback() {
+    novacore::platform::Window window;
+    expect(!window.relativeMouseMode(), "relative mouse starts disabled");
+    expect(!window.setRelativeMouseMode(true), "headless relative mouse cannot enable without window");
+    expect(!window.relativeMouseMode(), "headless relative mouse remains disabled");
 }
 
 void testInputActions() {
@@ -261,6 +298,8 @@ int main() {
     testWorldLifetime();
     testFixedStepAccumulator();
     testLoopbackChannel();
+    testPacketBitStream();
+    testHeadlessRelativeMouseFallback();
     testInputActions();
     testTransientMouseAxis();
     testInputDeviceActivity();
