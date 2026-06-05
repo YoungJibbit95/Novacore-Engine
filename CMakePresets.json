@@ -44,6 +44,23 @@
       }
     },
     {
+      "name": "windows-msvc-vcpkg-debug",
+      "displayName": "Windows MSVC Debug with vcpkg",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/windows-msvc-vcpkg-debug",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "NOVACORE_ENABLE_SDL3": "ON",
+        "NOVACORE_ENABLE_VULKAN": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
       "name": "windows-vs2022-no-deps",
       "displayName": "Windows Visual Studio 2022 without external dependencies",
       "generator": "Visual Studio 17 2022",
@@ -104,6 +121,11 @@
     {
       "name": "windows-ninja-vcpkg-debug",
       "configurePreset": "windows-ninja-vcpkg-debug"
+    },
+    {
+      "name": "windows-msvc-vcpkg-debug",
+      "configurePreset": "windows-msvc-vcpkg-debug",
+      "configuration": "Debug"
     },
     {
       "name": "windows-vs2022-no-deps",

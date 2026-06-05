@@ -48,6 +48,13 @@ cmake --preset windows-ninja-vcpkg-debug
 cmake --build --preset windows-ninja-vcpkg-debug
 ```
 
+### With full dependencies (Vulkan, SDL3, vcpkg, Visual Studio):
+
+```powershell
+cmake --preset windows-msvc-vcpkg-debug
+cmake --build --preset windows-msvc-vcpkg-debug
+```
+
 ### Without external dependencies:
 
 ```powershell

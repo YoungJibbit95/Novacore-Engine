@@ -38,6 +38,13 @@ Supported IDE paths:
 - Uses vcpkg toolchain.
 - Intended for SDL3/Vulkan dependency work once vcpkg, Ninja, and Vulkan SDK are installed.
 
+`windows-msvc-vcpkg-debug`:
+
+- Generator: Visual Studio 17 2022.
+- Uses vcpkg toolchain.
+- Does not require Ninja.
+- Intended for visible SDL debug renderer and future Vulkan work in VSCode/Visual Studio.
+
 `linux-clang-debug`:
 
 - Generator: Ninja.
@@ -74,6 +81,13 @@ Then:
 ```powershell
 cmake --preset windows-ninja-vcpkg-debug
 cmake --build --preset windows-ninja-vcpkg-debug
+```
+
+Or without Ninja:
+
+```powershell
+cmake --preset windows-msvc-vcpkg-debug
+cmake --build --preset windows-msvc-vcpkg-debug
 ```
 
 ## Current Environment Blocker
