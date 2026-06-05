@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/assets/AssetManifest.hpp"
+#include "novacore/assets/GltfMetadata.hpp"
 #include "novacore/assets/AssetRegistry.hpp"
 #include "novacore/assets/AssetStreamer.hpp"
 #include "novacore/assets/AssetTypes.hpp"
@@ -23,5 +24,6 @@
 #include "novacore/platform/InputAction.hpp"
 #include "novacore/platform/Input.hpp"
 #include "novacore/platform/Window.hpp"
+#include "novacore/render/Mesh.hpp"
 #include "novacore/render/Renderer.hpp"
 #include "novacore/math/Types.hpp"

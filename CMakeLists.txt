@@ -20,7 +20,33 @@ option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
 
+function(novacore_copy_mingw_runtime target_name)
+    if(NOT MINGW)
+        return()
+    endif()
+
+    get_filename_component(NOVACORE_MINGW_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(runtime_dll IN ITEMS
+        libatomic-1.dll
+        libgcc_s_seh-1.dll
+        libgomp-1.dll
+        libssp-0.dll
+        libstdc++-6.dll
+        libwinpthread-1.dll
+    )
+        if(EXISTS "${NOVACORE_MINGW_BIN_DIR}/${runtime_dll}")
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${NOVACORE_MINGW_BIN_DIR}/${runtime_dll}"
+                    "$<TARGET_FILE_DIR:${target_name}>/${runtime_dll}"
+                VERBATIM
+            )
+        endif()
+    endforeach()
+endfunction()
+
 add_library(novacore_engine
+    engine/src/assets/GltfMetadata.cpp
     engine/src/assets/AssetManifest.cpp
     engine/src/assets/AssetRegistry.cpp
     engine/src/assets/AssetStreamer.cpp
@@ -40,6 +66,7 @@ add_library(novacore_engine
     engine/src/platform/InputAction.cpp
     engine/src/platform/Input.cpp
     engine/src/platform/Window.cpp
+    engine/src/render/Mesh.cpp
     engine/src/render/Renderer.cpp
 )
 
@@ -122,6 +149,7 @@ target_compile_definitions(novacore_engine
 if(NOVACORE_BUILD_SERVER)
     add_executable(novacore_server server/src/main.cpp)
     target_link_libraries(novacore_server PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_server)
 endif()
 
 enable_testing()
@@ -129,6 +157,7 @@ enable_testing()
 if(NOVACORE_BUILD_TESTS)
     add_executable(novacore_smoke_tests tests/novacore_smoke_tests.cpp)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_smoke_tests)
     add_test(NAME novacore_smoke_tests COMMAND novacore_smoke_tests)
 endif()
 

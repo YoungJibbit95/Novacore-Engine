@@ -292,6 +292,69 @@ void testAssetStreamer() {
     expect(streamer.pendingCount() == 3, "asset streamer accepts zone preloads");
 }
 
+void testGltfMetadataAndMeshCatalog() {
+    const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_mesh.metadata.json";
+    {
+        std::ofstream file(path);
+        file << R"({
+            "id": "mesh_crate_01",
+            "source": "assets/source/blender/props/mesh_crate_01.blend",
+            "export": "assets/export/gltf/props/mesh_crate_01.glb",
+            "category": "prop",
+            "scale_meters": true,
+            "runtime_up_axis": "Y",
+            "gameplay_forward_axis": "+Z",
+            "sockets": ["socket_root"],
+            "collision": "col_mesh_crate_01",
+            "lods": ["mesh_crate_01_lod0"],
+            "license": "original_project_asset",
+            "generated_by": "smoke"
+        })";
+    }
+
+    novacore::assets::AssetRecord meshRecord{};
+    meshRecord.id = "mesh_crate_01";
+    meshRecord.kind = novacore::assets::AssetKind::Mesh;
+    meshRecord.sourcePath = "assets/source/blender/props/mesh_crate_01.blend";
+    meshRecord.cookedPath = "assets/export/gltf/props/mesh_crate_01.glb";
+    meshRecord.estimatedBytes = 4096;
+    meshRecord.tags = {"prop", "smoke"};
+
+    novacore::assets::GltfAssetMetadata metadata;
+    const auto metadataResult = novacore::assets::loadGltfAssetMetadataFromJson(path, metadata);
+    expect(metadataResult.ok(), "glTF metadata loads from json");
+    expect(metadata.id == meshRecord.id, "glTF metadata keeps asset id");
+    expect(metadata.sockets.size() == 1, "glTF metadata parses sockets");
+    expect(novacore::assets::metadataPathForCookedAsset(meshRecord).generic_string() ==
+               "assets/export/gltf/props/mesh_crate_01.metadata.json",
+           "metadata path is derived from cooked glTF path");
+    expect(novacore::assets::validateGltfAssetMetadata(meshRecord, metadata).empty(), "glTF metadata validates against record");
+
+    novacore::render::MeshCatalog meshes;
+    const auto meshHandle = meshes.registerGltfAsset(meshRecord, metadata);
+    expect(meshHandle.isValid(), "mesh catalog creates mesh handle");
+    expect(meshes.meshCount() == 1, "mesh catalog counts registered mesh");
+    const auto* mesh = meshes.find(meshHandle);
+    expect(mesh != nullptr && mesh->assetId == meshRecord.id, "mesh handle resolves to asset source");
+    expect(mesh != nullptr && mesh->metadata.has_value(), "mesh source keeps metadata");
+    expect(meshes.findByAssetId(meshRecord.id) == mesh, "mesh catalog resolves by asset id");
+
+    novacore::assets::AssetRecord sceneRecord{};
+    sceneRecord.id = "scene_arena_01";
+    sceneRecord.kind = novacore::assets::AssetKind::Scene;
+    sceneRecord.cookedPath = "assets/export/gltf/environments/scene_arena_01.glb";
+    expect(meshes.registerAsset(sceneRecord).isValid(), "mesh catalog accepts glTF scene records");
+
+    novacore::assets::AssetRecord materialRecord{};
+    materialRecord.id = "mat_crate_01";
+    materialRecord.kind = novacore::assets::AssetKind::Material;
+    materialRecord.cookedPath = "assets/materials/mat_crate_01.json";
+    expect(!novacore::render::isRenderableAssetRecord(materialRecord), "material is not renderable as mesh");
+    expect(!meshes.registerAsset(materialRecord).isValid(), "mesh catalog rejects non-renderable records");
+
+    std::filesystem::remove(path);
+}
+
 } // namespace
 
 int main() {
@@ -308,6 +371,7 @@ int main() {
     testConfigRegistry();
     testAssetManifestAndRegistry();
     testAssetStreamer();
+    testGltfMetadataAndMeshCatalog();
 
     if (failures > 0) {
         std::cerr << failures << " NovaCore smoke test(s) failed\n";

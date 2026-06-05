@@ -24,8 +24,11 @@ M1 provides:
 - Clear color settings.
 - Null fallback when Vulkan SDK is absent.
 - Backend name reporting.
+- SDL debug rectangles, lines, and bitmap text for early tools.
+- Mesh/scene asset validation and placeholder mesh handles.
 
 M2 replaces the placeholder with actual Vulkan instance, surface, swapchain, and clear.
+Mesh parsing/upload remains the next renderer step after the current handle shim.
 
 ## Vulkan Device Plan
 
@@ -134,6 +137,7 @@ Renderer work is acceptable when:
 - Clear color appears in a window.
 - Resize path survives.
 - A basic mesh renders.
+- Mesh asset ids resolve to stable handles before upload.
 - GPU/CPU timing is visible.
 - Null fallback still lets server/tools builds work.
 
