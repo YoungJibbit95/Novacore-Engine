@@ -17,8 +17,18 @@ namespace {
 
 [[nodiscard]] std::uint16_t keyCodeFromSdl(SDL_Keycode key) {
     switch (key) {
+    case SDLK_RETURN:
+        return 13;
+    case SDLK_ESCAPE:
+        return 27;
     case SDLK_SPACE:
         return 32;
+    case SDLK_F1:
+        return 112;
+    case SDLK_UP:
+        return 1000;
+    case SDLK_DOWN:
+        return 1001;
     case SDLK_LSHIFT:
         return 160;
     case SDLK_LALT:
@@ -66,9 +76,13 @@ bool Window::create(const WindowDesc& desc) {
     }
 
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+#if NOVACORE_HAS_VULKAN
     if (desc.preferVulkan) {
         flags = static_cast<SDL_WindowFlags>(flags | SDL_WINDOW_VULKAN);
     }
+#else
+    (void)desc.preferVulkan;
+#endif
 
     SDL_Window* window = SDL_CreateWindow(desc.title.c_str(), desc.width, desc.height, flags);
     if (window == nullptr) {
@@ -172,6 +186,16 @@ void Window::pollEvents(InputSystem& input) {
     }
 #else
     (void)input;
+#endif
+}
+
+void Window::setTitle(const std::string& title) {
+#if NOVACORE_HAS_SDL3
+    if (handle_ != nullptr) {
+        SDL_SetWindowTitle(static_cast<SDL_Window*>(handle_), title.c_str());
+    }
+#else
+    (void)title;
 #endif
 }
 

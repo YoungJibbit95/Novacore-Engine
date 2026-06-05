@@ -25,6 +25,7 @@ public:
 
     bool create(const WindowDesc& desc);
     void pollEvents(InputSystem& input);
+    void setTitle(const std::string& title);
     void shutdown();
 
     [[nodiscard]] bool shouldClose() const;

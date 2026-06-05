@@ -6,6 +6,7 @@ A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the g
 
 - **Modern C++23** - Latest C++ standard features
 - **Vulkan-first** - Direct GPU control via Vulkan
+- **SDL Debug Renderer** - Immediate visual test path while Vulkan backend matures
 - **Custom ECS** - Entity Component System for efficient entity management
 - **Dedicated Server** - Built-in dedicated server support
 - **Cross-platform** - Windows and Linux first, macOS via MoltenVK
@@ -33,11 +34,18 @@ A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the g
 
 ## Build Instructions
 
-### With full dependencies (Vulkan, SDL3, vcpkg):
+### Windows default in VSCode/Visual Studio:
 
 ```powershell
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
+```
+
+### With full dependencies (Vulkan, SDL3, vcpkg, Ninja):
+
+```powershell
+cmake --preset windows-ninja-vcpkg-debug
+cmake --build --preset windows-ninja-vcpkg-debug
 ```
 
 ### Without external dependencies:

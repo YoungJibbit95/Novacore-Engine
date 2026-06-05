@@ -15,8 +15,24 @@
     {
       "name": "windows-msvc-debug",
       "displayName": "Windows MSVC Debug",
-      "generator": "Ninja",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
       "binaryDir": "${sourceDir}/build/windows-msvc-debug",
+      "cacheVariables": {
+        "NOVACORE_ENABLE_SDL3": "ON",
+        "NOVACORE_ENABLE_VULKAN": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-ninja-vcpkg-debug",
+      "displayName": "Windows Ninja Debug with vcpkg",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-ninja-vcpkg-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
@@ -50,6 +66,21 @@
       "binaryDir": "${sourceDir}/build/linux-clang-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-clang-vcpkg-debug",
+      "displayName": "Linux Clang Debug with vcpkg",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-clang-vcpkg-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "clang++",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       },
@@ -67,7 +98,12 @@
     },
     {
       "name": "windows-msvc-debug",
-      "configurePreset": "windows-msvc-debug"
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-ninja-vcpkg-debug",
+      "configurePreset": "windows-ninja-vcpkg-debug"
     },
     {
       "name": "windows-vs2022-no-deps",
@@ -77,6 +113,10 @@
     {
       "name": "linux-clang-debug",
       "configurePreset": "linux-clang-debug"
+    },
+    {
+      "name": "linux-clang-vcpkg-debug",
+      "configurePreset": "linux-clang-vcpkg-debug"
     }
   ]
 }

@@ -27,9 +27,16 @@ Supported IDE paths:
 
 `windows-msvc-debug`:
 
+- Generator: Visual Studio 17 2022.
+- Does not require Ninja.
+- Does not require `VCPKG_ROOT`.
+- Best default for VSCode/Visual Studio on Windows.
+
+`windows-ninja-vcpkg-debug`:
+
 - Generator: Ninja.
 - Uses vcpkg toolchain.
-- Intended for SDL3/Vulkan work once vcpkg and Vulkan SDK are installed.
+- Intended for SDL3/Vulkan dependency work once vcpkg, Ninja, and Vulkan SDK are installed.
 
 `linux-clang-debug`:
 
@@ -65,8 +72,8 @@ Install:
 Then:
 
 ```powershell
-cmake --preset windows-msvc-debug
-cmake --build --preset windows-msvc-debug
+cmake --preset windows-ninja-vcpkg-debug
+cmake --build --preset windows-ninja-vcpkg-debug
 ```
 
 ## Current Environment Blocker
@@ -77,5 +84,6 @@ In the current Codex shell:
 - Ninja is not in PATH.
 - MSVC `cl` is not in PATH.
 - `g++` is not in PATH.
+- Visual Studio Build Tools are not visible to CMake in this shell.
 
 So configure currently stops before compiling. The code is structured for IDE/toolchain pickup, but this machine still needs a build tool and compiler exposed to PATH or opened through a Visual Studio Developer shell.

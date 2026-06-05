@@ -3,9 +3,27 @@
 #include "novacore/platform/Window.hpp"
 
 #include <array>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace novacore::render {
+
+struct DebugRect final {
+    float x = 0.0F;
+    float y = 0.0F;
+    float width = 0.0F;
+    float height = 0.0F;
+    std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
+};
+
+struct DebugText final {
+    float x = 0.0F;
+    float y = 0.0F;
+    float scale = 2.0F;
+    std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
+    std::string text;
+};
 
 struct RendererCreateInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
@@ -13,6 +31,8 @@ struct RendererCreateInfo final {
 
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
+    std::vector<DebugRect> debugRects;
+    std::vector<DebugText> debugTexts;
 };
 
 class Renderer final {
@@ -28,6 +48,7 @@ public:
 private:
     bool ready_ = false;
     bool vulkanCapable_ = false;
+    void* sdlRenderer_ = nullptr;
     std::array<float, 4> clearColor_{0.03F, 0.04F, 0.06F, 1.0F};
 };
 
