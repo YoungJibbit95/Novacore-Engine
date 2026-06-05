@@ -91,6 +91,7 @@ bool Window::create(const WindowDesc& desc) {
 
 void Window::pollEvents(InputSystem& input) {
     input.beginFrame();
+    inputSnapshot_.beginFrame();
 
 #if NOVACORE_HAS_SDL3
     SDL_Event event;
@@ -129,6 +130,14 @@ void Window::pollEvents(InputSystem& input) {
             break;
         case SDL_EVENT_MOUSE_MOTION:
             input.noteKeyboardMouseActivity();
+            inputSnapshot_.addAxisDelta(
+                InputControl{InputControlKind::MouseAxis, 0},
+                static_cast<float>(event.motion.xrel),
+                InputDeviceKind::KeyboardMouse);
+            inputSnapshot_.addAxisDelta(
+                InputControl{InputControlKind::MouseAxis, 1},
+                static_cast<float>(event.motion.yrel),
+                InputDeviceKind::KeyboardMouse);
             break;
         case SDL_EVENT_GAMEPAD_ADDED:
             input.noteControllerConnected(static_cast<std::int32_t>(event.gdevice.which), "SDL Gamepad");

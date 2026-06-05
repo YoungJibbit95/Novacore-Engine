@@ -88,6 +88,21 @@ void testInputActions() {
     expect(actionMap.stateOrDefault("jump").released, "button release reports released");
 }
 
+void testTransientMouseAxis() {
+    novacore::platform::InputControl mouseX{
+        novacore::platform::InputControlKind::MouseAxis,
+        0,
+    };
+
+    novacore::platform::InputSnapshot snapshot;
+    snapshot.addAxisDelta(mouseX, 4.0F, novacore::platform::InputDeviceKind::KeyboardMouse);
+    snapshot.addAxisDelta(mouseX, 2.0F, novacore::platform::InputDeviceKind::KeyboardMouse);
+    expect(snapshot.axisValue(mouseX) == 6.0F, "mouse axis deltas accumulate in frame");
+
+    snapshot.beginFrame();
+    expect(snapshot.axisValue(mouseX) == 0.0F, "mouse axis resets between frames");
+}
+
 void testInputDeviceActivity() {
     novacore::platform::InputSystem input;
 
@@ -175,6 +190,7 @@ int main() {
     testFixedStepAccumulator();
     testLoopbackChannel();
     testInputActions();
+    testTransientMouseAxis();
     testInputDeviceActivity();
     testFileChangeTracker();
     testConfigDocument();

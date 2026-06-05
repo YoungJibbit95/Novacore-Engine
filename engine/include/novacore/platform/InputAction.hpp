@@ -15,6 +15,7 @@ namespace novacore::platform {
 enum class InputControlKind : std::uint8_t {
     KeyboardKey,
     MouseButton,
+    MouseAxis,
     GamepadButton,
     GamepadAxis
 };
@@ -45,9 +46,11 @@ struct InputActionState final {
 
 class InputSnapshot final {
 public:
+    void beginFrame();
     void clear();
     void setButton(InputControl control, bool down, InputDeviceKind device);
     void setAxis(InputControl control, float value, InputDeviceKind device);
+    void addAxisDelta(InputControl control, float delta, InputDeviceKind device);
 
     [[nodiscard]] bool isDown(InputControl control) const;
     [[nodiscard]] float axisValue(InputControl control) const;

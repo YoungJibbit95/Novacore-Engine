@@ -1,9 +1,33 @@
 #include "novacore/platform/InputAction.hpp"
 
 #include <cmath>
+#include <vector>
 #include <utility>
 
 namespace novacore::platform {
+
+namespace {
+
+[[nodiscard]] bool isTransientAxis(std::uint64_t key) {
+    const auto kind = static_cast<InputControlKind>(key >> 32U);
+    return kind == InputControlKind::MouseAxis;
+}
+
+} // namespace
+
+void InputSnapshot::beginFrame() {
+    std::vector<std::uint64_t> transientKeys;
+    for (const auto& [key, _] : axes_) {
+        if (isTransientAxis(key)) {
+            transientKeys.push_back(key);
+        }
+    }
+
+    for (const auto key : transientKeys) {
+        axes_.erase(key);
+        devices_.erase(key);
+    }
+}
 
 void InputSnapshot::clear() {
     downControls_.clear();
@@ -25,6 +49,10 @@ void InputSnapshot::setAxis(InputControl control, float value, InputDeviceKind d
     const auto key = control.key();
     axes_.insert_or_assign(key, value);
     devices_.insert_or_assign(key, device);
+}
+
+void InputSnapshot::addAxisDelta(InputControl control, float delta, InputDeviceKind device) {
+    setAxis(control, axisValue(control) + delta, device);
 }
 
 bool InputSnapshot::isDown(InputControl control) const {
@@ -67,7 +95,8 @@ void InputActionMap::update(const InputSnapshot& snapshot) {
         float activationThreshold = 0.5F;
         for (const auto& binding : bindings) {
             float value = 0.0F;
-            if (binding.control.kind == InputControlKind::GamepadAxis) {
+            if (binding.control.kind == InputControlKind::GamepadAxis ||
+                binding.control.kind == InputControlKind::MouseAxis) {
                 value = snapshot.axisValue(binding.control) * binding.scale;
             } else if (snapshot.isDown(binding.control)) {
                 value = binding.scale;
