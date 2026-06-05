@@ -17,6 +17,14 @@ struct DebugRect final {
     std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
 };
 
+struct DebugLine final {
+    float x0 = 0.0F;
+    float y0 = 0.0F;
+    float x1 = 0.0F;
+    float y1 = 0.0F;
+    std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
+};
+
 struct DebugText final {
     float x = 0.0F;
     float y = 0.0F;
@@ -32,6 +40,7 @@ struct RendererCreateInfo final {
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     std::vector<DebugRect> debugRects;
+    std::vector<DebugLine> debugLines;
     std::vector<DebugText> debugTexts;
 };
 

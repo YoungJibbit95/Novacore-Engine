@@ -165,6 +165,11 @@ void Renderer::beginFrame(const RenderFrameInfo& info) {
             fillRect(renderer, rect.x, rect.y, rect.width, rect.height);
         }
 
+        for (const auto& line : info.debugLines) {
+            setDrawColor(renderer, line.color);
+            SDL_RenderLine(renderer, line.x0, line.y0, line.x1, line.y1);
+        }
+
         for (const auto& text : info.debugTexts) {
             drawText(renderer, text);
         }

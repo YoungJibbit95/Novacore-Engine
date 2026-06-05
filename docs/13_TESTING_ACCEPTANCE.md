@@ -33,6 +33,8 @@ Initial unit areas:
 
 The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, packet bitstream roundtrips, headless relative-mouse fallback, input action state transitions, file change tracking, config parsing, and config registry reloads.
 
+Debug renderer smoke coverage remains runtime-oriented for now. The SDL debug backend currently accepts clear frames, rectangles, lines, and bitmap text so Nemisis can build early visual test surfaces while Vulkan mesh rendering is still coming online.
+
 ## Movement Replay Tests
 
 Movement tests record:
