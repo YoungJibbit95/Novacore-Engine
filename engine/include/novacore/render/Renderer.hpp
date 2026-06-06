@@ -1,9 +1,11 @@
 #pragma once
 
 #include "novacore/platform/Window.hpp"
+#include "novacore/render/VulkanBackend.hpp"
 #include "novacore/render/VulkanRuntime.hpp"
 
 #include <array>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -36,6 +38,7 @@ struct DebugText final {
 
 struct RendererCreateInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
+    bool preferVulkan = false;
 };
 
 struct RenderFrameInfo final {
@@ -47,6 +50,14 @@ struct RenderFrameInfo final {
 
 class Renderer final {
 public:
+    Renderer() = default;
+    ~Renderer();
+
+    Renderer(const Renderer&) = delete;
+    Renderer& operator=(const Renderer&) = delete;
+    Renderer(Renderer&&) = delete;
+    Renderer& operator=(Renderer&&) = delete;
+
     bool create(platform::Window& window, const RendererCreateInfo& info);
     void beginFrame(const RenderFrameInfo& info);
     void endFrame();
@@ -62,6 +73,7 @@ private:
     bool vulkanCapable_ = false;
     VulkanRuntimeInfo vulkanRuntime_;
     std::string vulkanSummary_ = "not probed";
+    std::unique_ptr<VulkanBackend> vulkanBackend_;
     void* sdlRenderer_ = nullptr;
     std::array<float, 4> clearColor_{0.03F, 0.04F, 0.06F, 1.0F};
 };

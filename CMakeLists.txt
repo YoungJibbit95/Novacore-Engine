@@ -19,6 +19,7 @@ option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON
 option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
+set(NOVACORE_SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/novacore/shaders")
 
 function(novacore_copy_mingw_runtime target_name)
     if(NOT MINGW)
@@ -69,6 +70,7 @@ add_library(novacore_engine
     engine/src/platform/Window.cpp
     engine/src/render/Mesh.cpp
     engine/src/render/Renderer.cpp
+    engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
 )
 
@@ -136,6 +138,31 @@ if(NOVACORE_ENABLE_VULKAN)
     if(Vulkan_FOUND)
         set(NOVACORE_HAS_VULKAN 1)
         target_link_libraries(novacore_engine PUBLIC Vulkan::Vulkan)
+
+        if(Vulkan_GLSLC_EXECUTABLE)
+            set(NOVACORE_SHADER_SPV_FILES "")
+            foreach(shader_source IN ITEMS
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.frag"
+            )
+                get_filename_component(shader_name "${shader_source}" NAME)
+                set(shader_output "${NOVACORE_SHADER_BINARY_DIR}/${shader_name}.spv")
+                add_custom_command(
+                    OUTPUT "${shader_output}"
+                    COMMAND ${CMAKE_COMMAND} -E make_directory "${NOVACORE_SHADER_BINARY_DIR}"
+                    COMMAND "${Vulkan_GLSLC_EXECUTABLE}" -O "${shader_source}" -o "${shader_output}"
+                    DEPENDS "${shader_source}"
+                    VERBATIM
+                )
+                list(APPEND NOVACORE_SHADER_SPV_FILES "${shader_output}")
+            endforeach()
+
+            add_custom_target(novacore_shaders DEPENDS ${NOVACORE_SHADER_SPV_FILES})
+            add_dependencies(novacore_engine novacore_shaders)
+            message(STATUS "NovaCore Vulkan shader compilation enabled via ${Vulkan_GLSLC_EXECUTABLE}.")
+        else()
+            message(WARNING "Vulkan SDK was found, but glslc was not found. Vulkan backend will run without compiled debug shaders.")
+        endif()
     else()
         message(WARNING "Vulkan SDK was not found. Building with null renderer fallback.")
     endif()
@@ -146,6 +173,7 @@ target_compile_definitions(novacore_engine
         NOVACORE_HAS_SDL3=${NOVACORE_HAS_SDL3}
         NOVACORE_HAS_VULKAN=${NOVACORE_HAS_VULKAN}
         NOVACORE_PROJECT_VERSION="${PROJECT_VERSION}"
+        NOVACORE_SHADER_BINARY_DIR="${NOVACORE_SHADER_BINARY_DIR}"
 )
 
 if(NOVACORE_BUILD_SERVER)

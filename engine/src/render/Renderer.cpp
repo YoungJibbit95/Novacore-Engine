@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 namespace novacore::render {
 
@@ -118,6 +119,10 @@ void drawText(SDL_Renderer* renderer, const DebugText& text) {
 
 } // namespace
 
+Renderer::~Renderer() {
+    shutdown();
+}
+
 bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) {
     clearColor_ = info.clearColor;
     vulkanRuntime_ = probeVulkanRuntime();
@@ -132,6 +137,20 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
         }
     }
 
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    if (info.preferVulkan && !window.isHeadless()) {
+        vulkanBackend_ = std::make_unique<VulkanBackend>();
+        if (vulkanBackend_->create(window, clearColor_)) {
+            ready_ = true;
+            vulkanCapable_ = true;
+            core::logInfo("render", "Vulkan backend active: " + std::string(vulkanBackend_->deviceName()));
+            return true;
+        }
+        vulkanBackend_.reset();
+        core::logWarning("render", "Vulkan backend failed; falling back to SDL debug/null renderer");
+    }
+#endif
+
 #if NOVACORE_HAS_SDL3
     if (!window.isHeadless()) {
         sdlRenderer_ = SDL_CreateRenderer(static_cast<SDL_Window*>(window.nativeHandle()), nullptr);
@@ -145,16 +164,7 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
     }
 #endif
 
-#if NOVACORE_HAS_VULKAN
-    vulkanCapable_ = !window.isHeadless();
-    if (vulkanCapable_) {
-        ready_ = true;
-        core::logInfo("render", "Vulkan renderer placeholder created");
-        return true;
-    }
-#else
     (void)window;
-#endif
 
     ready_ = true;
     vulkanCapable_ = false;
@@ -164,6 +174,11 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
 
 void Renderer::beginFrame(const RenderFrameInfo& info) {
     clearColor_ = info.clearColor;
+
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        vulkanBackend_->beginFrame(info);
+        return;
+    }
 
 #if NOVACORE_HAS_SDL3
     if (sdlRenderer_ != nullptr) {
@@ -191,6 +206,11 @@ void Renderer::beginFrame(const RenderFrameInfo& info) {
 }
 
 void Renderer::endFrame() {
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        vulkanBackend_->endFrame();
+        return;
+    }
+
 #if NOVACORE_HAS_SDL3
     if (sdlRenderer_ != nullptr) {
         SDL_RenderPresent(static_cast<SDL_Renderer*>(sdlRenderer_));
@@ -199,6 +219,11 @@ void Renderer::endFrame() {
 }
 
 void Renderer::shutdown() {
+    if (vulkanBackend_ != nullptr) {
+        vulkanBackend_->shutdown();
+        vulkanBackend_.reset();
+    }
+
 #if NOVACORE_HAS_SDL3
     if (sdlRenderer_ != nullptr) {
         SDL_DestroyRenderer(static_cast<SDL_Renderer*>(sdlRenderer_));
@@ -216,10 +241,13 @@ void Renderer::shutdown() {
 }
 
 std::string_view Renderer::backendName() const {
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        return "vulkan-clear";
+    }
     if (sdlRenderer_ != nullptr) {
         return "sdl-debug";
     }
-    return vulkanCapable_ ? "vulkan-placeholder" : "null";
+    return vulkanCapable_ ? "vulkan-unavailable" : "null";
 }
 
 std::string_view Renderer::vulkanSummary() const {

@@ -79,11 +79,12 @@ cmake --build --preset windows-msvc-debug
 Current Vulkan state:
 
 - Vulkan runtime/driver is installed on the local machine.
-- `vulkaninfo --summary` reports Vulkan 1.4.341 on `NVIDIA GeForce RTX 3070 Ti`.
+- Vulkan SDK is installed at `F:\VulkanSDK\1.4.350.0`.
 - NovaCore can detect the runtime/device through its SDK-free dynamic probe.
-- CMake still needs the Vulkan SDK headers/libs before the real compiled Vulkan backend can be built.
+- CMake finds Vulkan headers/libs and `glslc` when `VULKAN_SDK` and `PATH` are set for the active shell/IDE.
+- The opt-in compiled Vulkan backend now creates a swapchain and debug triangle pipeline.
 
-Install these for future full Vulkan/dependency work:
+Required for full Vulkan/dependency work:
 
 - Visual Studio 2022 Build Tools with Desktop development with C++.
 - CMake 3.27+.
@@ -94,6 +95,8 @@ Install these for future full Vulkan/dependency work:
 Then:
 
 ```powershell
+$env:VULKAN_SDK = "F:\VulkanSDK\1.4.350.0"
+$env:PATH = "$env:VULKAN_SDK\Bin;$env:PATH"
 cmake --preset windows-ninja-vcpkg-debug
 cmake --build --preset windows-ninja-vcpkg-debug
 ```
@@ -113,6 +116,7 @@ In the current Codex shell:
 - CLion's bundled MinGW/Ninja can build the current debug tree when explicitly added to PATH.
 - SDL3 is fetched automatically for visible dev builds.
 - Vulkan runtime is present and probed successfully.
-- Vulkan SDK is not visible to CMake yet, so the active renderer remains SDL debug/null instead of the real Vulkan backend.
+- Vulkan SDK is visible when `VULKAN_SDK=F:\VulkanSDK\1.4.350.0` is exported in the shell.
+- `cmake-build-codex-vulkan` has been verified with shader compilation, `novacore_smoke_tests`, and the compiled Vulkan backend path through Nemisis.
 
-For real Vulkan backend work, install/expose the Vulkan SDK and then reconfigure from a shell or IDE that sees `VULKAN_SDK`.
+For real Vulkan backend work, reconfigure from a shell or IDE that sees `VULKAN_SDK`; otherwise NovaCore will still compile but fall back to SDL debug/null rendering.

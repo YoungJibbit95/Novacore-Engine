@@ -15,9 +15,9 @@ The renderer is Vulkan-first and built for modern competitive readability. It sh
 - `MaterialSystem`: shader variants and material bindings.
 - `DebugGpu`: labels, timings, counters.
 
-## M1 Placeholder
+## M1/M2 Active Foundation
 
-M1 provides:
+The current foundation provides:
 
 - Renderer create/shutdown.
 - Frame begin/end API.
@@ -29,16 +29,19 @@ M1 provides:
 - Mesh/scene asset validation and placeholder mesh handles.
 - CPU-side glTF/GLB scene info attached to mesh handles for early renderer diagnostics.
 - CPU-side GLB vertex/index extraction attached to mesh handles for the coming upload path.
+- Opt-in compiled Vulkan backend with SDL surface creation, physical device selection, logical device/queues, swapchain, image views, render pass, framebuffers, command buffers, semaphores, fences, clear, present, and a first debug triangle draw.
+- CMake-driven GLSL-to-SPIR-V shader compilation through `glslc` when the Vulkan SDK is visible.
 
-M2 replaces the placeholder with actual Vulkan instance, surface, swapchain, and clear once Vulkan SDK headers/libs are visible to CMake.
-GPU upload and draw submission remain the next renderer steps after the current CPU mesh extraction shim.
+GPU upload and mesh draw submission remain the next renderer steps after the current CPU mesh extraction shim and debug triangle pipeline.
 
 Current local runtime result:
 
 - Vulkan loader/runtime is available.
-- `vulkaninfo --summary` reports Vulkan 1.4.341.
+- The current Vulkan SDK is exposed at `F:\VulkanSDK\1.4.350.0`.
+- NovaCore CMake finds Vulkan headers/libs and `glslc`.
+- `nemisis_game --vulkan-smoke-test` creates the Vulkan swapchain and debug triangle graphics pipeline.
 - NovaCore runtime probe detects `NVIDIA GeForce RTX 3070 Ti (discrete)`.
-- CMake still reports `Vulkan SDK was not found`, so the active visible backend remains `sdl-debug` until SDK headers/libs are installed or exposed.
+- Nemisis keeps `sdl-debug` as the default visible UI/debug backend while `--vulkan` and `--vulkan-smoke-test` opt into the compiled Vulkan backend.
 
 ## Vulkan Device Plan
 
@@ -116,8 +119,8 @@ Fallback material must be deterministic and visually obvious.
 
 ## Shader Pipeline
 
-- HLSL authored shaders.
-- DXC compiles to SPIR-V.
+- GLSL debug shaders compile to SPIR-V through `glslc` for the first backend slice.
+- HLSL authored shaders and DXC are still the preferred future production direction.
 - Reflection generates descriptor expectations.
 - Debug builds keep shader names and compile diagnostics.
 - Release builds use cooked shader artifacts.
@@ -146,6 +149,7 @@ Game UI is rendered after world passes. The UI system is Vulkan-native but expos
 Renderer work is acceptable when:
 
 - Clear color appears in a window.
+- The opt-in Vulkan backend creates a swapchain, render pass, framebuffers, and debug triangle pipeline.
 - Resize path survives.
 - A basic mesh renders.
 - Mesh asset ids resolve to stable handles before upload.
