@@ -24,13 +24,21 @@ M1 provides:
 - Clear color settings.
 - Null fallback when Vulkan SDK is absent.
 - Backend name reporting.
+- SDK-free Vulkan runtime and physical-device probing.
 - SDL debug rectangles, lines, and bitmap text for early tools.
 - Mesh/scene asset validation and placeholder mesh handles.
 - CPU-side glTF/GLB scene info attached to mesh handles for early renderer diagnostics.
 - CPU-side GLB vertex/index extraction attached to mesh handles for the coming upload path.
 
-M2 replaces the placeholder with actual Vulkan instance, surface, swapchain, and clear.
+M2 replaces the placeholder with actual Vulkan instance, surface, swapchain, and clear once Vulkan SDK headers/libs are visible to CMake.
 GPU upload and draw submission remain the next renderer steps after the current CPU mesh extraction shim.
+
+Current local runtime result:
+
+- Vulkan loader/runtime is available.
+- `vulkaninfo --summary` reports Vulkan 1.4.341.
+- NovaCore runtime probe detects `NVIDIA GeForce RTX 3070 Ti (discrete)`.
+- CMake still reports `Vulkan SDK was not found`, so the active visible backend remains `sdl-debug` until SDK headers/libs are installed or exposed.
 
 ## Vulkan Device Plan
 
@@ -42,6 +50,7 @@ Device selection priorities:
 4. Optional extensions: debug markers, maintenance features.
 
 The engine records selected adapter name and supported features at startup.
+The current SDK-free runtime probe already records loader version and physical device names/types before full queue/surface/swapchain selection exists.
 
 ## Frame Model
 
@@ -142,6 +151,7 @@ Renderer work is acceptable when:
 - Mesh asset ids resolve to stable handles before upload.
 - Imported glTF assets expose scene counts before GPU upload.
 - Imported GLB assets expose CPU primitive, vertex, and index counts before GPU upload.
+- Vulkan runtime device detection is visible in logs/debug UI even before the compiled Vulkan backend is active.
 - GPU/CPU timing is visible.
 - Null fallback still lets server/tools builds work.
 

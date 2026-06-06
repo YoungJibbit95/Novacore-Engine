@@ -120,6 +120,17 @@ void drawText(SDL_Renderer* renderer, const DebugText& text) {
 
 bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) {
     clearColor_ = info.clearColor;
+    vulkanRuntime_ = probeVulkanRuntime();
+    vulkanSummary_ = vulkanRuntimeSummary(vulkanRuntime_);
+
+    if (vulkanRuntime_.usable()) {
+        core::logInfo("render", "Vulkan runtime detected: " + vulkanSummary_);
+    } else {
+        core::logWarning("render", "Vulkan runtime unavailable: " + vulkanSummary_);
+        for (const auto& error : vulkanRuntime_.errors) {
+            core::logWarning("render", "Vulkan probe: " + error);
+        }
+    }
 
 #if NOVACORE_HAS_SDL3
     if (!window.isHeadless()) {
@@ -200,6 +211,8 @@ void Renderer::shutdown() {
     }
     ready_ = false;
     vulkanCapable_ = false;
+    vulkanSummary_ = "not probed";
+    vulkanRuntime_ = {};
 }
 
 std::string_view Renderer::backendName() const {
@@ -207,6 +220,14 @@ std::string_view Renderer::backendName() const {
         return "sdl-debug";
     }
     return vulkanCapable_ ? "vulkan-placeholder" : "null";
+}
+
+std::string_view Renderer::vulkanSummary() const {
+    return vulkanSummary_;
+}
+
+bool Renderer::vulkanRuntimeAvailable() const {
+    return vulkanRuntime_.usable();
 }
 
 bool Renderer::isReady() const {

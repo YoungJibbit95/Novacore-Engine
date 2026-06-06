@@ -76,13 +76,20 @@ cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
 ```
 
+Current Vulkan state:
+
+- Vulkan runtime/driver is installed on the local machine.
+- `vulkaninfo --summary` reports Vulkan 1.4.341 on `NVIDIA GeForce RTX 3070 Ti`.
+- NovaCore can detect the runtime/device through its SDK-free dynamic probe.
+- CMake still needs the Vulkan SDK headers/libs before the real compiled Vulkan backend can be built.
+
 Install these for future full Vulkan/dependency work:
 
 - Visual Studio 2022 Build Tools with Desktop development with C++.
 - CMake 3.27+.
 - Ninja.
 - vcpkg.
-- Vulkan SDK.
+- Vulkan SDK, with `VULKAN_SDK` set and `Bin`, `Include`, and `Lib` visible to the active shell/IDE.
 
 Then:
 
@@ -98,14 +105,14 @@ cmake --preset windows-msvc-vcpkg-debug
 cmake --build --preset windows-msvc-vcpkg-debug
 ```
 
-## Current Environment Blocker
+## Current Environment Notes
 
 In the current Codex shell:
 
 - CMake is available.
-- Ninja is not in PATH.
-- MSVC `cl` is not in PATH.
-- `g++` is not in PATH.
-- Visual Studio Build Tools are not visible to CMake in this shell.
+- CLion's bundled MinGW/Ninja can build the current debug tree when explicitly added to PATH.
+- SDL3 is fetched automatically for visible dev builds.
+- Vulkan runtime is present and probed successfully.
+- Vulkan SDK is not visible to CMake yet, so the active renderer remains SDL debug/null instead of the real Vulkan backend.
 
-So configure currently stops before compiling. The code is structured for IDE/toolchain pickup, but this machine still needs a build tool and compiler exposed to PATH or opened through a Visual Studio Developer shell.
+For real Vulkan backend work, install/expose the Vulkan SDK and then reconfigure from a shell or IDE that sees `VULKAN_SDK`.

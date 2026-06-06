@@ -69,6 +69,7 @@ add_library(novacore_engine
     engine/src/platform/Window.cpp
     engine/src/render/Mesh.cpp
     engine/src/render/Renderer.cpp
+    engine/src/render/VulkanRuntime.cpp
 )
 
 target_include_directories(novacore_engine

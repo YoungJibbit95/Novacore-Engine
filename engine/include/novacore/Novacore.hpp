@@ -27,4 +27,5 @@
 #include "novacore/platform/Window.hpp"
 #include "novacore/render/Mesh.hpp"
 #include "novacore/render/Renderer.hpp"
+#include "novacore/render/VulkanRuntime.hpp"
 #include "novacore/math/Types.hpp"

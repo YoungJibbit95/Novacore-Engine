@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/platform/Window.hpp"
+#include "novacore/render/VulkanRuntime.hpp"
 
 #include <array>
 #include <string>
@@ -52,11 +53,15 @@ public:
     void shutdown();
 
     [[nodiscard]] std::string_view backendName() const;
+    [[nodiscard]] std::string_view vulkanSummary() const;
+    [[nodiscard]] bool vulkanRuntimeAvailable() const;
     [[nodiscard]] bool isReady() const;
 
 private:
     bool ready_ = false;
     bool vulkanCapable_ = false;
+    VulkanRuntimeInfo vulkanRuntime_;
+    std::string vulkanSummary_ = "not probed";
     void* sdlRenderer_ = nullptr;
     std::array<float, 4> clearColor_{0.03F, 0.04F, 0.06F, 1.0F};
 };

@@ -13,6 +13,7 @@
 - Window event polling now maintains a persistent `InputSnapshot` for action maps.
 - Mouse movement is exposed as transient per-frame mouse axes.
 - Vulkan/null renderer placeholder plus SDL debug renderer for immediate visual tests.
+- SDK-free Vulkan runtime probing can detect loader version and physical devices before the full Vulkan backend is compiled.
 - Debug render primitives support rectangles, lines, and 5x7 bitmap text.
 - Asset manifest, registry, and streaming request queue backbone under `novacore::assets`.
 - glTF asset metadata loading and validation is available through `novacore::assets::GltfAssetMetadata`.
@@ -47,12 +48,14 @@
 - Added GLB v2/text glTF scene info loading for mesh, node, material, accessor, buffer view, buffer, image, animation, skin, JSON, and BIN chunk counts.
 - Added first CPU GLB mesh extraction for primitive positions, optional normals/UVs, unsigned indices, byte offsets, and byte strides.
 - `MeshCatalog` can now register imported glTF assets with sidecar metadata, scene info, and CPU mesh data.
+- Added SDK-free Vulkan runtime/device probing through dynamic loader entry points; local smoke runs detect Vulkan 1.4.341 on an NVIDIA GeForce RTX 3070 Ti.
+- Renderer startup now logs Vulkan runtime availability separately from the active SDL debug/null render backend.
 - Added MinGW runtime DLL copying for NovaCore server/test executables so direct local launches do not require PATH surgery.
-- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, mesh catalog handles, glTF metadata, GLB scene-info loading, GLB triangle mesh extraction, and headless relative-mouse fallback.
+- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, mesh catalog handles, glTF metadata, GLB scene-info loading, GLB triangle mesh extraction, Vulkan runtime probing, and headless relative-mouse fallback.
 
 ## Next Engine Blocks
 
-- Replace placeholder renderer with real Vulkan instance/surface/swapchain while keeping SDL debug draw for early tools.
+- Install/expose Vulkan SDK for compiled headers/libs, then replace placeholder renderer with real Vulkan instance/surface/swapchain while keeping SDL debug draw for early tools.
 - Add typed config schemas for renderer, server, input, and network.
 - Add UDP transport socket backend on top of the packet primitives.
 - Add movement validation helpers for Nemisis.

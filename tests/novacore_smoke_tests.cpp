@@ -467,6 +467,16 @@ void testGltfMetadataAndMeshCatalog() {
     std::filesystem::remove(glbPath);
 }
 
+void testVulkanRuntimeProbeIsStable() {
+    const auto info = novacore::render::probeVulkanRuntime();
+    const auto summary = novacore::render::vulkanRuntimeSummary(info);
+
+    expect(!summary.empty(), "vulkan runtime probe returns a summary");
+    if (info.loaderAvailable) {
+        expect(info.instanceApiVersion > 0, "vulkan runtime probe reports instance version when loader is available");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -484,6 +494,7 @@ int main() {
     testAssetManifestAndRegistry();
     testAssetStreamer();
     testGltfMetadataAndMeshCatalog();
+    testVulkanRuntimeProbeIsStable();
 
     if (failures > 0) {
         std::cerr << failures << " NovaCore smoke test(s) failed\n";
