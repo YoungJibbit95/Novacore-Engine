@@ -26,9 +26,10 @@ M1 provides:
 - Backend name reporting.
 - SDL debug rectangles, lines, and bitmap text for early tools.
 - Mesh/scene asset validation and placeholder mesh handles.
+- CPU-side glTF/GLB scene info attached to mesh handles for early renderer diagnostics.
 
 M2 replaces the placeholder with actual Vulkan instance, surface, swapchain, and clear.
-Mesh parsing/upload remains the next renderer step after the current handle shim.
+CPU vertex/index extraction and GPU upload remain the next renderer steps after the current scene-info import shim.
 
 ## Vulkan Device Plan
 
@@ -138,6 +139,7 @@ Renderer work is acceptable when:
 - Resize path survives.
 - A basic mesh renders.
 - Mesh asset ids resolve to stable handles before upload.
+- Imported glTF assets expose scene counts before vertex extraction.
 - GPU/CPU timing is visible.
 - Null fallback still lets server/tools builds work.
 

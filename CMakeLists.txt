@@ -46,6 +46,7 @@ function(novacore_copy_mingw_runtime target_name)
 endfunction()
 
 add_library(novacore_engine
+    engine/src/assets/GltfDocument.cpp
     engine/src/assets/GltfMetadata.cpp
     engine/src/assets/AssetManifest.cpp
     engine/src/assets/AssetRegistry.cpp

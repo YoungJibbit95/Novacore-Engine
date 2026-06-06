@@ -31,7 +31,7 @@ Initial unit areas:
 - Packet sequence math.
 - Input curve mapping.
 
-The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, packet bitstream roundtrips, headless relative-mouse fallback, input action state transitions, file change tracking, config parsing, config registry reloads, glTF metadata loading, and mesh-handle registration.
+The first dependency-free test target is `novacore_smoke_tests`. It validates entity lifetime, fixed-step accumulation, loopback packet flow, packet bitstream roundtrips, headless relative-mouse fallback, input action state transitions, file change tracking, config parsing, config registry reloads, glTF metadata loading, GLB scene-info loading, and mesh-handle registration.
 
 Debug renderer smoke coverage remains runtime-oriented for now. The SDL debug backend currently accepts clear frames, rectangles, lines, and bitmap text so Nemisis can build early visual test surfaces while Vulkan mesh rendering is still coming online.
 
@@ -89,6 +89,7 @@ Scenarios:
 - Mesh render.
 - Mesh handle registration.
 - glTF metadata validation.
+- GLB/text glTF scene-info validation.
 - Missing material fallback.
 - Shader compile failure diagnostics.
 - Frame timing output.

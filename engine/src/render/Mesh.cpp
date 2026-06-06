@@ -53,13 +53,20 @@ void MeshCatalog::clear() {
 }
 
 MeshHandle MeshCatalog::registerAsset(const assets::AssetRecord& record) {
-    return registerAssetInternal(record, std::nullopt);
+    return registerAssetInternal(record, std::nullopt, std::nullopt);
 }
 
 MeshHandle MeshCatalog::registerGltfAsset(
     const assets::AssetRecord& record,
     assets::GltfAssetMetadata metadata) {
-    return registerAssetInternal(record, std::move(metadata));
+    return registerAssetInternal(record, std::move(metadata), std::nullopt);
+}
+
+MeshHandle MeshCatalog::registerImportedGltfAsset(
+    const assets::AssetRecord& record,
+    assets::GltfAssetMetadata metadata,
+    assets::GltfSceneInfo sceneInfo) {
+    return registerAssetInternal(record, std::move(metadata), std::move(sceneInfo));
 }
 
 const MeshAssetSource* MeshCatalog::find(MeshHandle handle) const {
@@ -90,7 +97,8 @@ std::size_t MeshCatalog::meshCount() const {
 
 MeshHandle MeshCatalog::registerAssetInternal(
     const assets::AssetRecord& record,
-    std::optional<assets::GltfAssetMetadata> metadata) {
+    std::optional<assets::GltfAssetMetadata> metadata,
+    std::optional<assets::GltfSceneInfo> sceneInfo) {
     if (!isRenderableAssetRecord(record)) {
         return {};
     }
@@ -113,6 +121,7 @@ MeshHandle MeshCatalog::registerAssetInternal(
         record.estimatedBytes,
         record.tags,
         std::move(metadata),
+        std::move(sceneInfo),
     });
     generations_.push_back(kInitialGeneration);
     handlesByAssetId_.emplace(record.id, handle);

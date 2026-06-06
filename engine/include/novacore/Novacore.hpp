@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/assets/AssetManifest.hpp"
+#include "novacore/assets/GltfDocument.hpp"
 #include "novacore/assets/GltfMetadata.hpp"
 #include "novacore/assets/AssetRegistry.hpp"
 #include "novacore/assets/AssetStreamer.hpp"

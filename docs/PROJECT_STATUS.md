@@ -16,6 +16,7 @@
 - Debug render primitives support rectangles, lines, and 5x7 bitmap text.
 - Asset manifest, registry, and streaming request queue backbone under `novacore::assets`.
 - glTF asset metadata loading and validation is available through `novacore::assets::GltfAssetMetadata`.
+- CPU-side glTF/GLB scene info loading is available through `novacore::assets::GltfSceneInfo`.
 - Renderer mesh-handle placeholders are available through `novacore::render::MeshCatalog`.
 - Loopback net packet foundation.
 - Engine-owned packet bitstream writer/reader for deterministic little-endian command and ack payloads.
@@ -42,8 +43,10 @@
 - Added SDL debug line primitives so games can draw world maps, aim rays, and range helpers before the real mesh renderer is ready.
 - Added glTF sidecar metadata parsing, cooked metadata path derivation, and asset-record validation.
 - Added renderable asset validation plus `MeshHandle`/`MeshCatalog` registration for mesh and scene glTF records.
+- Added GLB v2/text glTF scene info loading for mesh, node, material, accessor, buffer view, buffer, image, animation, skin, JSON, and BIN chunk counts.
+- `MeshCatalog` can now register imported glTF assets with both sidecar metadata and parsed scene info.
 - Added MinGW runtime DLL copying for NovaCore server/test executables so direct local launches do not require PATH surgery.
-- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, mesh catalog handles, glTF metadata, and headless relative-mouse fallback.
+- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, mesh catalog handles, glTF metadata, GLB scene-info loading, and headless relative-mouse fallback.
 
 ## Next Engine Blocks
 
@@ -51,5 +54,5 @@
 - Add typed config schemas for renderer, server, input, and network.
 - Add UDP transport socket backend on top of the packet primitives.
 - Add movement validation helpers for Nemisis.
-- Add real glTF parse/import and CPU mesh extraction.
+- Add CPU mesh extraction from parsed glTF accessors and buffer views.
 - Add renderer mesh draw submission on top of `MeshCatalog` handles.

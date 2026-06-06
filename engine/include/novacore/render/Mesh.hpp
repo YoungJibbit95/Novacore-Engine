@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/assets/AssetTypes.hpp"
+#include "novacore/assets/GltfDocument.hpp"
 #include "novacore/assets/GltfMetadata.hpp"
 
 #include <cstdint>
@@ -34,6 +35,7 @@ struct MeshAssetSource final {
     std::uint64_t estimatedBytes = 0;
     std::vector<std::string> tags;
     std::optional<assets::GltfAssetMetadata> metadata;
+    std::optional<assets::GltfSceneInfo> sceneInfo;
 };
 
 [[nodiscard]] bool isRenderableAssetRecord(const assets::AssetRecord& record);
@@ -47,6 +49,10 @@ public:
     [[nodiscard]] MeshHandle registerGltfAsset(
         const assets::AssetRecord& record,
         assets::GltfAssetMetadata metadata);
+    [[nodiscard]] MeshHandle registerImportedGltfAsset(
+        const assets::AssetRecord& record,
+        assets::GltfAssetMetadata metadata,
+        assets::GltfSceneInfo sceneInfo);
 
     [[nodiscard]] const MeshAssetSource* find(MeshHandle handle) const;
     [[nodiscard]] const MeshAssetSource* findByAssetId(std::string_view assetId) const;
@@ -56,7 +62,8 @@ public:
 private:
     [[nodiscard]] MeshHandle registerAssetInternal(
         const assets::AssetRecord& record,
-        std::optional<assets::GltfAssetMetadata> metadata);
+        std::optional<assets::GltfAssetMetadata> metadata,
+        std::optional<assets::GltfSceneInfo> sceneInfo);
 
     std::vector<MeshAssetSource> meshes_;
     std::vector<std::uint32_t> generations_;

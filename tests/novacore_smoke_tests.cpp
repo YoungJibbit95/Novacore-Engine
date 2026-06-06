@@ -2,9 +2,11 @@
 
 #include <cstdlib>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -292,6 +294,54 @@ void testAssetStreamer() {
     expect(streamer.pendingCount() == 3, "asset streamer accepts zone preloads");
 }
 
+void appendU32(std::string& bytes, std::uint32_t value) {
+    bytes.push_back(static_cast<char>(value & 0xFFU));
+    bytes.push_back(static_cast<char>((value >> 8U) & 0xFFU));
+    bytes.push_back(static_cast<char>((value >> 16U) & 0xFFU));
+    bytes.push_back(static_cast<char>((value >> 24U) & 0xFFU));
+}
+
+void appendPaddedChunk(std::string& bytes, std::string chunk, std::uint32_t chunkType, char padding) {
+    while ((chunk.size() % 4U) != 0U) {
+        chunk.push_back(padding);
+    }
+    appendU32(bytes, static_cast<std::uint32_t>(chunk.size()));
+    appendU32(bytes, chunkType);
+    bytes += chunk;
+}
+
+void writeTinyGlb(const std::filesystem::path& path) {
+    constexpr std::uint32_t kGlbMagic = 0x46546C67U;
+    constexpr std::uint32_t kGlbJsonChunk = 0x4E4F534AU;
+    constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
+
+    const std::string json = R"({
+        "asset": { "version": "2.0" },
+        "scene": 0,
+        "scenes": [{ "nodes": [0] }],
+        "nodes": [{ "mesh": 0 }],
+        "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
+        "materials": [{ "name": "mat_smoke" }],
+        "buffers": [{ "byteLength": 4 }],
+        "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 4 }],
+        "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 1, "type": "VEC3" }]
+    })";
+    std::string bin{'\0', '\0', '\0', '\0'};
+
+    std::string chunks;
+    appendPaddedChunk(chunks, json, kGlbJsonChunk, ' ');
+    appendPaddedChunk(chunks, bin, kGlbBinaryChunk, '\0');
+
+    std::string glb;
+    appendU32(glb, kGlbMagic);
+    appendU32(glb, 2);
+    appendU32(glb, static_cast<std::uint32_t>(12U + chunks.size()));
+    glb += chunks;
+
+    std::ofstream file(path, std::ios::binary);
+    file.write(glb.data(), static_cast<std::streamsize>(glb.size()));
+}
+
 void testGltfMetadataAndMeshCatalog() {
     const auto path = std::filesystem::temp_directory_path() / "novacore_smoke_mesh.metadata.json";
     {
@@ -330,13 +380,28 @@ void testGltfMetadataAndMeshCatalog() {
            "metadata path is derived from cooked glTF path");
     expect(novacore::assets::validateGltfAssetMetadata(meshRecord, metadata).empty(), "glTF metadata validates against record");
 
+    const auto glbPath = std::filesystem::temp_directory_path() / "novacore_smoke_mesh.glb";
+    writeTinyGlb(glbPath);
+
+    novacore::assets::GltfSceneInfo sceneInfo;
+    const auto sceneInfoResult = novacore::assets::loadGltfSceneInfo(glbPath, sceneInfo);
+    expect(sceneInfoResult.ok(), "glb scene info loads");
+    expect(sceneInfo.container == novacore::assets::GltfContainerKind::BinaryGlb, "glb scene info records container kind");
+    expect(sceneInfo.meshCount == 1, "glb scene info counts meshes");
+    expect(sceneInfo.nodeCount == 1, "glb scene info counts nodes");
+    expect(sceneInfo.materialCount == 1, "glb scene info counts materials");
+    expect(sceneInfo.accessorCount == 1, "glb scene info counts accessors");
+    expect(sceneInfo.bufferViewCount == 1, "glb scene info counts buffer views");
+    expect(sceneInfo.binaryBytes == 4, "glb scene info records binary chunk bytes");
+
     novacore::render::MeshCatalog meshes;
-    const auto meshHandle = meshes.registerGltfAsset(meshRecord, metadata);
+    const auto meshHandle = meshes.registerImportedGltfAsset(meshRecord, metadata, sceneInfo);
     expect(meshHandle.isValid(), "mesh catalog creates mesh handle");
     expect(meshes.meshCount() == 1, "mesh catalog counts registered mesh");
     const auto* mesh = meshes.find(meshHandle);
     expect(mesh != nullptr && mesh->assetId == meshRecord.id, "mesh handle resolves to asset source");
     expect(mesh != nullptr && mesh->metadata.has_value(), "mesh source keeps metadata");
+    expect(mesh != nullptr && mesh->sceneInfo.has_value(), "mesh source keeps glb scene info");
     expect(meshes.findByAssetId(meshRecord.id) == mesh, "mesh catalog resolves by asset id");
 
     novacore::assets::AssetRecord sceneRecord{};
@@ -353,6 +418,7 @@ void testGltfMetadataAndMeshCatalog() {
     expect(!meshes.registerAsset(materialRecord).isValid(), "mesh catalog rejects non-renderable records");
 
     std::filesystem::remove(path);
+    std::filesystem::remove(glbPath);
 }
 
 } // namespace
