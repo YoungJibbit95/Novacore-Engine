@@ -1,6 +1,7 @@
 #pragma once
 
 #include "novacore/core/ConfigDocument.hpp"
+#include "novacore/math/Types.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -41,6 +42,37 @@ struct GltfSceneInfoLoadResult final {
     }
 };
 
+struct GltfPrimitiveData final {
+    std::size_t meshIndex = 0;
+    std::size_t primitiveIndex = 0;
+    int materialIndex = -1;
+    std::vector<math::Vec3> positions;
+    std::vector<math::Vec3> normals;
+    std::vector<math::Vec2> texcoords;
+    std::vector<std::uint32_t> indices;
+};
+
+struct GltfMeshData final {
+    std::filesystem::path path;
+    GltfSceneInfo sceneInfo;
+    std::vector<GltfPrimitiveData> primitives;
+
+    [[nodiscard]] std::size_t primitiveCount() const {
+        return primitives.size();
+    }
+
+    [[nodiscard]] std::size_t vertexCount() const;
+    [[nodiscard]] std::size_t indexCount() const;
+};
+
+struct GltfMeshDataLoadResult final {
+    std::vector<std::string> errors;
+
+    [[nodiscard]] bool ok() const {
+        return errors.empty();
+    }
+};
+
 [[nodiscard]] std::string_view gltfContainerKindName(GltfContainerKind kind);
 
 [[nodiscard]] GltfSceneInfoLoadResult parseGltfSceneInfoFromJson(
@@ -50,5 +82,9 @@ struct GltfSceneInfoLoadResult final {
 [[nodiscard]] GltfSceneInfoLoadResult loadGltfSceneInfo(
     const std::filesystem::path& path,
     GltfSceneInfo& outInfo);
+
+[[nodiscard]] GltfMeshDataLoadResult loadGltfMeshData(
+    const std::filesystem::path& path,
+    GltfMeshData& outMeshData);
 
 } // namespace novacore::assets

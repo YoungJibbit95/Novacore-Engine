@@ -3,10 +3,10 @@
 #include "novacore/io/FileSystem.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -19,6 +19,38 @@ namespace {
 constexpr std::uint32_t kGlbMagic = 0x46546C67U;
 constexpr std::uint32_t kGlbJsonChunk = 0x4E4F534AU;
 constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
+
+constexpr int kGltfComponentByte = 5120;
+constexpr int kGltfComponentUnsignedByte = 5121;
+constexpr int kGltfComponentShort = 5122;
+constexpr int kGltfComponentUnsignedShort = 5123;
+constexpr int kGltfComponentUnsignedInt = 5125;
+constexpr int kGltfComponentFloat = 5126;
+
+struct GltfPayload final {
+    std::filesystem::path path;
+    GltfContainerKind container = GltfContainerKind::Text;
+    std::uint32_t glbVersion = 0;
+    std::uint64_t declaredLengthBytes = 0;
+    std::string json;
+    std::string binary;
+};
+
+struct BufferViewDesc final {
+    std::size_t bufferIndex = 0;
+    std::size_t byteOffset = 0;
+    std::size_t byteLength = 0;
+    std::size_t byteStride = 0;
+};
+
+struct AccessorDesc final {
+    std::size_t bufferViewIndex = 0;
+    std::size_t byteOffset = 0;
+    int componentType = 0;
+    std::size_t count = 0;
+    std::string type;
+    bool normalized = false;
+};
 
 [[nodiscard]] std::string lowercaseExtension(const std::filesystem::path& path) {
     auto extension = path.extension().string();
@@ -36,11 +68,33 @@ constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
         (static_cast<std::uint32_t>(data[3]) << 24U);
 }
 
-[[nodiscard]] std::size_t countArrayEntries(
+[[nodiscard]] std::uint16_t readU16(std::string_view bytes, std::size_t offset) {
+    const auto* data = reinterpret_cast<const unsigned char*>(bytes.data() + offset);
+    return static_cast<std::uint16_t>(data[0]) |
+        static_cast<std::uint16_t>(static_cast<std::uint16_t>(data[1]) << 8U);
+}
+
+[[nodiscard]] float readF32(std::string_view bytes, std::size_t offset) {
+    float value = 0.0F;
+    std::memcpy(&value, bytes.data() + offset, sizeof(float));
+    return value;
+}
+
+[[nodiscard]] std::optional<std::size_t> sizeValue(
+    const core::ConfigDocument& document,
+    const std::string& key) {
+    const auto value = document.intValue(key);
+    if (!value.has_value() || *value < 0) {
+        return std::nullopt;
+    }
+    return static_cast<std::size_t>(*value);
+}
+
+[[nodiscard]] std::vector<std::size_t> collectArrayIndices(
     const core::ConfigDocument& document,
     std::string_view prefix) {
     const std::string keyPrefix = std::string(prefix) + ".";
-    std::unordered_set<std::size_t> indices;
+    std::unordered_set<std::size_t> uniqueIndices;
 
     for (const auto& [key, _] : document.values()) {
         if (!key.starts_with(keyPrefix)) {
@@ -57,25 +111,38 @@ constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
             index = (index * 10U) + static_cast<std::size_t>(key[cursor] - '0');
             ++cursor;
         }
-        indices.insert(index);
+        uniqueIndices.insert(index);
     }
 
-    return indices.size();
+    std::vector<std::size_t> indices(uniqueIndices.begin(), uniqueIndices.end());
+    std::ranges::sort(indices);
+    return indices;
 }
 
-[[nodiscard]] GltfSceneInfoLoadResult fillSceneInfoFromJson(
+[[nodiscard]] std::size_t countArrayEntries(
+    const core::ConfigDocument& document,
+    std::string_view prefix) {
+    return collectArrayIndices(document, prefix).size();
+}
+
+[[nodiscard]] GltfSceneInfoLoadResult parseDocument(
     std::string_view json,
-    GltfSceneInfo& info) {
-    core::ConfigDocument document;
-    const auto parseResult = core::parseJsonConfig(json, document);
-    if (!parseResult.ok()) {
-        GltfSceneInfoLoadResult result;
-        for (const auto& error : parseResult.errors) {
-            result.errors.push_back(error.message + " at offset " + std::to_string(error.offset));
-        }
-        return result;
+    core::ConfigDocument& outDocument) {
+    const auto parseResult = core::parseJsonConfig(json, outDocument);
+    if (parseResult.ok()) {
+        return {};
     }
 
+    GltfSceneInfoLoadResult result;
+    for (const auto& error : parseResult.errors) {
+        result.errors.push_back(error.message + " at offset " + std::to_string(error.offset));
+    }
+    return result;
+}
+
+[[nodiscard]] GltfSceneInfoLoadResult fillSceneInfoFromDocument(
+    const core::ConfigDocument& document,
+    GltfSceneInfo& info) {
     const auto version = document.stringOr("asset.version", "");
     if (version.empty()) {
         return GltfSceneInfoLoadResult{{"glTF document is missing asset.version"}};
@@ -98,10 +165,31 @@ constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
     return {};
 }
 
-[[nodiscard]] GltfSceneInfoLoadResult parseGlb(
+[[nodiscard]] GltfSceneInfoLoadResult fillSceneInfoFromPayload(
+    const GltfPayload& payload,
+    const core::ConfigDocument& document,
+    GltfSceneInfo& outInfo) {
+    GltfSceneInfo info{};
+    info.path = payload.path;
+    info.container = payload.container;
+    info.glbVersion = payload.glbVersion;
+    info.declaredLengthBytes = payload.declaredLengthBytes;
+    info.jsonBytes = payload.json.size();
+    info.binaryBytes = payload.binary.size();
+
+    const auto result = fillSceneInfoFromDocument(document, info);
+    if (!result.ok()) {
+        return result;
+    }
+
+    outInfo = std::move(info);
+    return {};
+}
+
+[[nodiscard]] GltfSceneInfoLoadResult parsePayloadFromGlb(
     const std::filesystem::path& path,
     std::string_view bytes,
-    GltfSceneInfo& outInfo) {
+    GltfPayload& outPayload) {
     if (bytes.size() < 20) {
         return GltfSceneInfoLoadResult{{"GLB file is too small: " + path.string()}};
     }
@@ -119,11 +207,13 @@ constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
         return GltfSceneInfoLoadResult{{"GLB declared length exceeds file size: " + path.string()}};
     }
 
-    std::size_t offset = 12;
-    bool sawJson = false;
-    std::string_view json;
-    std::uint64_t binaryBytes = 0;
+    GltfPayload payload{};
+    payload.path = path;
+    payload.container = GltfContainerKind::BinaryGlb;
+    payload.glbVersion = version;
+    payload.declaredLengthBytes = declaredLength;
 
+    std::size_t offset = 12;
     while (offset + 8 <= declaredLength) {
         const std::uint32_t chunkLength = readU32(bytes, offset);
         const std::uint32_t chunkType = readU32(bytes, offset + 4);
@@ -135,37 +225,342 @@ constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
 
         const std::string_view chunk = bytes.substr(offset, chunkLength);
         if (chunkType == kGlbJsonChunk) {
-            sawJson = true;
-            json = chunk;
+            payload.json.assign(chunk);
         } else if (chunkType == kGlbBinaryChunk) {
-            binaryBytes += chunkLength;
+            payload.binary.append(chunk);
         }
 
         offset += chunkLength;
     }
 
-    if (!sawJson) {
+    if (payload.json.empty()) {
         return GltfSceneInfoLoadResult{{"GLB file is missing JSON chunk: " + path.string()}};
     }
 
-    GltfSceneInfo info{};
-    info.path = path;
-    info.container = GltfContainerKind::BinaryGlb;
-    info.glbVersion = version;
-    info.declaredLengthBytes = declaredLength;
-    info.jsonBytes = json.size();
-    info.binaryBytes = binaryBytes;
-
-    const auto result = fillSceneInfoFromJson(json, info);
-    if (!result.ok()) {
-        return result;
-    }
-
-    outInfo = std::move(info);
+    outPayload = std::move(payload);
     return {};
 }
 
+[[nodiscard]] GltfSceneInfoLoadResult loadPayload(
+    const std::filesystem::path& path,
+    GltfPayload& outPayload) {
+    const auto file = io::readTextFile(path);
+    if (!file.has_value()) {
+        return GltfSceneInfoLoadResult{{"Could not read glTF file: " + path.string()}};
+    }
+
+    const auto extension = lowercaseExtension(path);
+    if (extension == ".glb") {
+        return parsePayloadFromGlb(path, file->text, outPayload);
+    }
+    if (extension == ".gltf") {
+        GltfPayload payload{};
+        payload.path = path;
+        payload.container = GltfContainerKind::Text;
+        payload.json = file->text;
+        outPayload = std::move(payload);
+        return {};
+    }
+
+    return GltfSceneInfoLoadResult{{"Unsupported glTF file extension: " + path.string()}};
+}
+
+[[nodiscard]] GltfMeshDataLoadResult meshError(std::string message) {
+    return GltfMeshDataLoadResult{{std::move(message)}};
+}
+
+[[nodiscard]] GltfMeshDataLoadResult toMeshResult(const GltfSceneInfoLoadResult& result) {
+    return GltfMeshDataLoadResult{result.errors};
+}
+
+[[nodiscard]] std::optional<BufferViewDesc> readBufferView(
+    const core::ConfigDocument& document,
+    std::size_t index,
+    std::vector<std::string>& errors) {
+    const std::string prefix = "bufferViews." + std::to_string(index);
+    const auto buffer = sizeValue(document, prefix + ".buffer");
+    const auto byteLength = sizeValue(document, prefix + ".byteLength");
+
+    if (!buffer.has_value() || !byteLength.has_value()) {
+        errors.push_back("bufferView " + std::to_string(index) + " is missing buffer or byteLength");
+        return std::nullopt;
+    }
+
+    BufferViewDesc desc{};
+    desc.bufferIndex = *buffer;
+    desc.byteLength = *byteLength;
+    desc.byteOffset = sizeValue(document, prefix + ".byteOffset").value_or(0);
+    desc.byteStride = sizeValue(document, prefix + ".byteStride").value_or(0);
+    return desc;
+}
+
+[[nodiscard]] std::optional<AccessorDesc> readAccessor(
+    const core::ConfigDocument& document,
+    std::size_t index,
+    std::vector<std::string>& errors) {
+    const std::string prefix = "accessors." + std::to_string(index);
+    const auto bufferView = sizeValue(document, prefix + ".bufferView");
+    const auto componentType = document.intValue(prefix + ".componentType");
+    const auto count = sizeValue(document, prefix + ".count");
+    const auto type = document.stringValue(prefix + ".type");
+
+    if (!bufferView.has_value() || !componentType.has_value() || !count.has_value() || !type.has_value()) {
+        errors.push_back("accessor " + std::to_string(index) + " is missing bufferView, componentType, count, or type");
+        return std::nullopt;
+    }
+
+    AccessorDesc desc{};
+    desc.bufferViewIndex = *bufferView;
+    desc.byteOffset = sizeValue(document, prefix + ".byteOffset").value_or(0);
+    desc.componentType = *componentType;
+    desc.count = *count;
+    desc.type = *type;
+    desc.normalized = document.boolOr(prefix + ".normalized", false);
+    return desc;
+}
+
+[[nodiscard]] std::size_t componentByteSize(int componentType) {
+    switch (componentType) {
+    case kGltfComponentByte:
+    case kGltfComponentUnsignedByte:
+        return 1;
+    case kGltfComponentShort:
+    case kGltfComponentUnsignedShort:
+        return 2;
+    case kGltfComponentUnsignedInt:
+    case kGltfComponentFloat:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+[[nodiscard]] std::size_t componentCountForType(std::string_view type) {
+    if (type == "SCALAR") {
+        return 1;
+    }
+    if (type == "VEC2") {
+        return 2;
+    }
+    if (type == "VEC3") {
+        return 3;
+    }
+    if (type == "VEC4") {
+        return 4;
+    }
+    if (type == "MAT4") {
+        return 16;
+    }
+    return 0;
+}
+
+[[nodiscard]] std::optional<std::size_t> accessorElementOffset(
+    const AccessorDesc& accessor,
+    const BufferViewDesc& view,
+    std::size_t elementIndex,
+    std::size_t componentCount,
+    std::size_t componentSize,
+    std::size_t binarySize,
+    std::vector<std::string>& errors,
+    std::string_view label) {
+    if (view.bufferIndex != 0) {
+        errors.push_back(std::string(label) + " references unsupported non-zero buffer index");
+        return std::nullopt;
+    }
+
+    const std::size_t packedStride = componentCount * componentSize;
+    const std::size_t stride = view.byteStride == 0 ? packedStride : view.byteStride;
+    if (stride < packedStride) {
+        errors.push_back(std::string(label) + " has byteStride smaller than packed accessor size");
+        return std::nullopt;
+    }
+
+    const std::size_t offset = view.byteOffset + accessor.byteOffset + (elementIndex * stride);
+    if (offset + packedStride > binarySize) {
+        errors.push_back(std::string(label) + " reads past binary buffer");
+        return std::nullopt;
+    }
+    if ((offset - view.byteOffset) + packedStride > view.byteLength) {
+        errors.push_back(std::string(label) + " reads past bufferView byteLength");
+        return std::nullopt;
+    }
+
+    return offset;
+}
+
+bool readFloatVectors(
+    const core::ConfigDocument& document,
+    std::string_view binary,
+    std::size_t accessorIndex,
+    std::string_view requiredType,
+    std::vector<math::Vec3>& outValues,
+    std::vector<std::string>& errors,
+    std::string_view label) {
+    const auto accessor = readAccessor(document, accessorIndex, errors);
+    if (!accessor.has_value()) {
+        return false;
+    }
+    if (accessor->componentType != kGltfComponentFloat || accessor->type != requiredType) {
+        errors.push_back(std::string(label) + " must be FLOAT " + std::string(requiredType));
+        return false;
+    }
+
+    const auto view = readBufferView(document, accessor->bufferViewIndex, errors);
+    if (!view.has_value()) {
+        return false;
+    }
+
+    const std::size_t componentCount = componentCountForType(accessor->type);
+    const std::size_t componentSize = componentByteSize(accessor->componentType);
+    outValues.clear();
+    outValues.reserve(accessor->count);
+
+    for (std::size_t index = 0; index < accessor->count; ++index) {
+        const auto offset = accessorElementOffset(
+            *accessor,
+            *view,
+            index,
+            componentCount,
+            componentSize,
+            binary.size(),
+            errors,
+            label);
+        if (!offset.has_value()) {
+            return false;
+        }
+
+        outValues.push_back(math::Vec3{
+            readF32(binary, *offset),
+            readF32(binary, *offset + 4),
+            componentCount >= 3 ? readF32(binary, *offset + 8) : 0.0F,
+        });
+    }
+
+    return true;
+}
+
+bool readTexcoords(
+    const core::ConfigDocument& document,
+    std::string_view binary,
+    std::size_t accessorIndex,
+    std::vector<math::Vec2>& outValues,
+    std::vector<std::string>& errors) {
+    const auto accessor = readAccessor(document, accessorIndex, errors);
+    if (!accessor.has_value()) {
+        return false;
+    }
+    if (accessor->componentType != kGltfComponentFloat || accessor->type != "VEC2") {
+        errors.push_back("TEXCOORD_0 accessor must be FLOAT VEC2");
+        return false;
+    }
+
+    const auto view = readBufferView(document, accessor->bufferViewIndex, errors);
+    if (!view.has_value()) {
+        return false;
+    }
+
+    const std::size_t componentCount = componentCountForType(accessor->type);
+    const std::size_t componentSize = componentByteSize(accessor->componentType);
+    outValues.clear();
+    outValues.reserve(accessor->count);
+
+    for (std::size_t index = 0; index < accessor->count; ++index) {
+        const auto offset = accessorElementOffset(
+            *accessor,
+            *view,
+            index,
+            componentCount,
+            componentSize,
+            binary.size(),
+            errors,
+            "TEXCOORD_0 accessor");
+        if (!offset.has_value()) {
+            return false;
+        }
+
+        outValues.push_back(math::Vec2{
+            readF32(binary, *offset),
+            readF32(binary, *offset + 4),
+        });
+    }
+
+    return true;
+}
+
+bool readIndices(
+    const core::ConfigDocument& document,
+    std::string_view binary,
+    std::size_t accessorIndex,
+    std::vector<std::uint32_t>& outIndices,
+    std::vector<std::string>& errors) {
+    const auto accessor = readAccessor(document, accessorIndex, errors);
+    if (!accessor.has_value()) {
+        return false;
+    }
+    if (accessor->type != "SCALAR") {
+        errors.push_back("index accessor must be SCALAR");
+        return false;
+    }
+
+    const auto componentSize = componentByteSize(accessor->componentType);
+    if (componentSize == 0 ||
+        (accessor->componentType != kGltfComponentUnsignedByte &&
+         accessor->componentType != kGltfComponentUnsignedShort &&
+         accessor->componentType != kGltfComponentUnsignedInt)) {
+        errors.push_back("index accessor must use unsigned byte, unsigned short, or unsigned int components");
+        return false;
+    }
+
+    const auto view = readBufferView(document, accessor->bufferViewIndex, errors);
+    if (!view.has_value()) {
+        return false;
+    }
+
+    outIndices.clear();
+    outIndices.reserve(accessor->count);
+    for (std::size_t index = 0; index < accessor->count; ++index) {
+        const auto offset = accessorElementOffset(
+            *accessor,
+            *view,
+            index,
+            1,
+            componentSize,
+            binary.size(),
+            errors,
+            "index accessor");
+        if (!offset.has_value()) {
+            return false;
+        }
+
+        if (accessor->componentType == kGltfComponentUnsignedByte) {
+            outIndices.push_back(static_cast<unsigned char>(binary[*offset]));
+        } else if (accessor->componentType == kGltfComponentUnsignedShort) {
+            outIndices.push_back(readU16(binary, *offset));
+        } else {
+            outIndices.push_back(readU32(binary, *offset));
+        }
+    }
+
+    return true;
+}
+
 } // namespace
+
+std::size_t GltfMeshData::vertexCount() const {
+    std::size_t total = 0;
+    for (const auto& primitive : primitives) {
+        total += primitive.positions.size();
+    }
+    return total;
+}
+
+std::size_t GltfMeshData::indexCount() const {
+    std::size_t total = 0;
+    for (const auto& primitive : primitives) {
+        total += primitive.indices.size();
+    }
+    return total;
+}
 
 std::string_view gltfContainerKindName(GltfContainerKind kind) {
     switch (kind) {
@@ -180,41 +575,137 @@ std::string_view gltfContainerKindName(GltfContainerKind kind) {
 GltfSceneInfoLoadResult parseGltfSceneInfoFromJson(
     std::string_view json,
     GltfSceneInfo& outInfo) {
-    GltfSceneInfo info{};
-    info.container = GltfContainerKind::Text;
-    info.jsonBytes = json.size();
-
-    const auto result = fillSceneInfoFromJson(json, info);
-    if (!result.ok()) {
-        return result;
+    core::ConfigDocument document;
+    const auto parseResult = parseDocument(json, document);
+    if (!parseResult.ok()) {
+        return parseResult;
     }
 
-    outInfo = std::move(info);
-    return {};
+    GltfPayload payload{};
+    payload.container = GltfContainerKind::Text;
+    payload.json = json;
+    return fillSceneInfoFromPayload(payload, document, outInfo);
 }
 
 GltfSceneInfoLoadResult loadGltfSceneInfo(
     const std::filesystem::path& path,
     GltfSceneInfo& outInfo) {
-    const auto file = io::readTextFile(path);
-    if (!file.has_value()) {
-        return GltfSceneInfoLoadResult{{"Could not read glTF file: " + path.string()}};
+    GltfPayload payload;
+    const auto payloadResult = loadPayload(path, payload);
+    if (!payloadResult.ok()) {
+        return payloadResult;
     }
 
-    const auto extension = lowercaseExtension(path);
-    if (extension == ".glb") {
-        return parseGlb(path, file->text, outInfo);
+    core::ConfigDocument document;
+    const auto parseResult = parseDocument(payload.json, document);
+    if (!parseResult.ok()) {
+        return parseResult;
     }
-    if (extension == ".gltf") {
-        auto result = parseGltfSceneInfoFromJson(file->text, outInfo);
-        if (result.ok()) {
-            outInfo.path = path;
-            outInfo.container = GltfContainerKind::Text;
+
+    return fillSceneInfoFromPayload(payload, document, outInfo);
+}
+
+GltfMeshDataLoadResult loadGltfMeshData(
+    const std::filesystem::path& path,
+    GltfMeshData& outMeshData) {
+    GltfPayload payload;
+    const auto payloadResult = loadPayload(path, payload);
+    if (!payloadResult.ok()) {
+        return toMeshResult(payloadResult);
+    }
+    if (payload.container != GltfContainerKind::BinaryGlb) {
+        return meshError("CPU mesh import currently requires a binary GLB file: " + path.string());
+    }
+    if (payload.binary.empty()) {
+        return meshError("GLB file has no binary buffer chunk: " + path.string());
+    }
+
+    core::ConfigDocument document;
+    const auto parseResult = parseDocument(payload.json, document);
+    if (!parseResult.ok()) {
+        return toMeshResult(parseResult);
+    }
+
+    GltfSceneInfo sceneInfo;
+    const auto sceneInfoResult = fillSceneInfoFromPayload(payload, document, sceneInfo);
+    if (!sceneInfoResult.ok()) {
+        return toMeshResult(sceneInfoResult);
+    }
+
+    GltfMeshData meshData{};
+    meshData.path = path;
+    meshData.sceneInfo = std::move(sceneInfo);
+    std::vector<std::string> errors;
+
+    for (const auto meshIndex : collectArrayIndices(document, "meshes")) {
+        const std::string primitivePrefix = "meshes." + std::to_string(meshIndex) + ".primitives";
+        for (const auto primitiveIndex : collectArrayIndices(document, primitivePrefix)) {
+            const std::string base = primitivePrefix + "." + std::to_string(primitiveIndex);
+            const auto positionAccessor = sizeValue(document, base + ".attributes.POSITION");
+            if (!positionAccessor.has_value()) {
+                errors.push_back("primitive " + std::to_string(meshIndex) + "." +
+                    std::to_string(primitiveIndex) + " is missing POSITION");
+                continue;
+            }
+
+            GltfPrimitiveData primitive{};
+            primitive.meshIndex = meshIndex;
+            primitive.primitiveIndex = primitiveIndex;
+            primitive.materialIndex = document.intOr(base + ".material", -1);
+
+            if (!readFloatVectors(
+                    document,
+                    payload.binary,
+                    *positionAccessor,
+                    "VEC3",
+                    primitive.positions,
+                    errors,
+                    "POSITION accessor")) {
+                continue;
+            }
+
+            if (const auto normalAccessor = sizeValue(document, base + ".attributes.NORMAL");
+                normalAccessor.has_value()) {
+                (void)readFloatVectors(
+                    document,
+                    payload.binary,
+                    *normalAccessor,
+                    "VEC3",
+                    primitive.normals,
+                    errors,
+                    "NORMAL accessor");
+            }
+
+            if (const auto texcoordAccessor = sizeValue(document, base + ".attributes.TEXCOORD_0");
+                texcoordAccessor.has_value()) {
+                (void)readTexcoords(document, payload.binary, *texcoordAccessor, primitive.texcoords, errors);
+            }
+
+            if (const auto indexAccessor = sizeValue(document, base + ".indices");
+                indexAccessor.has_value()) {
+                if (!readIndices(document, payload.binary, *indexAccessor, primitive.indices, errors)) {
+                    continue;
+                }
+            } else {
+                primitive.indices.reserve(primitive.positions.size());
+                for (std::size_t vertexIndex = 0; vertexIndex < primitive.positions.size(); ++vertexIndex) {
+                    primitive.indices.push_back(static_cast<std::uint32_t>(vertexIndex));
+                }
+            }
+
+            meshData.primitives.push_back(std::move(primitive));
         }
-        return result;
     }
 
-    return GltfSceneInfoLoadResult{{"Unsupported glTF file extension: " + path.string()}};
+    if (!errors.empty()) {
+        return GltfMeshDataLoadResult{std::move(errors)};
+    }
+    if (meshData.primitives.empty()) {
+        return meshError("glTF mesh import produced no primitives: " + path.string());
+    }
+
+    outMeshData = std::move(meshData);
+    return {};
 }
 
 } // namespace novacore::assets

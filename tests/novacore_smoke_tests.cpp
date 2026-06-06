@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -301,6 +302,17 @@ void appendU32(std::string& bytes, std::uint32_t value) {
     bytes.push_back(static_cast<char>((value >> 24U) & 0xFFU));
 }
 
+void appendU16(std::string& bytes, std::uint16_t value) {
+    bytes.push_back(static_cast<char>(value & 0xFFU));
+    bytes.push_back(static_cast<char>((value >> 8U) & 0xFFU));
+}
+
+void appendF32(std::string& bytes, float value) {
+    char raw[sizeof(float)]{};
+    std::memcpy(raw, &value, sizeof(float));
+    bytes.append(raw, sizeof(float));
+}
+
 void appendPaddedChunk(std::string& bytes, std::string chunk, std::uint32_t chunkType, char padding) {
     while ((chunk.size() % 4U) != 0U) {
         chunk.push_back(padding);
@@ -322,11 +334,29 @@ void writeTinyGlb(const std::filesystem::path& path) {
         "nodes": [{ "mesh": 0 }],
         "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
         "materials": [{ "name": "mat_smoke" }],
-        "buffers": [{ "byteLength": 4 }],
-        "bufferViews": [{ "buffer": 0, "byteOffset": 0, "byteLength": 4 }],
-        "accessors": [{ "bufferView": 0, "componentType": 5126, "count": 1, "type": "VEC3" }]
+        "buffers": [{ "byteLength": 42 }],
+        "bufferViews": [
+            { "buffer": 0, "byteOffset": 0, "byteLength": 36 },
+            { "buffer": 0, "byteOffset": 36, "byteLength": 6 }
+        ],
+        "accessors": [
+            { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3" },
+            { "bufferView": 1, "componentType": 5123, "count": 3, "type": "SCALAR" }
+        ]
     })";
-    std::string bin{'\0', '\0', '\0', '\0'};
+    std::string bin;
+    appendF32(bin, 0.0F);
+    appendF32(bin, 0.0F);
+    appendF32(bin, 0.0F);
+    appendF32(bin, 1.0F);
+    appendF32(bin, 0.0F);
+    appendF32(bin, 0.0F);
+    appendF32(bin, 0.0F);
+    appendF32(bin, 1.0F);
+    appendF32(bin, 0.0F);
+    appendU16(bin, 0);
+    appendU16(bin, 1);
+    appendU16(bin, 2);
 
     std::string chunks;
     appendPaddedChunk(chunks, json, kGlbJsonChunk, ' ');
@@ -390,18 +420,34 @@ void testGltfMetadataAndMeshCatalog() {
     expect(sceneInfo.meshCount == 1, "glb scene info counts meshes");
     expect(sceneInfo.nodeCount == 1, "glb scene info counts nodes");
     expect(sceneInfo.materialCount == 1, "glb scene info counts materials");
-    expect(sceneInfo.accessorCount == 1, "glb scene info counts accessors");
-    expect(sceneInfo.bufferViewCount == 1, "glb scene info counts buffer views");
-    expect(sceneInfo.binaryBytes == 4, "glb scene info records binary chunk bytes");
+    expect(sceneInfo.accessorCount == 2, "glb scene info counts accessors");
+    expect(sceneInfo.bufferViewCount == 2, "glb scene info counts buffer views");
+    expect(sceneInfo.binaryBytes == 44, "glb scene info records padded binary chunk bytes");
+
+    novacore::assets::GltfMeshData meshData;
+    const auto meshDataResult = novacore::assets::loadGltfMeshData(glbPath, meshData);
+    expect(meshDataResult.ok(), "glb mesh data imports");
+    expect(meshData.primitiveCount() == 1, "glb mesh data counts primitives");
+    expect(meshData.vertexCount() == 3, "glb mesh data counts vertices");
+    expect(meshData.indexCount() == 3, "glb mesh data counts indices");
+    expect(
+        !meshData.primitives.empty() && meshData.primitives[0].positions.size() > 1 &&
+            meshData.primitives[0].positions[1].x == 1.0F,
+        "glb mesh data reads position floats");
+    expect(
+        !meshData.primitives.empty() && meshData.primitives[0].indices.size() > 2 &&
+            meshData.primitives[0].indices[2] == 2,
+        "glb mesh data reads unsigned short indices");
 
     novacore::render::MeshCatalog meshes;
-    const auto meshHandle = meshes.registerImportedGltfAsset(meshRecord, metadata, sceneInfo);
+    const auto meshHandle = meshes.registerImportedGltfAsset(meshRecord, metadata, meshData);
     expect(meshHandle.isValid(), "mesh catalog creates mesh handle");
     expect(meshes.meshCount() == 1, "mesh catalog counts registered mesh");
     const auto* mesh = meshes.find(meshHandle);
     expect(mesh != nullptr && mesh->assetId == meshRecord.id, "mesh handle resolves to asset source");
     expect(mesh != nullptr && mesh->metadata.has_value(), "mesh source keeps metadata");
     expect(mesh != nullptr && mesh->sceneInfo.has_value(), "mesh source keeps glb scene info");
+    expect(mesh != nullptr && mesh->meshData.has_value(), "mesh source keeps glb mesh data");
     expect(meshes.findByAssetId(meshRecord.id) == mesh, "mesh catalog resolves by asset id");
 
     novacore::assets::AssetRecord sceneRecord{};

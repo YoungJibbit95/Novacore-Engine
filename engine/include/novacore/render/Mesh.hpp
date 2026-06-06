@@ -36,6 +36,7 @@ struct MeshAssetSource final {
     std::vector<std::string> tags;
     std::optional<assets::GltfAssetMetadata> metadata;
     std::optional<assets::GltfSceneInfo> sceneInfo;
+    std::optional<assets::GltfMeshData> meshData;
 };
 
 [[nodiscard]] bool isRenderableAssetRecord(const assets::AssetRecord& record);
@@ -53,6 +54,10 @@ public:
         const assets::AssetRecord& record,
         assets::GltfAssetMetadata metadata,
         assets::GltfSceneInfo sceneInfo);
+    [[nodiscard]] MeshHandle registerImportedGltfAsset(
+        const assets::AssetRecord& record,
+        assets::GltfAssetMetadata metadata,
+        assets::GltfMeshData meshData);
 
     [[nodiscard]] const MeshAssetSource* find(MeshHandle handle) const;
     [[nodiscard]] const MeshAssetSource* findByAssetId(std::string_view assetId) const;
@@ -63,7 +68,8 @@ private:
     [[nodiscard]] MeshHandle registerAssetInternal(
         const assets::AssetRecord& record,
         std::optional<assets::GltfAssetMetadata> metadata,
-        std::optional<assets::GltfSceneInfo> sceneInfo);
+        std::optional<assets::GltfSceneInfo> sceneInfo,
+        std::optional<assets::GltfMeshData> meshData);
 
     std::vector<MeshAssetSource> meshes_;
     std::vector<std::uint32_t> generations_;

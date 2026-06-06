@@ -51,7 +51,8 @@ Implemented now:
 - `novacore::assets::AssetStreamer` keeps a small priority queue for future async loads and streaming-zone preloads.
 - `novacore::assets::GltfAssetMetadata` loads generated sidecar metadata for glTF exports, including source/export paths, sockets, collision naming, LOD names, scale, axes, and license.
 - `novacore::assets::GltfSceneInfo` loads text glTF and GLB v2 scene metadata, including container type, JSON/BIN byte sizes, and mesh/node/material/accessor/buffer counts.
-- `novacore::render::MeshCatalog` turns mesh/scene `AssetRecord`s into stable placeholder `MeshHandle`s and can attach both generated sidecar metadata and parsed glTF scene info before CPU vertex extraction and GPU upload exist.
+- `novacore::assets::GltfMeshData` extracts first CPU mesh data from GLB accessors and buffer views, including positions, optional normals/UVs, indices, primitive counts, vertex counts, and index counts.
+- `novacore::render::MeshCatalog` turns mesh/scene `AssetRecord`s into stable placeholder `MeshHandle`s and can attach generated sidecar metadata, parsed glTF scene info, and CPU mesh data before GPU upload exists.
 
 Expected manifest shape:
 
@@ -119,7 +120,7 @@ Current streaming queue behavior:
 - Older requests win ties.
 - Zone preloads can enqueue groups of asset ids.
 - Actual async IO, glTF parse, GPU upload, residency, and unload are future renderer/asset-manager work.
-- Current glTF handling validates metadata, parses GLB/text glTF scene structure, and creates mesh handles; it does not extract vertex/index buffers or upload GPU resources yet.
+- Current glTF handling validates metadata, parses GLB/text glTF scene structure, extracts GLB CPU vertex/index data, and creates mesh handles; it does not upload GPU resources yet.
 
 ## Acceptance
 
@@ -127,11 +128,12 @@ Pipeline is acceptable when:
 
 - glTF metadata can be loaded and validated.
 - GLB/text glTF scene info can be loaded and attached to mesh catalog entries.
+- GLB CPU mesh data can be extracted and attached to mesh catalog entries.
 - Mesh/scene records can become stable renderer mesh handles.
 - Missing assets fail loudly but gracefully.
 - Data configs hot-reload.
 - Stream zones are represented in data even before full large maps exist.
-- Smoke tests cover manifest loading, registry lookup, tag filtering, streamable filtering, request coalescing, priority popping, glTF metadata, GLB scene-info loading, and mesh-handle registration.
+- Smoke tests cover manifest loading, registry lookup, tag filtering, streamable filtering, request coalescing, priority popping, glTF metadata, GLB scene-info loading, GLB mesh extraction, and mesh-handle registration.
 
 
 

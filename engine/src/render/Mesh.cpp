@@ -53,20 +53,32 @@ void MeshCatalog::clear() {
 }
 
 MeshHandle MeshCatalog::registerAsset(const assets::AssetRecord& record) {
-    return registerAssetInternal(record, std::nullopt, std::nullopt);
+    return registerAssetInternal(record, std::nullopt, std::nullopt, std::nullopt);
 }
 
 MeshHandle MeshCatalog::registerGltfAsset(
     const assets::AssetRecord& record,
     assets::GltfAssetMetadata metadata) {
-    return registerAssetInternal(record, std::move(metadata), std::nullopt);
+    return registerAssetInternal(record, std::move(metadata), std::nullopt, std::nullopt);
 }
 
 MeshHandle MeshCatalog::registerImportedGltfAsset(
     const assets::AssetRecord& record,
     assets::GltfAssetMetadata metadata,
     assets::GltfSceneInfo sceneInfo) {
-    return registerAssetInternal(record, std::move(metadata), std::move(sceneInfo));
+    return registerAssetInternal(record, std::move(metadata), std::move(sceneInfo), std::nullopt);
+}
+
+MeshHandle MeshCatalog::registerImportedGltfAsset(
+    const assets::AssetRecord& record,
+    assets::GltfAssetMetadata metadata,
+    assets::GltfMeshData meshData) {
+    assets::GltfSceneInfo sceneInfo = meshData.sceneInfo;
+    return registerAssetInternal(
+        record,
+        std::move(metadata),
+        std::move(sceneInfo),
+        std::move(meshData));
 }
 
 const MeshAssetSource* MeshCatalog::find(MeshHandle handle) const {
@@ -98,7 +110,8 @@ std::size_t MeshCatalog::meshCount() const {
 MeshHandle MeshCatalog::registerAssetInternal(
     const assets::AssetRecord& record,
     std::optional<assets::GltfAssetMetadata> metadata,
-    std::optional<assets::GltfSceneInfo> sceneInfo) {
+    std::optional<assets::GltfSceneInfo> sceneInfo,
+    std::optional<assets::GltfMeshData> meshData) {
     if (!isRenderableAssetRecord(record)) {
         return {};
     }
@@ -122,6 +135,7 @@ MeshHandle MeshCatalog::registerAssetInternal(
         record.tags,
         std::move(metadata),
         std::move(sceneInfo),
+        std::move(meshData),
     });
     generations_.push_back(kInitialGeneration);
     handlesByAssetId_.emplace(record.id, handle);
