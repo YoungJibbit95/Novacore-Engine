@@ -2,112 +2,251 @@
 
 ## ECS Goal
 
-The ECS is custom and data-oriented enough for replication, streaming, and high-frequency gameplay. It should avoid actor-style inheritance and keep entity identity stable across systems.
+NovaCore uses a custom Entity Component System designed for deterministic simulation, multiplayer replication, streaming, and cache-efficient execution.
+
+The ECS is intentionally data-oriented. Entities are lightweight identifiers, components contain only data, and systems own all behavior. Inheritance between gameplay objects is avoided in favor of composition.
+
+The design must scale from small gameplay scenes to large streamed worlds while remaining deterministic across client and server simulation.
+
+## Core Principles
+
+* Entities are identifiers only.
+* Components contain data only.
+* Systems contain behavior.
+* Rendering, networking, and physics consume ECS state but do not own it.
+* Components are stored independently of one another.
+* High-frequency systems iterate contiguous component memory whenever practical.
+* Entity lifetime is explicit and deterministic.
 
 ## Entity Identity
 
-`EntityId` contains:
+Every entity is represented by:
 
-- Index.
-- Generation.
+```cpp
+struct EntityId
+{
+    uint32_t index;
+    uint32_t generation;
+};
+```
 
-An entity is valid only if its generation matches the current slot generation. Destroyed slots can be reused after generation increments.
+The index selects a slot in the entity table.
 
-## Initial Components
+The generation prevents stale references after destruction.
 
-M1 components:
+Destroyed slots may be reused only after incrementing their generation counter.
 
-- `NameComponent`
-- `TransformComponent`
+All APIs receiving an EntityId must validate both fields before access.
 
-`TransformComponent` uses `novacore::math` primitives rather than ECS-owned vector types. That keeps math reusable for renderer, physics, networking, and game code.
+## Entity Lifecycle
 
-Future components:
+Creation:
 
-- `RenderMeshComponent`
-- `ColliderComponent`
-- `CharacterControllerComponent`
-- `PlayerControllerComponent`
-- `WeaponOwnerComponent`
-- `NetworkReplicatedComponent`
-- `TeamComponent`
-- `HealthComponent`
-- `ObjectiveComponent`
+1. Reserve free slot.
+2. Increment generation if recycled.
+3. Mark slot alive.
+4. Return EntityId.
+5. Attach requested components.
+6. Notify interested systems.
 
-## Component Stores
+Destruction:
 
-M1 uses simple type-indexed sparse maps. Later optimization can move high-frequency components into packed arrays.
+1. Mark pending destroy.
+2. Queue destruction event.
+3. Remove entity from runtime systems.
+4. Remove attached components.
+5. Increment generation.
+6. Return slot to free list.
 
-Rules:
+Destruction should be deferred until the end of the current simulation tick to avoid invalid iterators.
 
-- Component APIs must check entity liveness.
-- Removing an entity removes all attached components.
-- Systems should iterate specific component views, not every entity.
-- Replicated components carry explicit replication metadata.
+## Component Philosophy
+
+Components contain state only.
+
+Example:
+
+* TransformComponent
+* NameComponent
+* RenderMeshComponent
+* ColliderComponent
+* HealthComponent
+
+Behavior belongs exclusively inside systems.
+
+Components should avoid owning external resources directly whenever possible.
+
+## Transform Component
+
+Transform stores:
+
+* Local position
+* Local rotation
+* Local scale
+* Parent entity
+* World matrix
+* Dirty flag
+
+World transforms are recalculated only when local state or an ancestor changes.
+
+Dirty propagation flows downward through the hierarchy.
+
+## Component Storage
+
+Early milestones may use sparse associative containers.
+
+Long-term layout should prefer Structure of Arrays (SoA) for hot components.
+
+Hot components:
+
+* Transform
+* Velocity
+* CharacterController
+* Physics state
+
+Cold components:
+
+* Name
+* Editor metadata
+* Debug information
+
+Systems should iterate component arrays rather than scanning all entities.
+
+## Component Registration
+
+Adding a component:
+
+```text
+Entity
+    ↓
+Allocate Storage
+    ↓
+Construct Data
+    ↓
+Register With Views
+```
+
+Removing a component:
+
+```text
+Remove Request
+    ↓
+Destroy Data
+    ↓
+Compact Storage
+    ↓
+Update Views
+```
+
+Component removal must not invalidate unrelated entities.
 
 ## System Scheduling
 
-System order matters in FPS gameplay:
+Simulation executes in deterministic order:
 
-1. Input command ingestion.
-2. Network receive.
-3. Movement prediction/simulation.
-4. Character state update.
-5. Weapon simulation.
-6. Damage and events.
-7. Objective/mode rules.
-8. Network snapshot extraction.
-9. Render extraction.
+1. Input ingestion
+2. Network receive
+3. Gameplay commands
+4. Character controllers
+5. Physics
+6. Weapon simulation
+7. Damage resolution
+8. AI
+9. Objective logic
+10. Animation update
+11. Snapshot extraction
+12. Render extraction
 
-M1 does not implement the scheduler fully, but the architecture should leave space for it.
+Systems should never rely on undefined execution order.
+
+## Thread Ownership
+
+Gameplay writes occur on the simulation thread.
+
+Render extraction reads immutable snapshots.
+
+Background workers may prepare data but must never mutate ECS state concurrently without synchronization.
 
 ## Serialization
 
-Entity serialization has two paths:
+Two serialization paths exist.
 
-- Save/load path for editor and map data.
-- Network path for snapshots and deltas.
+### Save Data
 
-Network serialization must never blindly serialize every component. It uses explicit replicated state.
+Used for:
+
+* Maps
+* Prefabs
+* Editor persistence
+
+### Network Replication
+
+Used for:
+
+* Snapshots
+* Delta compression
+* Client synchronization
+
+Replication is opt-in. Components are never serialized automatically.
 
 ## Streaming
 
-Large-map support requires entity ownership by zones:
+World streaming divides static content into zones.
 
-- Static map entities belong to stream zones.
-- Dynamic entities belong to the authoritative world and may reference zones.
-- Stream-out must not destroy network-critical entities unexpectedly.
+Static entities belong to zones.
 
-## Spawn/Despawn
+Dynamic entities belong to the authoritative simulation and may reference streamed content without becoming zone-owned.
 
-Spawn flow:
+Streaming operations must preserve stable EntityIds whenever possible.
 
-1. Reserve entity.
-2. Attach components.
-3. Register in systems.
-4. Emit spawn event.
+## Stable References
 
-Despawn flow:
+Cross-system references should prefer:
 
-1. Mark entity pending destroy.
-2. Emit despawn event.
-3. Remove from systems.
-4. Remove components.
-5. Recycle slot.
+* EntityId
+* AssetHandle
+* ResourceHandle
 
-## Acceptance
+Raw pointers between systems should be avoided.
 
-ECS M1 is acceptable when:
+## Render Extraction
 
-- Entities can be created and destroyed.
-- Liveness checks detect stale IDs.
-- Components attach and detach.
-- Destroy removes components.
-- Game can create a camera entity.
+Rendering never accesses ECS directly during draw submission.
 
+Instead:
 
+```text
+ECS World
+     ↓
+Visibility Filtering
+     ↓
+RenderWorld Extraction
+     ↓
+Renderer
+```
 
+This separation allows multithreaded rendering preparation and prevents gameplay/render synchronization issues.
 
+## Networking
 
+Replicated entities carry explicit metadata describing:
 
+* Replication frequency
+* Ownership
+* Prediction eligibility
+* Interpolation mode
 
+Network systems serialize only registered replicated components.
+
+## Acceptance Criteria
+
+The ECS milestone is complete when:
+
+* Entities can be created and destroyed safely.
+* Generation checks reject stale handles.
+* Components attach and detach correctly.
+* Deferred destruction prevents iterator invalidation.
+* Transform hierarchies update correctly.
+* Systems iterate only relevant component sets.
+* Render extraction produces immutable presentation data.
+* Network replication operates only on explicitly replicated components.
