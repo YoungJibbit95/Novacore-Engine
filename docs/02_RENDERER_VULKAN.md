@@ -2,166 +2,282 @@
 
 ## Renderer Goal
 
-The renderer is Vulkan-first and built for modern competitive readability. It should support high frame rates before chasing photorealism. The initial goal is a stable clear-screen and mesh path; the long-term goal is Forward+ with readable realism.
+NovaCore uses Vulkan as its primary graphics API and is optimized for deterministic performance, high frame rates, and scalability rather than maximum visual complexity. The renderer is designed around explicit resource ownership and minimizes hidden state.
+
+The initial milestones focus on correctness and stability before advanced rendering techniques. Every frame should remain debuggable and reproducible.
+
+## Design Principles
+
+* Rendering is presentation only and never owns gameplay state.
+* The RenderWorld is a read-only extraction of ECS state.
+* CPU asset loading and GPU resource creation are separate phases.
+* GPU resources are immutable except through explicit upload commands.
+* Draw submission should minimize pipeline and descriptor changes.
+* Renderer failures must never compromise dedicated server execution.
 
 ## Backend Layers
 
-- `Renderer`: public engine interface used by game code.
-- `RenderWorld`: extracted renderable scene state.
-- `VulkanDevice`: instance, physical device, logical device, queues.
-- `Swapchain`: surface, images, format, resize path.
-- `RenderGraph`: pass/resource dependency description.
-- `GpuResourceManager`: buffers, images, samplers, descriptors.
-- `MaterialSystem`: shader variants and material bindings.
-- `DebugGpu`: labels, timings, counters.
+* Renderer API
+* RenderWorld extraction
+* VulkanDevice
+* Swapchain
+* Frame Context
+* RenderGraph
+* GPU Resource Manager
+* Descriptor Manager
+* Material System
+* Pipeline Cache
+* Debug GPU Layer
 
-## M1/M2 Active Foundation
+Each layer owns only its own resources and communicates through explicit interfaces.
 
-The current foundation provides:
+## RenderWorld Extraction
 
-- Renderer create/shutdown.
-- Frame begin/end API.
-- Clear color settings.
-- Null fallback when Vulkan SDK is absent.
-- Backend name reporting.
-- SDK-free Vulkan runtime and physical-device probing.
-- SDL debug rectangles, lines, and bitmap text for early tools.
-- Mesh/scene asset validation and placeholder mesh handles.
-- CPU-side glTF/GLB scene info attached to mesh handles for early renderer diagnostics.
-- CPU-side GLB vertex/index extraction attached to mesh handles for the coming upload path.
-- Opt-in compiled Vulkan backend with SDL surface creation, physical device selection, logical device/queues, swapchain, image views, render pass, framebuffers, command buffers, semaphores, fences, clear, present, and a first debug triangle draw.
-- CMake-driven GLSL-to-SPIR-V shader compilation through `glslc` when the Vulkan SDK is visible.
+Before rendering, gameplay state is converted into a presentation-only structure.
 
-GPU upload and mesh draw submission remain the next renderer steps after the current CPU mesh extraction shim and debug triangle pipeline.
+Extraction includes:
 
-Current local runtime result:
+* Visible transforms
+* Mesh references
+* Material handles
+* Camera state
+* Lighting state
+* Debug primitives
+* UI commands
 
-- Vulkan loader/runtime is available.
-- The current Vulkan SDK is exposed at `F:\VulkanSDK\1.4.350.0`.
-- NovaCore CMake finds Vulkan headers/libs and `glslc`.
-- `nemisis_game --vulkan-smoke-test` creates the Vulkan swapchain and debug triangle graphics pipeline.
-- NovaCore runtime probe detects `NVIDIA GeForce RTX 3070 Ti (discrete)`.
-- Nemisis keeps `sdl-debug` as the default visible UI/debug backend while `--vulkan` and `--vulkan-smoke-test` opt into the compiled Vulkan backend.
+Rendering never reads ECS data directly during draw submission.
 
-## Vulkan Device Plan
+## CPU → GPU Asset Flow
 
-Device selection priorities:
+All mesh assets follow the same pipeline:
 
-1. Discrete GPU preferred.
-2. Required queue families: graphics, present.
-3. Required extensions: swapchain.
-4. Optional extensions: debug markers, maintenance features.
+```
+GLB / glTF
+    ↓
+Importer
+    ↓
+CPU Mesh Representation
+    ↓
+Validation
+    ↓
+Staging Buffer
+    ↓
+vkCmdCopyBuffer
+    ↓
+Device Local Vertex Buffer
+    ↓
+Renderable GPU Handle
+```
 
-The engine records selected adapter name and supported features at startup.
-The current SDK-free runtime probe already records loader version and physical device names/types before full queue/surface/swapchain selection exists.
+CPU mesh data may be released after successful upload unless explicitly retained for tooling.
 
-## Frame Model
+## Frame Lifecycle
 
-Use two or three frames in flight:
+Every rendered frame executes in the following order:
 
-- Per-frame command pool.
-- Per-frame descriptor arena.
-- Timeline semaphore where available.
-- Fences only where needed.
+1. Wait for current frame fence.
+2. Acquire swapchain image.
+3. Reset per-frame allocators.
+4. Process pending GPU uploads.
+5. Extract RenderWorld.
+6. Perform visibility culling.
+7. Build render graph.
+8. Record command buffers.
+9. Submit graphics queue.
+10. Present swapchain image.
+11. Schedule deferred destruction.
 
-Frame stages:
+## Frames In Flight
 
-1. Acquire swapchain image.
-2. Build render graph.
-3. Record command buffers.
-4. Submit.
-5. Present.
+Support two or three concurrent frame contexts.
+
+Each frame owns:
+
+* Fence
+* Command pool
+* Primary command buffer
+* Descriptor allocator
+* Temporary upload allocations
+* Deferred destruction queue
+
+Resources must never be destroyed until all referencing frames have completed.
+
+## Descriptor Layout
+
+Descriptor organization:
+
+### Set 0 (Global)
+
+* Camera
+* Frame constants
+* Lighting
+* Time
+
+### Set 1 (Material)
+
+* Base color
+* Normal
+* Roughness
+* Metallic
+* Emissive
+
+### Set 2 (Object)
+
+* Transform
+* Skinning matrices
+* Object-specific parameters
+
+Layouts should remain stable to reduce pipeline churn.
+
+## Visibility Pipeline
+
+Before issuing draw calls:
+
+```
+RenderWorld
+      ↓
+Frustum Culling
+      ↓
+Optional Occlusion
+      ↓
+Pipeline Sort
+      ↓
+Material Sort
+      ↓
+Mesh Sort
+      ↓
+Draw Submission
+```
+
+Invisible objects should never consume GPU draw calls.
 
 ## Render Graph
 
-The render graph should describe:
+The render graph describes:
 
-- Pass name.
-- Read resources.
-- Write resources.
-- Clear/load/store behavior.
-- Queue requirements.
+* Pass dependencies
+* Resource reads
+* Resource writes
+* Load/store operations
+* Queue ownership
+* Synchronization barriers
 
-Early passes:
+Planned passes:
 
-- Depth prepass optional.
-- Main opaque pass.
-- Transparent pass.
-- UI pass.
-- Present pass.
-
-## Lighting Direction
-
-M2/M3:
-
-- Directional light.
-- Point lights.
-- Shadow map for directional light.
-
-Later:
-
-- Forward+ clustered light culling.
-- Spot lights.
-- Contact shadows or SSAO.
-- Reflection probes if needed.
+* Shadow map
+* Optional depth prepass
+* Opaque geometry
+* Sky rendering
+* Transparent geometry
+* Particles
+* Debug rendering
+* UI composition
+* Presentation
 
 ## Material Model
 
-Use PBR-lite first:
+Initial physically based parameters:
 
-- Base color.
-- Normal.
-- Roughness.
-- Metallic.
-- Emissive.
+* Base Color
+* Normal
+* Roughness
+* Metallic
+* Ambient Occlusion
+* Emissive
 
-Fallback material must be deterministic and visually obvious.
+Missing textures resolve to deterministic fallback assets.
 
-## Shader Pipeline
+## Shader System
 
-- GLSL debug shaders compile to SPIR-V through `glslc` for the first backend slice.
-- HLSL authored shaders and DXC are still the preferred future production direction.
-- Reflection generates descriptor expectations.
-- Debug builds keep shader names and compile diagnostics.
-- Release builds use cooked shader artifacts.
+Development:
 
-## UI Composition
+* GLSL compiled with glslc
+* Debug names preserved
+* Validation enabled
 
-Game UI is rendered after world passes. The UI system is Vulkan-native but exposes a NanoVG-style API to game code:
+Production:
 
-- Rounded rectangles.
-- Gradients.
-- Blur regions.
-- Glow.
-- SDF text.
-- Vector paths.
-- Gamepad focus indicators.
+* DXC-authored HLSL preferred
+* Reflection-generated descriptor layouts
+* Cooked SPIR-V binaries
+* Cached pipeline objects
 
-## Performance Targets
+## Synchronization
 
-- 144 FPS target at 1080p/1440p on mid-range PC hardware.
-- Render settings must expose scalable quality.
-- GPU timing per pass.
-- CPU timing for extraction, culling, and submission.
+Per-frame synchronization uses:
 
-## Acceptance
+* Acquire semaphore
+* Graphics submission semaphore
+* Present semaphore
+* Fence for CPU reuse
 
-Renderer work is acceptable when:
+Timeline semaphores should be preferred when available.
 
-- Clear color appears in a window.
-- The opt-in Vulkan backend creates a swapchain, render pass, framebuffers, and debug triangle pipeline.
-- Resize path survives.
-- A basic mesh renders.
-- Mesh asset ids resolve to stable handles before upload.
-- Imported glTF assets expose scene counts before GPU upload.
-- Imported GLB assets expose CPU primitive, vertex, and index counts before GPU upload.
-- Vulkan runtime device detection is visible in logs/debug UI even before the compiled Vulkan backend is active.
-- GPU/CPU timing is visible.
-- Null fallback still lets server/tools builds work.
+Pipeline barriers should be generated by the RenderGraph instead of being manually duplicated throughout rendering code.
 
+## Swapchain Recreation
 
+Window resize triggers:
 
+* Device idle
+* Destroy framebuffers
+* Destroy image views
+* Recreate swapchain
+* Recreate dependent resources
+* Resume rendering
 
+Application state must survive swapchain recreation.
 
+## Performance Goals
 
+Target hardware:
 
+* 1080p and 1440p
+* Stable 144 FPS on mid-range GPUs
+
+Renderer should expose profiling for:
+
+* Frame time
+* GPU pass timings
+* CPU extraction
+* Culling
+* Upload cost
+* Draw submission
+* Presentation latency
+
+## Future Roadmap
+
+M2:
+
+* Mesh uploads
+* Indexed drawing
+* Uniform buffers
+* Camera matrices
+
+M3:
+
+* Directional lighting
+* Shadow mapping
+* Frustum culling
+* GPU resource streaming
+
+M4:
+
+* Forward+
+* Clustered lighting
+* Compute-driven culling
+* Reflection probes
+* GPU-driven rendering
+
+## Acceptance Criteria
+
+The renderer is considered production-ready for its milestone when:
+
+* Vulkan initializes successfully.
+* Swapchain recreation is stable.
+* Meshes upload correctly into device-local memory.
+* Camera movement updates without artifacts.
+* Descriptor allocation remains leak-free.
+* Multiple frames in flight execute correctly.
+* Debug overlays coexist with world rendering.
+* Dedicated servers continue functioning without renderer initialization.
