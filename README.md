@@ -1,61 +1,117 @@
 # NovaCore Engine
 
-A ground-up C++23 Vulkan-first FPS engine. Fast, efficient, and built from the ground up for modern graphics APIs. Engine for Project Nemisis, a fps game planned to release in 2027.
+NovaCore is a modern **C++23**, **Vulkan-first** game engine focused on deterministic simulation, high-performance rendering, and server-authoritative multiplayer.
 
-## Features
+The engine is being developed as the reusable technology foundation for **Project Nemisis**, but is intentionally designed to remain independent of any game-specific content or gameplay logic.
 
-- **Modern C++23** - Latest C++ standard features
-- **Vulkan-first** - Direct GPU control via Vulkan
-- **SDL Debug Renderer** - Immediate visual test path while Vulkan backend matures
-- **Custom ECS** - Entity Component System for efficient entity management
-- **Dedicated Server** - Built-in dedicated server support
-- **Cross-platform** - Windows and Linux first, macOS via MoltenVK
-- **SDL3 Integration** - Modern window and input handling
-- **Asset Pipeline Backbone** - Manifest, registry, and streaming request queue foundation
-- **No Bloat** - Minimal dependencies, maximum control
+## Design Goals
 
-## Project Structure
+NovaCore is built around a few core principles:
 
-- `engine/` - Core engine library
-- `server/` - Dedicated server executable
-- `configs/` - Engine/server runtime defaults
-- `tests/` - Dependency-free engine smoke tests
-- `shaders/` - Vulkan shader files
-- `tools/` - Development tools
-- `docs/` - Engine documentation
+* Modern explicit graphics APIs (Vulkan-first)
+* Deterministic fixed-step simulation
+* Server-authoritative multiplayer architecture
+* Data-oriented Entity Component System
+* Clean separation between engine and game code
+* Modular subsystems with minimal dependencies
+* Headless dedicated server support
+* Asynchronous asset pipeline and streaming
+* Long-term maintainability over short-term convenience
 
-## Build Requirements
+## Current Status
 
-- C++23 compatible compiler (MSVC, Clang, GCC)
-- CMake 3.27+
-- Ninja
-- Vulkan SDK
-- SDL3 (optional, for window/input support)
+The project currently includes a functional engine foundation featuring:
 
-## Build Instructions
+* C++23 runtime and modular architecture
+* Fixed-step application loop
+* Lightweight math library
+* Custom ECS with stable entity lifetime
+* SDL3 platform layer and input system
+* Relative mouse support for FPS controls
+* Vulkan runtime detection
+* Vulkan instance, device, swapchain, render pass, synchronization, and debug triangle pipeline
+* SDL debug renderer for immediate tooling and UI work
+* Asset manifests and registry
+* glTF metadata parsing
+* GLB scene inspection
+* CPU-side mesh extraction
+* Mesh handle registration
+* Packet serialization primitives
+* Loopback networking foundation
+* Dedicated server framework
+* Dependency-light smoke tests
 
-### Windows default in VSCode/Visual Studio:
+The renderer is currently transitioning from bootstrap infrastructure toward full GPU mesh rendering.
+
+## Planned Near-Term Milestones
+
+The next major engine goals are:
+
+* GPU upload pipeline
+* Device-local vertex and index buffers
+* Mesh rendering through `MeshCatalog`
+* Camera matrices and depth buffering
+* Swapchain resize and recreation
+* First navigable greybox world
+* Capsule-based FPS character controller
+* UDP networking backend
+* Client prediction and reconciliation
+* Snapshot replication
+* Asset residency and streaming
+
+## Repository Structure
+
+```text
+engine/     Core engine implementation
+server/     Dedicated server executable
+configs/    Engine runtime defaults
+tests/      Smoke and validation tests
+shaders/    Vulkan shader sources
+tools/      Future editor and asset tooling
+docs/       Architecture and subsystem documentation
+```
+
+NovaCore intentionally contains **engine technology only**.
+
+Game-specific assets, gameplay tuning, weapons, movement configuration, UI, and match rules belong in the consuming game project.
+
+## Key Technologies
+
+* Modern C++23
+* Vulkan
+* SDL3
+* CMake
+* Custom ECS
+* Headless dedicated server support
+* JSON-based configuration
+* glTF / GLB asset pipeline
+* Deterministic packet serialization
+* Fixed-step simulation
+
+## Building
+
+### Visual Studio (recommended)
 
 ```powershell
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug
 ```
 
-### With full dependencies (Vulkan, SDL3, vcpkg, Ninja):
-
-```powershell
-cmake --preset windows-ninja-vcpkg-debug
-cmake --build --preset windows-ninja-vcpkg-debug
-```
-
-### With full dependencies (Vulkan, SDL3, vcpkg, Visual Studio):
+### Visual Studio + vcpkg
 
 ```powershell
 cmake --preset windows-msvc-vcpkg-debug
 cmake --build --preset windows-msvc-vcpkg-debug
 ```
 
-### Without external dependencies:
+### Ninja + vcpkg
+
+```powershell
+cmake --preset windows-ninja-vcpkg-debug
+cmake --build --preset windows-ninja-vcpkg-debug
+```
+
+### Minimal dependency build
 
 ```powershell
 cmake --preset local-debug-no-deps
@@ -63,16 +119,55 @@ cmake --build --preset local-debug-no-deps
 ctest --test-dir build/local-debug-no-deps
 ```
 
-Current foundation primitives include fixed-step timing, math types, input action mapping, loopback net packets, and polling-based file change tracking for future hot reload.
+## Requirements
 
-IDE-friendly presets are available for Ninja and Visual Studio 2022. See `docs/14_IDE_AND_TOOLCHAIN_RUNBOOK.md`.
+Minimum development requirements:
 
-Asset pipeline foundation includes JSON manifests, asset registry lookup, streamable tags, dependencies, and priority streaming requests. See `docs/12_ASSET_PIPELINE_STREAMING.md`.
+* C++23 compiler
+* CMake 3.27+
+* Visual Studio 2022 or Clang/GCC
+* Vulkan SDK (for Vulkan development)
+* SDL3 (automatically fetched for supported presets where applicable)
+
+## Testing
+
+NovaCore includes a dependency-light smoke test suite covering core engine functionality, including:
+
+* Entity lifetime
+* Fixed-step timing
+* Configuration loading
+* Packet serialization
+* Asset manifests
+* Asset registry
+* GLB metadata and mesh extraction
+* Mesh handle registration
+* Vulkan runtime probing
+* Platform input behavior
+
+Additional replay, networking, renderer, and gameplay validation will expand alongside engine development.
 
 ## Documentation
 
-See `docs/` for detailed architecture and implementation guides.
+The `docs/` directory contains detailed technical documentation for:
+
+* Repository architecture
+* Engine architecture
+* Vulkan renderer
+* ECS
+* Networking
+* Server runtime
+* Asset pipeline
+* Testing strategy
+* Toolchain and build workflow
+
+The `PROJECT_STATUS.md` document tracks implemented systems and upcoming milestones.
+
+## Philosophy
+
+NovaCore prioritizes correctness, explicit ownership, and maintainability over unnecessary abstraction.
+
+Engine systems are designed to be independently testable, reusable across projects, and capable of running in both client and headless server environments.
 
 ## License
 
-See LICENSE file for details.
+See the `LICENSE` file for licensing information.
