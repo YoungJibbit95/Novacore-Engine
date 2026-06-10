@@ -2,133 +2,220 @@
 
 ## Architecture Goal
 
-The engine is a modular C++23 runtime shared by the game client and server. It must support a modern FPS without inheriting assumptions from an existing engine. The first rule is simple: systems must be independently testable and able to run in either client, server, or tools contexts.
+NovaCore is a modular C++23 engine designed around deterministic simulation, clean subsystem boundaries, and long-term maintainability. Every subsystem must be independently testable and must be able to execute in client, dedicated server, or tooling environments without hidden dependencies.
+
+The engine is designed for a modern multiplayer FPS and intentionally avoids assumptions inherited from existing commercial engines. Rendering, gameplay, networking, physics, and asset management are separate layers communicating through explicit interfaces.
+
+## Core Design Principles
+
+* Deterministic fixed-step simulation.
+* Data-oriented subsystem design where practical.
+* Engine code never depends on game-specific logic.
+* Rendering is presentation only and never owns gameplay state.
+* Physics is authoritative for movement and collision.
+* Assets are referenced through stable handles rather than raw pointers.
+* CPU-side and GPU-side resources are treated as separate lifetimes.
+* Every subsystem documents its ownership, update frequency, and threading guarantees.
 
 ## Top-Level Modules
 
-- `Core`: logging, asserts, time, config, fixed-step accumulator, memory hooks, jobs.
-- `Math`: lightweight vector/quaternion primitives used by ECS, renderer, physics, and game code.
-- `IO`: text-file reads, file snapshots, and polling-based reload detection.
-- `Platform`: window, input, action mapping, dynamic libraries, OS timing.
-- `Render`: Vulkan backend, render graph, resources, frame scheduling, UI composition.
-- `ECS`: entities, components, systems, lifetime, serialization, replication metadata.
-- `Physics`: custom character controller, collision queries, triggers.
-- `Net`: transport, channels, reliability, snapshots, prediction helpers.
-- `Audio`: miniaudio backend and engine-level event/mixer layer.
-- `Game`: player, weapons, utility, modes, match rules.
-- `Tools`: C# pipeline/editor tools and command line asset cooking.
+### Core
 
-## Process Layout
+Logging, assertions, timing, configuration, allocators, fixed-step accumulator, threading primitives, future job system, startup and shutdown sequencing.
 
-Client process:
+### Math
 
-- Owns window, renderer, audio, local input, prediction, interpolation, UI.
-- Can host a listen server by creating a server world in-process.
-- Runs client presentation at variable render rate.
-- Sends fixed-rate input commands to server.
+Vectors, matrices, quaternions, transforms, geometry helpers, interpolation utilities, SIMD optimizations where beneficial.
 
-Dedicated server process:
+### IO
 
-- Owns authoritative world state.
-- Runs fixed simulation at 60Hz.
-- Has no renderer or audio.
-- Accepts LAN/direct-connect clients first.
+Filesystem abstraction, binary readers, configuration loading, asynchronous reads, file watching, hot reload notifications.
 
-Tools process:
+### Platform
 
-- Uses C#/.NET where iteration speed matters.
-- Imports/cooks assets.
-- Generates data reports.
-- Eventually drives editor workflows.
+Window creation, SDL integration, input devices, monitor handling, timing, dynamic libraries, platform abstraction.
 
-## Runtime Loop
+### Render
 
-The engine loop separates fixed update from variable rendering:
+Vulkan backend, resource management, swapchain handling, descriptor management, pipeline cache, frame graph, command scheduling, GPU uploads, UI composition and debug rendering.
 
-1. Poll platform events.
-2. Collect input for current frame.
-3. Accumulate elapsed time.
-4. Run zero or more fixed ticks through `FixedStepAccumulator` at 60Hz.
-5. Run client prediction and game systems that need fixed time.
-6. Render one frame if a renderer exists.
-7. Sleep/yield when appropriate.
+### ECS
 
-Server builds run only fixed ticks. Client builds run both fixed and variable work.
+Entity allocation, component storage, system scheduling, serialization, hierarchy management, replication metadata and save/load support.
 
-## Build Model
+### Physics
 
-The root project contains:
+Collision world, character controller, broadphase queries, raycasts, sweeps, trigger volumes and deterministic fixed-step updates.
 
-- `novacore_engine`: static or shared engine library.
-- `novacore_server`: dedicated server executable.
+### Net
 
-The engine must not depend on game-specific code. Game systems may depend on engine modules.
+Reliable/unreliable transport, snapshot replication, prediction support, reconciliation, bandwidth accounting and serialization.
 
-## Config Model
+### Audio
 
-Configuration is split into:
+Event-driven playback, mixer, streaming sources, spatial audio and backend abstraction.
 
-- Boot config: renderer backend, window mode, network ports.
-- User config: input binds, sensitivity, display settings.
-- Gameplay data: movement, weapons, utility, modes.
+### Game
 
-The final engine should hot-reload gameplay data but not silently hot-reload boot-critical platform settings.
+Weapons, players, inventory, gameplay rules, AI, utility systems and match logic.
 
-The current foundation provides `ConfigDocument` and `ConfigRegistry`:
+### Tools
 
-- JSON-like files parse into dotted keys such as `movement.sprint_speed`.
-- Arrays use numeric path segments such as `weapons.0.id`.
-- The registry watches files through `FileChangeTracker`.
-- Reload events report parse errors without crashing the runtime.
+Asset cooking, editor integration, import pipeline, reporting and diagnostics.
 
-## Logging and Diagnostics
+## Runtime Execution Model
 
-Logging categories:
+Simulation executes independently of rendering.
 
-- `core`
-- `platform`
-- `render`
-- `ecs`
-- `net`
-- `game`
-- `tools`
+Each frame follows this order:
 
-All logs include severity and category. Server logs must be readable without a GUI.
+1. Poll operating system events.
+2. Update raw device state.
+3. Build input actions.
+4. Accumulate elapsed time.
+5. Execute zero or more fixed simulation ticks.
+6. Update asynchronous streaming tasks.
+7. Build render data from current world state.
+8. Execute rendering.
+9. Present the completed frame.
+10. Perform deferred destruction and housekeeping.
 
-## Memory and Jobs
+The renderer may execute at variable frequency while simulation always executes at a fixed timestep.
 
-M0/M1 uses standard containers. Later phases add:
+## Fixed Simulation Tick
 
-- Frame allocator for transient render/game memory.
-- Linear allocators for network packet serialization.
-- Job system with worker threads.
-- Lock-free or low-lock queues only where measured.
+Each fixed tick performs work in the following order:
 
-## Asset Manager
+1. Consume buffered player commands.
+2. Execute network pre-processing.
+3. Update gameplay systems.
+4. Update character controllers.
+5. Execute physics simulation.
+6. Resolve triggers and interactions.
+7. Execute replication and snapshot generation.
+8. Publish authoritative transforms.
 
-Asset manager responsibilities:
+No rendering code may modify simulation state.
 
-- Stable handles.
-- Async load requests.
-- Hot reload for data.
-- Polling-based file change tracking for early hot-reload workflows.
-- Cooked asset lookup.
-- Dependency tracking.
+## ECS Model
 
-The first skeleton only defines the direction; real cooking begins in M3.
+Entities are lightweight identifiers.
 
-## Acceptance
+Components contain data only.
 
-The architecture is acceptable when:
+Systems own behavior and iterate over matching component sets.
 
-- Client and server link the same engine library.
-- Server can run without platform window/render systems.
-- Game can create a world, renderer, and input layer.
-- Future modules can be added without changing the root process split.
+Transforms propagate through parent-child hierarchies using dirty flags so unchanged branches are never recomputed.
 
+Large component pools should prefer contiguous memory layouts to improve cache efficiency.
 
+## Asset Pipeline
 
+Runtime asset flow is strictly separated:
 
+Disk Asset
+→ Importer
+→ CPU Representation
+→ Validation
+→ GPU Upload Queue
+→ Device Resources
+→ Runtime Handle
 
+GPU resources are never accessed directly from importer code.
 
+Asynchronous loading is encouraged whenever dependencies permit.
 
+## Thread Ownership
+
+Main Thread:
+
+* Platform events
+* ECS updates
+* Gameplay
+* Physics
+* Render submission
+
+Worker Threads:
+
+* Asset decoding
+* Compression
+* Background loading
+* Cooking
+* Future job execution
+
+GPU:
+
+* Rendering
+* Compute workloads
+* Transfer operations
+
+No gameplay code may access GPU objects directly.
+
+## Configuration Model
+
+Configuration is divided into:
+
+* Boot configuration
+* User configuration
+* Gameplay tuning
+* Developer overrides
+
+Gameplay configuration supports hot reload while platform-critical settings require restart unless explicitly documented.
+
+## Logging
+
+Every message contains:
+
+* Timestamp
+* Severity
+* Category
+* Thread identifier
+
+Subsystem categories include:
+
+* core
+* platform
+* render
+* ecs
+* physics
+* net
+* audio
+* game
+* tools
+
+## Memory Strategy
+
+Early milestones use standard containers.
+
+Future milestones introduce:
+
+* Frame allocator
+* Linear allocators
+* Resource arenas
+* Pool allocators
+* Job-local scratch memory
+
+Transient render allocations should never survive a frame boundary.
+
+## Job System
+
+Future worker scheduling should execute independent tasks such as:
+
+* Asset decompression
+* Visibility preparation
+* Animation evaluation
+* Navigation updates
+* Background cooking
+
+Tasks must declare dependencies explicitly to avoid hidden synchronization.
+
+## Acceptance Criteria
+
+The architecture is complete when:
+
+* Client and dedicated server share the same engine library.
+* Simulation executes correctly without any renderer present.
+* Rendering can be disabled without affecting gameplay.
+* Assets load asynchronously through stable handles.
+* Fixed-step gameplay remains deterministic regardless of render framerate.
+* New subsystems can be added without changing process ownership or module boundaries.
