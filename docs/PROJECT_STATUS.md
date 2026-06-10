@@ -1,69 +1,337 @@
 # NovaCore Project Status
 
-## Current Foundation
+## Overview
 
-- Public engine API under `engine/include/novacore`.
-- CMake target `Novacore::Engine`.
-- Optional dedicated server target.
-- Core fixed-step application runtime.
-- Lightweight math primitives.
-- Custom ECS with entity lifetime and component storage.
-- SDL3/headless platform window foundation.
-- SDL3 can be consumed from an installed package or fetched automatically for visible dev builds.
-- Window event polling now maintains a persistent `InputSnapshot` for action maps.
-- Mouse movement is exposed as transient per-frame mouse axes.
-- Opt-in Vulkan backend with SDL surface creation, physical-device selection, swapchain, render pass, framebuffers, sync objects, and a first graphics pipeline.
-- SDK-free Vulkan runtime probing can detect loader version and physical devices even when the compiled Vulkan backend is not selected.
-- CMake compiles the first Vulkan debug shaders to SPIR-V through `glslc` when the Vulkan SDK is visible.
-- SDL debug renderer remains available for immediate menu/debug UI work.
-- Debug render primitives support rectangles, lines, and 5x7 bitmap text.
-- Asset manifest, registry, and streaming request queue backbone under `novacore::assets`.
-- glTF asset metadata loading and validation is available through `novacore::assets::GltfAssetMetadata`.
-- CPU-side glTF/GLB scene info loading is available through `novacore::assets::GltfSceneInfo`.
-- CPU-side GLB mesh extraction is available through `novacore::assets::GltfMeshData`.
-- Renderer mesh-handle placeholders are available through `novacore::render::MeshCatalog`.
-- Loopback net packet foundation.
-- Engine-owned packet bitstream writer/reader for deterministic little-endian command and ack payloads.
-- Window relative mouse mode helper for FPS camera capture, with safe headless fallback.
-- Engine-owned server defaults in `configs/net`.
-- Dependency-free smoke test target.
+NovaCore is a modular C++23 engine targeting high-performance multiplayer FPS games.
 
-## Added In Latest Block
+The current milestone establishes the engine foundation, rendering bootstrap, asset pipeline, networking primitives, and testing infrastructure required for later gameplay development.
 
-- Added `AssetRecord`, `AssetManifest`, `AssetRegistry`, and `AssetStreamer`.
-- Asset manifests now load from JSON through the existing NovaCore config parser.
-- Asset registry supports lookup by id, tags, and streamable state.
-- Asset streaming requests coalesce duplicate ids and pop by priority/age.
-- Added Visual Studio 2022 no-deps CMake preset for IDE-friendly local bootstrapping.
-- Application delegates can report headless mode so the runtime avoids tight busy-yield loops in fallback/server-style runs.
-- `windows-msvc-debug` now uses the Visual Studio generator and no longer depends on Ninja or an unset `VCPKG_ROOT`.
-- `windows-ninja-vcpkg-debug` keeps the old full-dependency Ninja/vcpkg path as an explicit preset.
-- Renderer now creates an SDL debug backend when SDL3 is available, with clear, debug rectangles, and bitmap debug text.
-- Window title updates are exposed through `Window::setTitle`.
-- Added `PacketWriter`/`PacketReader` to make game protocol messages use engine-owned binary serialization.
-- Added `Window::setRelativeMouseMode` and `Window::relativeMouseMode` for raw-mouse-style FPS look capture through SDL3.
-- Added a CMake FetchContent fallback for SDL3 so normal dev builds no longer silently become headless when vcpkg is missing.
-- Updated SDL3 key handling to use SDL3 uppercase keycode names.
-- Added SDL debug line primitives so games can draw world maps, aim rays, and range helpers before the real mesh renderer is ready.
-- Added glTF sidecar metadata parsing, cooked metadata path derivation, and asset-record validation.
-- Added renderable asset validation plus `MeshHandle`/`MeshCatalog` registration for mesh and scene glTF records.
-- Added GLB v2/text glTF scene info loading for mesh, node, material, accessor, buffer view, buffer, image, animation, skin, JSON, and BIN chunk counts.
-- Added first CPU GLB mesh extraction for primitive positions, optional normals/UVs, unsigned indices, byte offsets, and byte strides.
-- `MeshCatalog` can now register imported glTF assets with sidecar metadata, scene info, and CPU mesh data.
-- Added SDK-free Vulkan runtime/device probing through dynamic loader entry points; current local smoke runs detect Vulkan 1.4.350 on an NVIDIA GeForce RTX 3070 Ti.
-- Renderer startup now logs Vulkan runtime availability separately from the active SDL debug/null render backend.
-- Added MinGW runtime DLL copying for NovaCore server/test executables so direct local launches do not require PATH surgery.
-- Smoke coverage now checks manifest loading, registry filters, streaming request behavior, packet bitstreams, mesh catalog handles, glTF metadata, GLB scene-info loading, GLB triangle mesh extraction, Vulkan runtime probing, and headless relative-mouse fallback.
-- Added `VulkanBackend` with instance/surface/device/queue/swapchain setup, image views, render pass, framebuffers, command buffers, semaphores, fences, clear, present, and a debug triangle draw.
-- Added `shaders/vulkan/debug_triangle.vert` and `.frag`; CMake compiles them with `F:\VulkanSDK\1.4.350.0\Bin\glslc.exe` in the current local build.
-- Renderer creation can now prefer the Vulkan backend while keeping SDL debug rendering as the default visible tool path.
+The project emphasizes deterministic simulation, explicit resource ownership, and clean separation between engine systems.
 
-## Next Engine Blocks
+---
 
-- Add typed config schemas for renderer, server, input, and network.
-- Add UDP transport socket backend on top of the packet primitives.
-- Add movement validation helpers for Nemisis.
-- Add swapchain resize/recreate and validation-layer debug names.
-- Add GPU upload/resource ownership for extracted mesh data.
-- Add renderer mesh draw submission on top of `MeshCatalog` handles.
-- Add depth buffer and camera matrix path for the first in-world greybox.
+# Current Foundation
+
+## Core Runtime
+
+Implemented:
+
+* Public engine API
+* Shared engine library
+* Fixed-step application runtime
+* Time management
+* Logging
+* Configuration system
+* Lightweight math library
+* Headless execution support
+
+The runtime can execute independently of rendering and serves both client and dedicated server builds.
+
+---
+
+## Entity Component System
+
+Implemented:
+
+* Stable `EntityId`
+* Generation-based lifetime validation
+* Component attachment and removal
+* Basic component storage
+* Transform foundation
+
+Planned:
+
+* Packed SoA storage
+* Hierarchical transforms
+* Dirty propagation
+* Deferred destruction
+* Replication metadata
+* ECS scheduler
+
+---
+
+## Platform Layer
+
+Implemented:
+
+* SDL3 window management
+* Event polling
+* Input snapshots
+* Relative mouse mode
+* Headless fallback
+
+Current input handling supports FPS-style camera capture and action mapping.
+
+---
+
+## Renderer
+
+Implemented:
+
+* SDL debug renderer
+* Vulkan runtime probing
+* Vulkan instance creation
+* Surface creation
+* Physical device selection
+* Logical device creation
+* Queue acquisition
+* Swapchain
+* Image views
+* Render pass
+* Framebuffers
+* Command buffers
+* Synchronization primitives
+* Debug graphics pipeline
+* Debug triangle rendering
+* GLSL → SPIR-V compilation
+
+Current renderer status:
+
+* Vulkan initialization is operational.
+* Basic graphics submission functions correctly.
+* Debug rendering remains available as a fallback path.
+
+Not yet implemented:
+
+* GPU mesh uploads
+* Camera matrices
+* Indexed mesh rendering
+* Depth buffering
+* Frustum culling
+* Material binding
+* Lighting
+* Resource streaming
+
+---
+
+## Asset Pipeline
+
+Implemented:
+
+* Asset manifests
+* Asset registry
+* Asset records
+* Asset lookup
+* Dependency metadata
+* Streaming request queue
+* glTF metadata parsing
+* GLB scene inspection
+* CPU-side mesh extraction
+* Stable mesh handles
+
+Current pipeline stops at CPU asset preparation.
+
+Future work includes:
+
+* Asynchronous decoding
+* GPU upload
+* Residency tracking
+* Reference counting
+* Streaming eviction
+* Background loading
+
+---
+
+## Networking
+
+Implemented:
+
+* Loopback transport
+* Packet primitives
+* Packet serialization
+* Packet deserialization
+* Simulation tick types
+* Packet sequencing foundation
+
+Current networking supports deterministic local communication suitable for early multiplayer development.
+
+Future milestones include:
+
+* UDP transport
+* Snapshot replication
+* Prediction
+* Reconciliation
+* Delta compression
+* Lag compensation
+
+---
+
+## Dedicated Server
+
+Implemented:
+
+* Shared engine runtime
+* Dedicated executable
+* Headless operation
+* Server defaults
+* Shared simulation architecture
+
+Dedicated and listen server paths are intended to execute identical gameplay logic.
+
+---
+
+## Testing
+
+Implemented:
+
+* Smoke tests
+* Packet serialization tests
+* Entity lifetime tests
+* Fixed-step tests
+* Asset manifest tests
+* Mesh extraction tests
+* Vulkan runtime probe tests
+* Relative mouse tests
+
+Future additions:
+
+* Replay tests
+* Prediction validation
+* Movement verification
+* Performance benchmarks
+* Automated gameplay tests
+
+---
+
+# Current Milestone Assessment
+
+The project has completed most foundational work required before true gameplay implementation.
+
+The renderer, asset system, ECS, networking primitives, and testing framework now provide sufficient infrastructure for vertical feature development.
+
+The next objective should be visible gameplay rather than additional engine scaffolding.
+
+---
+
+# Recommended Development Priority
+
+## Priority 1 — GPU Mesh Rendering
+
+Implement:
+
+* Device-local vertex buffers
+* Index buffers
+* Staging uploads
+* Camera matrices
+* Uniform buffers
+* Mesh draw submission
+
+Target:
+
+Render imported GLB geometry inside a movable 3D camera.
+
+---
+
+## Priority 2 — Character Controller
+
+Implement:
+
+* Capsule sweeps
+* Sliding
+* Step-up
+* Step-down
+* Ground detection
+* Gravity
+* Sprinting
+* Jumping
+* Air control
+
+Target:
+
+Create responsive FPS movement independent of networking.
+
+---
+
+## Priority 3 — Greybox World
+
+Implement:
+
+* Static level loading
+* Collision geometry
+* Camera controls
+* Debug overlays
+
+Target:
+
+Walk through a simple playable environment.
+
+---
+
+## Priority 4 — Asset Residency
+
+Implement:
+
+* GPU uploads
+* Streaming queues
+* Reference counting
+* Deferred destruction
+* Residency states
+
+Target:
+
+Prepare the engine for larger worlds and dynamic loading.
+
+---
+
+## Priority 5 — Networking
+
+Build on the existing packet foundation by adding:
+
+* UDP sockets
+* Client commands
+* Snapshot generation
+* Prediction
+* Reconciliation
+* Interpolation
+
+Target:
+
+Synchronize multiple players in a shared world.
+
+---
+
+## Priority 6 — Combat
+
+Implement:
+
+* Weapon firing
+* Hitscan validation
+* Damage
+* Ammo
+* Reloading
+* Server authority
+
+Target:
+
+Complete the first playable multiplayer interaction.
+
+---
+
+# Current Readiness
+
+| Area                  | Status                 |
+| --------------------- | ---------------------- |
+| Core Runtime          | ✔ Mature foundation    |
+| ECS                   | ✔ Foundation complete  |
+| Platform              | ✔ Ready                |
+| Vulkan Initialization | ✔ Ready                |
+| GPU Mesh Rendering    | ◑ Next major milestone |
+| Asset Registry        | ✔ Ready                |
+| Streaming             | ◑ Skeleton complete    |
+| Networking            | ◑ Foundation complete  |
+| Prediction            | ✖ Planned              |
+| Dedicated Server      | ✔ Foundation complete  |
+| Character Controller  | ✖ Planned              |
+| Physics               | ✖ Planned              |
+| Gameplay              | ✖ Planned              |
+| Testing               | ✔ Strong foundation    |
+
+---
+
+# Immediate Recommendation
+
+The highest-value next milestone is:
+
+**“Load a GLB mesh, upload it to GPU memory, render it with a movable FPS camera and depth testing, then implement a capsule-based character controller inside that greybox scene.”**
+
+Once that milestone is complete, the existing ECS, asset pipeline, server architecture, and networking foundation can begin supporting a genuinely playable FPS rather than continuing to expand infrastructure in isolation.
