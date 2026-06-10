@@ -1,122 +1,232 @@
-# 14 IDE And Toolchain Runbook
+# 14 IDE and Toolchain Runbook
 
 ## Goal
 
-NovaCore should be openable in common CMake-aware IDEs without reshaping the repo.
+NovaCore should be buildable and debuggable from any modern CMake-aware IDE without restructuring the repository.
 
-Supported IDE paths:
+Developers should be able to clone the repository, select an appropriate preset, configure the project, and begin development with minimal manual setup.
 
-- Visual Studio 2022: open folder and select `windows-vs2022-no-deps` or `windows-msvc-debug`.
-- Visual Studio Code: install CMake Tools, open folder, select a CMake preset.
-- CLion: open folder, import CMake presets.
-- Rider C++ / Qt Creator: open the root `CMakeLists.txt` or CMake presets where supported.
+The build system should remain reproducible across machines and operating systems.
 
-## Presets
+## Supported Development Environments
 
-`local-debug-no-deps`:
+Officially supported IDEs:
 
-- Generator: Ninja.
-- External deps disabled.
-- Best for smoke tests and engine foundation work.
+* Visual Studio 2022
+* Visual Studio Code with CMake Tools
+* CLion
+* Rider C++
+* Qt Creator
 
-`windows-vs2022-no-deps`:
+All environments should consume the same root `CMakeLists.txt` and, where supported, the same `CMakePresets.json`.
 
-- Generator: Visual Studio 17 2022.
-- External deps disabled.
-- Best when Ninja is missing but Visual Studio Build Tools are installed.
+## Build Philosophy
 
-`windows-msvc-debug`:
+The repository should support three development modes:
 
-- Generator: Visual Studio 17 2022.
-- Does not require Ninja.
-- Does not require `VCPKG_ROOT`.
-- Fetches and statically builds SDL3 automatically when no installed SDL3 package is found.
-- Best default for VSCode/Visual Studio on Windows.
+### Foundation Build
 
-`windows-ninja-vcpkg-debug`:
+No external rendering dependencies.
 
-- Generator: Ninja.
-- Uses vcpkg toolchain.
-- Intended for SDL3/Vulkan dependency work once vcpkg, Ninja, and Vulkan SDK are installed.
+Purpose:
 
-`windows-msvc-vcpkg-debug`:
+* Engine development
+* Smoke tests
+* ECS
+* Networking
+* Configuration
+* Server work
 
-- Generator: Visual Studio 17 2022.
-- Uses vcpkg toolchain.
-- Does not require Ninja.
-- Intended for visible SDL debug renderer and future Vulkan work in VSCode/Visual Studio.
+### Development Build
 
-`linux-clang-debug`:
+Automatically acquires common dependencies when practical.
 
-- Generator: Ninja.
-- Uses clang++ and vcpkg.
+Purpose:
 
-## Minimal Local Build
+* SDL debugging
+* Editor development
+* Local gameplay iteration
 
-```powershell
-cmake --preset windows-vs2022-no-deps
-cmake --build --preset windows-vs2022-no-deps
-ctest --test-dir build/windows-vs2022-no-deps -C Debug
+### Full Graphics Build
+
+Enables Vulkan backend and graphics tooling.
+
+Purpose:
+
+* Renderer development
+* GPU debugging
+* Performance profiling
+* Shader development
+
+## CMake Presets
+
+Presets should clearly communicate intent.
+
+Recommended categories:
+
+* Minimal development
+* Windows MSVC
+* Windows Ninja
+* Windows + vcpkg
+* Linux Clang
+* macOS (future)
+* Continuous integration
+
+Preset names should remain stable to avoid breaking documentation and automation.
+
+## Repository Structure
+
+Expected layout:
+
+```text
+/
+├── engine/
+├── game/
+├── server/
+├── tools/
+├── assets/
+├── shaders/
+├── docs/
+├── tests/
+├── CMakeLists.txt
+└── CMakePresets.json
 ```
 
-Or with Ninja:
+Every target should build from the repository root.
 
-```powershell
-cmake --preset local-debug-no-deps
-cmake --build --preset local-debug-no-deps
-ctest --test-dir build/local-debug-no-deps
+## Dependency Policy
+
+Dependencies should be categorized as:
+
+### Required
+
+* C++ compiler
+* CMake
+* Build system
+* Standard library
+
+### Optional
+
+* SDL3
+* Vulkan SDK
+* vcpkg
+* glslc
+* DXC
+* Graphics debugging tools
+
+Optional dependencies should disable related features gracefully rather than preventing compilation.
+
+## Vulkan Environment
+
+Renderer development requires:
+
+* Vulkan loader
+* Compatible graphics driver
+* Vulkan SDK
+* Shader compiler
+* Vulkan headers and libraries
+
+The engine should dynamically detect Vulkan availability at runtime and expose diagnostics when unavailable.
+
+Successful compilation should not require Vulkan if the renderer is disabled.
+
+## Shader Compilation
+
+Development builds compile shaders during configuration or build.
+
+Production builds should use cooked shader artifacts.
+
+Shader failures must report:
+
+* Source file
+* Compiler diagnostics
+* Include chain
+* Compilation stage
+
+Build systems should fail clearly instead of silently skipping invalid shaders.
+
+## Local Development Workflow
+
+Typical workflow:
+
+```text
+Clone Repository
+        ↓
+Select Preset
+        ↓
+Configure
+        ↓
+Build
+        ↓
+Run Smoke Tests
+        ↓
+Launch Game or Server
 ```
 
-## Full Rendering Build
+The same sequence should work regardless of IDE.
 
-For the current SDL debug renderer, the default visible Windows dev build can fetch SDL3 automatically:
+## Continuous Integration
 
-```powershell
-cmake --preset windows-msvc-debug
-cmake --build --preset windows-msvc-debug
-```
+CI should validate:
 
-Current Vulkan state:
+* Configure
+* Compile
+* Smoke tests
+* Unit tests
+* Shader compilation
+* Headless server build
 
-- Vulkan runtime/driver is installed on the local machine.
-- Vulkan SDK is installed at `F:\VulkanSDK\1.4.350.0`.
-- NovaCore can detect the runtime/device through its SDK-free dynamic probe.
-- CMake finds Vulkan headers/libs and `glslc` when `VULKAN_SDK` and `PATH` are set for the active shell/IDE.
-- The opt-in compiled Vulkan backend now creates a swapchain and debug triangle pipeline.
+CI failures should block integration until resolved.
 
-Required for full Vulkan/dependency work:
+## Runtime Feature Detection
 
-- Visual Studio 2022 Build Tools with Desktop development with C++.
-- CMake 3.27+.
-- Ninja.
-- vcpkg.
-- Vulkan SDK, with `VULKAN_SDK` set and `Bin`, `Include`, and `Lib` visible to the active shell/IDE.
+At startup NovaCore should detect and report:
 
-Then:
+* Active renderer backend
+* Graphics adapter
+* Vulkan availability
+* Shader support
+* Driver information
+* CPU capabilities
+* Build configuration
 
-```powershell
-$env:VULKAN_SDK = "F:\VulkanSDK\1.4.350.0"
-$env:PATH = "$env:VULKAN_SDK\Bin;$env:PATH"
-cmake --preset windows-ninja-vcpkg-debug
-cmake --build --preset windows-ninja-vcpkg-debug
-```
+These diagnostics should aid troubleshooting without requiring recompilation.
 
-Or without Ninja:
+## Debugging Support
 
-```powershell
-cmake --preset windows-msvc-vcpkg-debug
-cmake --build --preset windows-msvc-vcpkg-debug
-```
+Development builds should expose:
 
-## Current Environment Notes
+* Validation layers (when available)
+* Debug names for GPU resources
+* Logging categories
+* Assertions
+* GPU timing
+* CPU profiling
+* Memory diagnostics
 
-In the current Codex shell:
+Release builds should minimize overhead while preserving actionable crash information.
 
-- CMake is available.
-- CLion's bundled MinGW/Ninja can build the current debug tree when explicitly added to PATH.
-- SDL3 is fetched automatically for visible dev builds.
-- Vulkan runtime is present and probed successfully.
-- Vulkan SDK is visible when `VULKAN_SDK=F:\VulkanSDK\1.4.350.0` is exported in the shell.
-- `cmake-build-codex-vulkan` has been verified with shader compilation, `novacore_smoke_tests`, and the compiled Vulkan backend path through Nemisis.
+## Cross-Platform Expectations
 
-For real Vulkan backend work, reconfigure from a shell or IDE that sees `VULKAN_SDK`; otherwise NovaCore will still compile but fall back to SDL debug/null rendering.
+All supported platforms should share:
+
+* Build structure
+* Asset layout
+* CMake configuration
+* Test suite
+* Documentation
+
+Platform-specific logic should remain isolated behind engine abstractions.
+
+## Acceptance Criteria
+
+The toolchain is considered production-ready for its milestone when:
+
+* The repository configures successfully from the root directory.
+* All documented presets build successfully.
+* Engine, game, and dedicated server targets compile independently.
+* Smoke tests execute without graphics dependencies.
+* Vulkan support enables automatically when available and degrades gracefully when absent.
+* Shader compilation failures provide clear diagnostics.
+* New developers can build the project using documented steps without modifying repository structure.
+* CI reproduces the documented local build process.
