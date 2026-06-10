@@ -2,121 +2,284 @@
 
 ## Server Goal
 
-The server is the authority for match state, movement validation, damage, objectives, and spawns. Dedicated server and listen server use the same core server simulation.
+The NovaCore server is the authoritative owner of simulation state and executes all gameplay-critical logic independently of rendering.
+
+Movement validation, physics, combat resolution, spawning, objectives, replication, and match progression are executed exclusively on the server.
+
+Dedicated servers and listen servers share identical simulation code and differ only in process layout.
+
+## Design Principles
+
+* Server simulation is authoritative.
+* Simulation executes on deterministic fixed ticks.
+* Rendering is completely optional.
+* Client connections never bypass server validation.
+* Listen servers reuse the dedicated server implementation.
+* Gameplay code is independent from transport implementation.
+* Networking, simulation, and presentation remain separate layers.
 
 ## Server Types
 
-Dedicated server:
+### Dedicated Server
 
-- Separate executable.
-- No renderer.
-- No game UI.
-- Logs to console/file.
-- Hosts LAN/direct-connect matches first.
-- Reads server runtime defaults from engine-owned net config data.
+Runs as a standalone executable.
 
-Listen server:
+Owns:
 
-- Server world runs in client process.
-- Uses same server code.
-- Local player connects through in-process or loopback channel.
-- Useful for testing and small local play.
+* Simulation
+* Networking
+* Match state
+* Replication
+* Logging
 
-## Server World
+Does not initialize:
 
-Server owns:
+* Renderer
+* Audio
+* Window system
+* Client UI
 
-- Entity world.
-- Player sessions.
-- Match rules.
-- Spawn system.
-- Authoritative movement state.
-- Authoritative weapon/damage state.
-- Snapshot history.
+Dedicated servers should remain deployable on headless operating systems.
 
-Server does not own:
+### Listen Server
 
-- Client camera.
-- Client HUD.
-- Client-only effects.
-- Local input device processing.
+Runs inside the client process.
 
-## Session Flow
+Uses:
 
-1. Server starts.
-2. Map and mode load.
-3. Client requests connection.
-4. Server validates protocol version.
-5. Server creates player session.
-6. Server assigns team/spawn.
-7. Client receives initial snapshot.
-8. Match state begins or continues.
+* The same simulation code
+* The same world update pipeline
+* The same snapshot generation
+* The same validation logic
 
-## Tick Loop
+The local player communicates through an in-process or loopback transport while remaining subject to identical server authority.
 
-Each server tick:
+## Server World Ownership
+
+The server exclusively owns:
+
+* ECS world
+* Player sessions
+* Physics simulation
+* Character controllers
+* Weapons
+* Damage
+* Objectives
+* Spawn system
+* AI
+* Match timers
+* Snapshot history
+
+The server never owns:
+
+* Camera transforms
+* HUD state
+* Screen-space effects
+* Local audio playback
+* Client-only animations
+
+## Startup Sequence
+
+Server startup follows:
+
+```text id="3ejaxq"
+Load Configuration
+        ↓
+Initialize Core Systems
+        ↓
+Initialize Networking
+        ↓
+Load Map
+        ↓
+Create ECS World
+        ↓
+Spawn Static Entities
+        ↓
+Initialize Match Rules
+        ↓
+Begin Accepting Clients
+```
+
+Simulation begins only after initialization completes successfully.
+
+## Client Connection Flow
+
+```text id="tebnfd"
+Connection Request
+        ↓
+Protocol Validation
+        ↓
+Version Check
+        ↓
+Create Session
+        ↓
+Assign Player ID
+        ↓
+Spawn Player
+        ↓
+Transmit Initial Snapshot
+        ↓
+Enter Simulation
+```
+
+Handshake failures must terminate cleanly without affecting active sessions.
+
+## Fixed Tick Pipeline
+
+Every simulation tick executes in deterministic order:
 
 1. Receive packets.
-2. Decode input commands.
-3. Validate movement.
-4. Simulate world.
-5. Resolve combat.
-6. Update game mode.
-7. Build snapshots.
-8. Send packets.
+2. Decode player commands.
+3. Validate command sequence.
+4. Execute gameplay systems.
+5. Update character controllers.
+6. Simulate physics.
+7. Resolve combat.
+8. Process objectives.
+9. Update AI.
+10. Advance match timers.
+11. Generate replication state.
+12. Build snapshots.
+13. Send outgoing packets.
+
+No rendering work occurs inside the server tick.
+
+## Player Sessions
+
+Each connected player maintains:
+
+* Connection state
+* Authentication status
+* Last acknowledged tick
+* Prediction baseline
+* Ping estimate
+* Packet statistics
+* Controlled entity
+* Replication filters
+
+Disconnecting a player should cleanly release associated simulation resources.
 
 ## Authority Rules
 
-Server authoritative:
+Server-authoritative:
 
-- Position after validation.
-- Health.
-- Ammo.
-- Damage.
-- Match score.
-- Objective state.
-- Spawn/despawn.
+* Position
+* Velocity
+* Physics state
+* Health
+* Damage
+* Ammo
+* Weapon ownership
+* Objectives
+* Team state
+* Spawn/despawn
+* Match progression
 
-Client predictive:
+Client-predicted:
 
-- Local movement presentation.
-- Weapon firing feedback.
-- UI feedback.
+* Local camera
+* Immediate movement feedback
+* Weapon recoil
+* UI state
+* Cosmetic effects
 
-## LAN/Direct First
+Any disagreement is resolved in favor of the server.
 
-V1 online flow:
+## Snapshot Generation
 
-- Direct IP connect.
-- LAN discovery optional.
-- No Steam/EOS dependency in first phase.
+Snapshot construction follows:
 
-Future services can wrap the session layer without replacing core simulation.
+```text id="clo6iz"
+Authoritative World
+         ↓
+Replication Filtering
+         ↓
+Priority Sorting
+         ↓
+Delta Compression
+         ↓
+Packet Serialization
+         ↓
+Transmission
+```
 
-## Runtime Defaults
+Only replicated state is serialized.
 
-Server runtime defaults belong in NovaCore because they describe engine/server behavior rather than game balance:
+## Simulation Isolation
 
-- Tick rate.
-- Snapshot rate.
-- Port defaults.
-- Max session capacity defaults.
-- Packet simulation defaults.
+Gameplay systems operate exclusively on server-owned state.
 
-Nemisis may request mode-specific limits, but the server loop owns enforcement.
+Networking serializes data into packets.
 
-## Acceptance
+Rendering never accesses authoritative simulation directly.
 
-Server architecture is acceptable when:
+This separation allows dedicated servers to run without graphics dependencies.
 
-- Dedicated server starts and ticks.
-- Listen server can run the same simulation code.
-- Client session abstraction exists.
-- Match state can be advanced without renderer.
+## Match Management
 
+The server controls:
 
+* Warmup
+* Match start
+* Overtime
+* Respawns
+* Victory conditions
+* Round transitions
+* Map resets
 
+Clients receive replicated match state but never determine outcomes.
 
+## Configuration
 
+Engine-owned runtime configuration includes:
 
+* Tick rate
+* Snapshot frequency
+* Network ports
+* Timeout values
+* Packet simulation settings
+* Default player limits
 
+Game-specific balance values remain external data and support hot reload where appropriate.
+
+## Diagnostics
+
+The server exposes runtime statistics including:
+
+* Tick duration
+* Connected clients
+* Average ping
+* Packet loss
+* Snapshot bandwidth
+* Entity count
+* Physics time
+* Replication time
+* Memory usage
+
+Long-running simulations should maintain stable timings without renderer involvement.
+
+## Scalability
+
+Future versions should support:
+
+* Worker-thread job execution
+* Parallel snapshot generation
+* Streaming worlds
+* AI offloading
+* Large entity counts
+* Multiple game modes
+
+Scalability improvements must preserve deterministic gameplay.
+
+## Acceptance Criteria
+
+The server architecture is complete for its milestone when:
+
+* Dedicated servers execute the full simulation loop without graphics initialization.
+* Listen servers reuse identical gameplay code.
+* Player sessions survive connect and disconnect correctly.
+* All authoritative gameplay executes exclusively on the server.
+* Fixed-tick execution remains deterministic.
+* Snapshot generation operates independently of rendering.
+* Match progression continues correctly regardless of client frame rate.
+* Networking, gameplay, physics, and replication remain cleanly separated.
