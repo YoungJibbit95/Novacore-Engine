@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## PRIMARY DIRECTIVE
+
+Maximize implementation work per token. Minimize conversational output. Prefer spending context and tokens on repository inspection, code generation, debugging, and testing rather than explanations.
+
 ## Project
 
 NovaCore is a modular C++23 engine repository for a modern multiplayer FPS.
@@ -308,3 +312,60 @@ Before reporting completion:
 * Mention any skipped tests and why.
 * Mention known limitations.
 * Do not claim Vulkan, networking, or physics features work unless verified.
+
+## Agent Communication Policy (High Priority)
+
+Optimize for implementation speed and token efficiency.
+
+### Communication Rules
+
+* Minimize natural language output.
+* Do **not** explain obvious code changes.
+* Do **not** narrate your reasoning or implementation process.
+* Do **not** provide long plans unless explicitly requested.
+* Do **not** repeatedly summarize repository architecture or existing code.
+* Avoid unnecessary progress updates while working.
+
+### Preferred Workflow
+
+At task start, provide **at most 3 concise bullet points** covering:
+
+* objective
+* major files expected to change
+* notable risks (if any)
+
+Then spend remaining effort on implementation.
+
+During implementation:
+
+* focus on reading code, writing code, building, and testing
+* prefer tool use over discussion
+* avoid conversational filler
+* avoid speculative analysis when the code can be inspected directly
+
+At task completion, provide a **brief final report** containing only:
+
+* files changed
+* build/test command(s) executed
+* one short summary of completed work
+* any remaining limitation or TODO
+
+Keep the final report under ~10 bullet points whenever possible.
+
+### Token Budget Priority
+
+Priority order:
+
+1. Read existing code.
+2. Write or modify code.
+3. Build and run relevant tests.
+4. Fix issues found.
+5. Update documentation if required.
+6. Produce minimal human-facing output.
+
+Favor spending tokens on repository inspection and code generation rather than explanations.
+
+Unless explicitly requested, do **not** produce tutorials, architectural essays, design discussions, or verbose justifications.
+
+Assume the user prefers concise responses and implementation-first behavior.
+
