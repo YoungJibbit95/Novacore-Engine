@@ -253,10 +253,15 @@ M2:
 * Camera push constants
 * Mesh uploads
 * Indexed drawing
+* First synchronous device-local GLB upload path
+* Per-asset mesh cache keyed by render asset id
 * Uniform buffers
 
 M3:
 
+* Renderer-owned mesh resources
+* Upload queues
+* Deferred destruction
 * Directional lighting
 * Shadow mapping
 * Frustum culling

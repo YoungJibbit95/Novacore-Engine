@@ -85,8 +85,14 @@ Implemented:
 * Debug graphics pipeline
 * Debug triangle rendering
 * World box graphics pipeline
+* World mesh graphics pipeline
 * Camera push constants
 * Depth-tested 3D box rendering
+* Device-local vertex buffers
+* Device-local index buffers
+* Staging uploads through one-time command buffers
+* Indexed GLB mesh draw submission
+* Per-asset Vulkan mesh cache keyed by render asset id
 * GLSL → SPIR-V compilation
 
 Current renderer status:
@@ -94,16 +100,15 @@ Current renderer status:
 * Vulkan initialization is operational.
 * Basic graphics submission functions correctly.
 * 3D world primitive submission is operational for early greybox visibility.
+* Imported CPU GLB mesh data can be uploaded to GPU memory and drawn through the 3D camera/depth path.
 * Debug rendering remains available as a fallback path.
 
 Not yet implemented:
 
-* GPU mesh uploads
-* Indexed mesh rendering
 * Frustum culling
 * Material binding
-* Lighting
-* Resource streaming
+* Directional/IBL lighting beyond simple shader-side normal shading
+* Full renderer-owned resource streaming and eviction
 
 ---
 
@@ -121,13 +126,13 @@ Implemented:
 * GLB scene inspection
 * CPU-side mesh extraction
 * Stable mesh handles
+* Renderer handoff for first GPU upload/draw path
 
-Current pipeline stops at CPU asset preparation.
+Current pipeline can move extracted mesh data into the Vulkan backend for first-frame, synchronous device-local upload.
 
 Future work includes:
 
 * Asynchronous decoding
-* GPU upload
 * Residency tracking
 * Reference counting
 * Streaming eviction
@@ -212,15 +217,15 @@ The next objective should be visible gameplay rather than additional engine scaf
 
 Implement:
 
-* Device-local vertex buffers
-* Index buffers
-* Staging uploads
-* Uniform buffers
-* Mesh draw submission
+* Renderer-owned mesh handles
+* Upload queues
+* Deferred destruction
+* Descriptor-backed object constants
+* Material resource binding
 
 Target:
 
-Render imported GLB geometry inside the existing movable 3D camera/depth path.
+Promote the current synchronous GLB mesh upload path into a durable resource manager.
 
 ---
 

@@ -6,12 +6,15 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
@@ -122,6 +125,16 @@ struct WorldBoxPushConstants final {
     std::array<float, 4> color{};
 };
 
+struct WorldMeshPushConstants final {
+    std::array<float, 16> worldViewProjection{};
+    std::array<float, 4> color{};
+};
+
+struct VulkanMeshVertex final {
+    float position[3]{};
+    float normal[3]{0.0F, 1.0F, 0.0F};
+};
+
 [[nodiscard]] float degreesToRadians(float degrees) {
     constexpr float kPi = 3.14159265358979323846F;
     return degrees * (kPi / 180.0F);
@@ -169,6 +182,40 @@ struct WorldBoxPushConstants final {
         }
     }
     return result;
+}
+
+[[nodiscard]] Mat4 translation(novacore::math::Vec3 value) {
+    Mat4 result = identity();
+    result.at(0, 3) = value.x;
+    result.at(1, 3) = value.y;
+    result.at(2, 3) = value.z;
+    return result;
+}
+
+[[nodiscard]] Mat4 scale(novacore::math::Vec3 value) {
+    Mat4 result{};
+    result.at(0, 0) = value.x;
+    result.at(1, 1) = value.y;
+    result.at(2, 2) = value.z;
+    result.at(3, 3) = 1.0F;
+    return result;
+}
+
+[[nodiscard]] Mat4 rotationY(float yawDegrees) {
+    const float yaw = degreesToRadians(yawDegrees);
+    const float s = std::sin(yaw);
+    const float c = std::cos(yaw);
+
+    Mat4 result = identity();
+    result.at(0, 0) = c;
+    result.at(0, 2) = s;
+    result.at(2, 0) = -s;
+    result.at(2, 2) = c;
+    return result;
+}
+
+[[nodiscard]] Mat4 modelMatrixForMesh(const RenderMesh3D& mesh) {
+    return multiply(translation(mesh.position), multiply(rotationY(mesh.yawDegrees), scale(mesh.scale)));
 }
 
 [[nodiscard]] Mat4 perspectiveVulkan(float verticalFovDegrees, float aspect, float nearPlane, float farPlane) {
@@ -246,6 +293,14 @@ struct WorldBoxPushConstants final {
     };
 }
 
+[[nodiscard]] WorldMeshPushConstants pushConstantsForMesh(const Mat4& viewProjection, const RenderMesh3D& mesh) {
+    const auto worldViewProjection = multiply(viewProjection, modelMatrixForMesh(mesh));
+    return WorldMeshPushConstants{
+        worldViewProjection.value,
+        mesh.color,
+    };
+}
+
 struct QueueFamilySelection final {
     std::optional<std::uint32_t> graphics;
     std::optional<std::uint32_t> present;
@@ -263,6 +318,25 @@ struct SwapchainSupport final {
     [[nodiscard]] bool usable() const {
         return !formats.empty() && !presentModes.empty();
     }
+};
+
+struct GpuBuffer final {
+    VkBuffer buffer = VK_NULL_HANDLE;
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    VkDeviceSize size = 0;
+};
+
+struct GpuMeshPrimitive final {
+    GpuBuffer vertexBuffer{};
+    GpuBuffer indexBuffer{};
+    std::uint32_t indexCount = 0;
+};
+
+struct GpuMeshAsset final {
+    std::string assetId;
+    std::vector<GpuMeshPrimitive> primitives;
+    std::size_t vertexCount = 0;
+    std::size_t indexCount = 0;
 };
 
 [[nodiscard]] QueueFamilySelection findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
@@ -389,17 +463,21 @@ struct VulkanBackend::Impl final {
     VkDeviceMemory depthMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers;
-    VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-    VkPipeline graphicsPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout worldBoxPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldBoxPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout worldMeshPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldMeshPipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kMaxFramesInFlight> commandBuffers{};
     std::array<VkSemaphore, kMaxFramesInFlight> imageAvailable{};
     std::array<VkSemaphore, kMaxFramesInFlight> renderFinished{};
     std::array<VkFence, kMaxFramesInFlight> inFlight{};
+    std::unordered_map<std::string, GpuMeshAsset> gpuMeshes;
     std::uint32_t currentFrame = 0;
     std::uint32_t acquiredImageIndex = 0;
     bool frameActive = false;
     bool loggedWorldDrawSubmission = false;
+    bool loggedWorldMeshSubmission = false;
 #endif
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     std::string selectedDeviceName = "none";
@@ -797,7 +875,7 @@ struct VulkanBackend::Impl final {
         return module;
     }
 
-    [[nodiscard]] bool createGraphicsPipeline() {
+    [[nodiscard]] bool createWorldBoxPipeline() {
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_box.vert.spv");
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_box.frag.spv");
@@ -905,7 +983,7 @@ struct VulkanBackend::Impl final {
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout), "vkCreatePipelineLayout")) {
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldBoxPipelineLayout), "vkCreatePipelineLayout(worldBox)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
@@ -922,19 +1000,180 @@ struct VulkanBackend::Impl final {
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.layout = pipelineLayout;
+        pipelineInfo.layout = worldBoxPipelineLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
         const bool success = vkOk(
-            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline),
-            "vkCreateGraphicsPipelines");
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &worldBoxPipeline),
+            "vkCreateGraphicsPipelines(worldBox)");
 
         vkDestroyShaderModule(device, fragmentShader, nullptr);
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
             core::logInfo("render", "Vulkan world box graphics pipeline created");
+        }
+        return success;
+    }
+
+    [[nodiscard]] bool createWorldMeshPipeline() {
+        const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.vert.spv");
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.frag.spv");
+        if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            core::logWarning("render", "Vulkan world mesh pipeline skipped because shader binaries are missing");
+            return false;
+        }
+
+        const VkShaderModule vertexShader = createShaderModule(vertexShaderBytes);
+        const VkShaderModule fragmentShader = createShaderModule(fragmentShaderBytes);
+        if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
+            if (vertexShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, vertexShader, nullptr);
+            }
+            if (fragmentShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, fragmentShader, nullptr);
+            }
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo vertexStage{};
+        vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vertexStage.module = vertexShader;
+        vertexStage.pName = "main";
+
+        VkPipelineShaderStageCreateInfo fragmentStage{};
+        fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragmentStage.module = fragmentShader;
+        fragmentStage.pName = "main";
+
+        const VkPipelineShaderStageCreateInfo shaderStages[] = {vertexStage, fragmentStage};
+
+        VkVertexInputBindingDescription vertexBinding{};
+        vertexBinding.binding = 0;
+        vertexBinding.stride = sizeof(VulkanMeshVertex);
+        vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 2> vertexAttributes{};
+        vertexAttributes[0].binding = 0;
+        vertexAttributes[0].location = 0;
+        vertexAttributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        vertexAttributes[0].offset = offsetof(VulkanMeshVertex, position);
+        vertexAttributes[1].binding = 0;
+        vertexAttributes[1].location = 1;
+        vertexAttributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        vertexAttributes[1].offset = offsetof(VulkanMeshVertex, normal);
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertexInput.vertexBindingDescriptionCount = 1;
+        vertexInput.pVertexBindingDescriptions = &vertexBinding;
+        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(vertexAttributes.size());
+        vertexInput.pVertexAttributeDescriptions = vertexAttributes.data();
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        VkViewport viewport{};
+        viewport.x = 0.0F;
+        viewport.y = 0.0F;
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.minDepth = 0.0F;
+        viewport.maxDepth = 1.0F;
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchainExtent;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = &viewport;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable = VK_FALSE;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0F;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.depthBiasEnable = VK_FALSE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable = VK_FALSE;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT |
+            VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT |
+            VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_TRUE;
+        depthStencil.depthWriteEnable = VK_TRUE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants));
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldMeshPipelineLayout), "vkCreatePipelineLayout(worldMesh)")) {
+            vkDestroyShaderModule(device, fragmentShader, nullptr);
+            vkDestroyShaderModule(device, vertexShader, nullptr);
+            return false;
+        }
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.layout = worldMeshPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        const bool success = vkOk(
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &worldMeshPipeline),
+            "vkCreateGraphicsPipelines(worldMesh)");
+
+        vkDestroyShaderModule(device, fragmentShader, nullptr);
+        vkDestroyShaderModule(device, vertexShader, nullptr);
+
+        if (success) {
+            core::logInfo("render", "Vulkan world mesh graphics pipeline created");
         }
         return success;
     }
@@ -956,6 +1195,285 @@ struct VulkanBackend::Impl final {
         allocateInfo.commandBufferCount = static_cast<std::uint32_t>(commandBuffers.size());
 
         return vkOk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()), "vkAllocateCommandBuffers");
+    }
+
+    void destroyBuffer(GpuBuffer& buffer) {
+        if (buffer.buffer != VK_NULL_HANDLE) {
+            vkDestroyBuffer(device, buffer.buffer, nullptr);
+            buffer.buffer = VK_NULL_HANDLE;
+        }
+        if (buffer.memory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, buffer.memory, nullptr);
+            buffer.memory = VK_NULL_HANDLE;
+        }
+        buffer.size = 0;
+    }
+
+    [[nodiscard]] bool createBuffer(
+        VkDeviceSize size,
+        VkBufferUsageFlags usage,
+        VkMemoryPropertyFlags properties,
+        GpuBuffer& outBuffer) {
+        if (size == 0) {
+            core::logWarning("render", "Refusing to create zero-byte Vulkan buffer");
+            return false;
+        }
+
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = size;
+        bufferInfo.usage = usage;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (!vkOk(vkCreateBuffer(device, &bufferInfo, nullptr, &outBuffer.buffer), "vkCreateBuffer")) {
+            return false;
+        }
+
+        VkMemoryRequirements memoryRequirements{};
+        vkGetBufferMemoryRequirements(device, outBuffer.buffer, &memoryRequirements);
+        const auto memoryType = findMemoryType(memoryRequirements.memoryTypeBits, properties);
+        if (!memoryType.has_value()) {
+            core::logWarning("render", "No suitable memory type for Vulkan buffer");
+            destroyBuffer(outBuffer);
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = *memoryType;
+
+        if (!vkOk(vkAllocateMemory(device, &allocateInfo, nullptr, &outBuffer.memory), "vkAllocateMemory(buffer)")) {
+            destroyBuffer(outBuffer);
+            return false;
+        }
+        if (!vkOk(vkBindBufferMemory(device, outBuffer.buffer, outBuffer.memory, 0), "vkBindBufferMemory")) {
+            destroyBuffer(outBuffer);
+            return false;
+        }
+
+        outBuffer.size = size;
+        return true;
+    }
+
+    [[nodiscard]] bool writeHostVisibleBuffer(const void* data, VkDeviceSize size, const GpuBuffer& buffer) {
+        void* mapped = nullptr;
+        if (!vkOk(vkMapMemory(device, buffer.memory, 0, size, 0, &mapped), "vkMapMemory")) {
+            return false;
+        }
+
+        std::memcpy(mapped, data, static_cast<std::size_t>(size));
+        vkUnmapMemory(device, buffer.memory);
+        return true;
+    }
+
+    [[nodiscard]] std::optional<VkCommandBuffer> beginSingleTimeCommands() {
+        VkCommandBufferAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocateInfo.commandPool = commandPool;
+        allocateInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        if (!vkOk(vkAllocateCommandBuffers(device, &allocateInfo, &commandBuffer), "vkAllocateCommandBuffers(singleTime)")) {
+            return std::nullopt;
+        }
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        if (!vkOk(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer(singleTime)")) {
+            vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+            return std::nullopt;
+        }
+        return commandBuffer;
+    }
+
+    [[nodiscard]] bool endSingleTimeCommands(VkCommandBuffer commandBuffer) {
+        if (!vkOk(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer(singleTime)")) {
+            vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+            return false;
+        }
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        const bool submitted = vkOk(vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE), "vkQueueSubmit(singleTime)");
+        if (submitted) {
+            (void)vkQueueWaitIdle(graphicsQueue);
+        }
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        return submitted;
+    }
+
+    [[nodiscard]] bool copyBuffer(VkBuffer source, VkBuffer destination, VkDeviceSize size) {
+        const auto commandBuffer = beginSingleTimeCommands();
+        if (!commandBuffer.has_value()) {
+            return false;
+        }
+
+        VkBufferCopy copyRegion{};
+        copyRegion.size = size;
+        vkCmdCopyBuffer(*commandBuffer, source, destination, 1, &copyRegion);
+        return endSingleTimeCommands(*commandBuffer);
+    }
+
+    [[nodiscard]] bool uploadDeviceLocalBuffer(
+        const void* data,
+        VkDeviceSize size,
+        VkBufferUsageFlags finalUsage,
+        GpuBuffer& outBuffer) {
+        GpuBuffer staging{};
+        if (!createBuffer(
+                size,
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                staging)) {
+            return false;
+        }
+
+        if (!writeHostVisibleBuffer(data, size, staging)) {
+            destroyBuffer(staging);
+            return false;
+        }
+
+        if (!createBuffer(
+                size,
+                finalUsage | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                outBuffer)) {
+            destroyBuffer(staging);
+            return false;
+        }
+
+        const bool copied = copyBuffer(staging.buffer, outBuffer.buffer, size);
+        destroyBuffer(staging);
+        if (!copied) {
+            destroyBuffer(outBuffer);
+            return false;
+        }
+        return true;
+    }
+
+    [[nodiscard]] std::vector<VulkanMeshVertex> buildVertices(
+        const assets::GltfPrimitiveData& primitive) const {
+        std::vector<VulkanMeshVertex> vertices;
+        vertices.reserve(primitive.positions.size());
+        for (std::size_t index = 0; index < primitive.positions.size(); ++index) {
+            const auto position = primitive.positions[index];
+            const auto normal = index < primitive.normals.size()
+                ? normalized(primitive.normals[index])
+                : novacore::math::Vec3{0.0F, 1.0F, 0.0F};
+            vertices.push_back(VulkanMeshVertex{
+                {position.x, position.y, position.z},
+                {normal.x, normal.y, normal.z},
+            });
+        }
+        return vertices;
+    }
+
+    [[nodiscard]] bool uploadMeshPrimitive(
+        const assets::GltfPrimitiveData& source,
+        GpuMeshPrimitive& outPrimitive) {
+        if (source.positions.empty() || source.indices.empty()) {
+            core::logWarning("render", "Skipping empty glTF primitive during Vulkan upload");
+            return false;
+        }
+
+        const auto vertices = buildVertices(source);
+        const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
+        const VkDeviceSize indexBytes = sizeof(std::uint32_t) * source.indices.size();
+
+        if (!uploadDeviceLocalBuffer(
+                vertices.data(),
+                vertexBytes,
+                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                outPrimitive.vertexBuffer)) {
+            return false;
+        }
+        if (!uploadDeviceLocalBuffer(
+                source.indices.data(),
+                indexBytes,
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                outPrimitive.indexBuffer)) {
+            destroyBuffer(outPrimitive.vertexBuffer);
+            return false;
+        }
+
+        outPrimitive.indexCount = static_cast<std::uint32_t>(std::min<std::size_t>(
+            source.indices.size(),
+            std::numeric_limits<std::uint32_t>::max()));
+        return true;
+    }
+
+    void destroyGpuMeshAsset(GpuMeshAsset& asset) {
+        for (auto& primitive : asset.primitives) {
+            destroyBuffer(primitive.vertexBuffer);
+            destroyBuffer(primitive.indexBuffer);
+            primitive.indexCount = 0;
+        }
+        asset.primitives.clear();
+        asset.vertexCount = 0;
+        asset.indexCount = 0;
+    }
+
+    void destroyGpuMeshes() {
+        for (auto& [_, asset] : gpuMeshes) {
+            destroyGpuMeshAsset(asset);
+        }
+        gpuMeshes.clear();
+    }
+
+    [[nodiscard]] bool ensureMeshUploaded(const RenderMesh3D& renderMesh) {
+        if (renderMesh.assetId.empty()) {
+            return false;
+        }
+        if (gpuMeshes.find(renderMesh.assetId) != gpuMeshes.end()) {
+            return true;
+        }
+        if (renderMesh.meshData == nullptr) {
+            return false;
+        }
+
+        GpuMeshAsset asset{};
+        asset.assetId = renderMesh.assetId;
+        asset.primitives.reserve(renderMesh.meshData->primitives.size());
+
+        for (const auto& primitiveData : renderMesh.meshData->primitives) {
+            GpuMeshPrimitive gpuPrimitive{};
+            if (!uploadMeshPrimitive(primitiveData, gpuPrimitive)) {
+                destroyGpuMeshAsset(asset);
+                return false;
+            }
+            asset.vertexCount += primitiveData.positions.size();
+            asset.indexCount += primitiveData.indices.size();
+            asset.primitives.push_back(gpuPrimitive);
+        }
+
+        if (asset.primitives.empty()) {
+            return false;
+        }
+
+        core::logInfo(
+            "render",
+            "Vulkan mesh uploaded: " + renderMesh.assetId +
+                " primitives=" + std::to_string(asset.primitives.size()) +
+                " vertices=" + std::to_string(asset.vertexCount) +
+                " indices=" + std::to_string(asset.indexCount));
+        gpuMeshes.emplace(renderMesh.assetId, std::move(asset));
+        return true;
+    }
+
+    void ensureFrameMeshesUploaded(const RenderFrameInfo& frame) {
+        if (worldMeshPipeline == VK_NULL_HANDLE || !frame.camera3D.enabled || frame.worldMeshes.empty()) {
+            return;
+        }
+
+        for (const auto& mesh : frame.worldMeshes) {
+            (void)ensureMeshUploaded(mesh);
+        }
     }
 
     [[nodiscard]] bool createSyncObjects() {
@@ -997,7 +1515,7 @@ struct VulkanBackend::Impl final {
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        if (graphicsPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldBoxes.empty()) {
+        if (worldBoxPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldBoxes.empty()) {
             if (!loggedWorldDrawSubmission) {
                 core::logInfo(
                     "render",
@@ -1005,17 +1523,58 @@ struct VulkanBackend::Impl final {
                 loggedWorldDrawSubmission = true;
             }
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldBoxPipeline);
             for (const auto& box : frame.worldBoxes) {
                 const auto constants = pushConstantsForBox(viewProjection, box);
                 vkCmdPushConstants(
                     commandBuffer,
-                    pipelineLayout,
+                    worldBoxPipelineLayout,
                     VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                     0,
                     static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants)),
                     &constants);
                 vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+            }
+        }
+
+        if (worldMeshPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldMeshes.empty()) {
+            if (!loggedWorldMeshSubmission) {
+                core::logInfo(
+                    "render",
+                    "Vulkan world mesh draw submission active: meshes=" + std::to_string(frame.worldMeshes.size()));
+                loggedWorldMeshSubmission = true;
+            }
+
+            const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
+            for (const auto& mesh : frame.worldMeshes) {
+                const auto uploaded = gpuMeshes.find(mesh.assetId);
+                if (uploaded == gpuMeshes.end()) {
+                    continue;
+                }
+
+                const auto constants = pushConstantsForMesh(viewProjection, mesh);
+                vkCmdPushConstants(
+                    commandBuffer,
+                    worldMeshPipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0,
+                    static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
+                    &constants);
+
+                for (const auto& primitive : uploaded->second.primitives) {
+                    if (primitive.vertexBuffer.buffer == VK_NULL_HANDLE ||
+                        primitive.indexBuffer.buffer == VK_NULL_HANDLE ||
+                        primitive.indexCount == 0) {
+                        continue;
+                    }
+
+                    const VkBuffer vertexBuffers[] = {primitive.vertexBuffer.buffer};
+                    const VkDeviceSize offsets[] = {0};
+                    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                    vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+                    vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
+                }
             }
         }
 
@@ -1030,14 +1589,24 @@ struct VulkanBackend::Impl final {
             return;
         }
 
-        if (graphicsPipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(device, graphicsPipeline, nullptr);
-            graphicsPipeline = VK_NULL_HANDLE;
+        if (worldMeshPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, worldMeshPipeline, nullptr);
+            worldMeshPipeline = VK_NULL_HANDLE;
         }
 
-        if (pipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-            pipelineLayout = VK_NULL_HANDLE;
+        if (worldMeshPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, worldMeshPipelineLayout, nullptr);
+            worldMeshPipelineLayout = VK_NULL_HANDLE;
+        }
+
+        if (worldBoxPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, worldBoxPipeline, nullptr);
+            worldBoxPipeline = VK_NULL_HANDLE;
+        }
+
+        if (worldBoxPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, worldBoxPipelineLayout, nullptr);
+            worldBoxPipelineLayout = VK_NULL_HANDLE;
         }
 
         for (auto framebuffer : framebuffers) {
@@ -1118,10 +1687,11 @@ bool VulkanBackend::create(platform::Window& window, std::array<float, 4> clearC
         return false;
     }
 
-    (void)impl_->createGraphicsPipeline();
+    (void)impl_->createWorldBoxPipeline();
+    (void)impl_->createWorldMeshPipeline();
 
     impl_->isReady = true;
-    core::logInfo("render", "Vulkan world backend created");
+    core::logInfo("render", "Vulkan world and mesh backend created");
     return true;
 #else
     (void)window;
@@ -1137,6 +1707,8 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
     if (!impl_->isReady || impl_->device == VK_NULL_HANDLE || impl_->swapchain == VK_NULL_HANDLE) {
         return;
     }
+
+    impl_->ensureFrameMeshesUploaded(frame);
 
     vkWaitForFences(impl_->device, 1, &impl_->inFlight[impl_->currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -1223,6 +1795,7 @@ void VulkanBackend::shutdown() {
     }
 
     impl_->destroySwapchainResources();
+    impl_->destroyGpuMeshes();
 
     if (impl_->device != VK_NULL_HANDLE) {
         for (std::size_t index = 0; index < kMaxFramesInFlight; ++index) {
@@ -1267,6 +1840,7 @@ void VulkanBackend::shutdown() {
     impl_->acquiredImageIndex = 0;
     impl_->frameActive = false;
     impl_->loggedWorldDrawSubmission = false;
+    impl_->loggedWorldMeshSubmission = false;
 #endif
 
     impl_->isReady = false;

@@ -238,6 +238,8 @@ Scenarios:
 * Debug triangle
 * Depth-tested world box primitive draw
 * Basic mesh render
+* Device-local GLB vertex/index upload
+* Vulkan indexed mesh draw submission
 * Mesh handle registration
 * GLB CPU mesh extraction
 * Material fallback

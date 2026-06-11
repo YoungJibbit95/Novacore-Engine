@@ -1,5 +1,6 @@
 #pragma once
 
+#include "novacore/assets/GltfDocument.hpp"
 #include "novacore/platform/Window.hpp"
 #include "novacore/math/Types.hpp"
 #include "novacore/render/VulkanRuntime.hpp"
@@ -59,10 +60,20 @@ struct RenderBox3D final {
     std::array<float, 4> color{0.72F, 0.82F, 0.86F, 1.0F};
 };
 
+struct RenderMesh3D final {
+    std::string assetId;
+    const assets::GltfMeshData* meshData = nullptr;
+    math::Vec3 position{};
+    math::Vec3 scale{1.0F, 1.0F, 1.0F};
+    float yawDegrees = 0.0F;
+    std::array<float, 4> color{0.70F, 0.78F, 0.80F, 1.0F};
+};
+
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     RenderCamera3D camera3D{};
     std::vector<RenderBox3D> worldBoxes;
+    std::vector<RenderMesh3D> worldMeshes;
     std::vector<DebugRect> debugRects;
     std::vector<DebugLine> debugLines;
     std::vector<DebugText> debugTexts;
