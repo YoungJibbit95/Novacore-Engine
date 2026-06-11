@@ -146,6 +146,8 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.frag"
             )

@@ -85,9 +85,12 @@ Implemented:
 * Debug graphics pipeline
 * Debug triangle rendering
 * World box graphics pipeline
+* World line graphics pipeline
 * World mesh graphics pipeline
 * Camera push constants
+* Per-frame world lighting push constants
 * Depth-tested 3D box rendering
+* Depth-tested 3D debug line rendering
 * Device-local vertex buffers
 * Device-local index buffers
 * Staging uploads through one-time command buffers
@@ -103,6 +106,7 @@ Current renderer status:
 * Vulkan initialization is operational.
 * Basic graphics submission functions correctly.
 * 3D world primitive submission is operational for early greybox visibility.
+* 3D debug line submission is operational for in-world aim rays, surface normals, and future reconciliation probes.
 * Imported CPU GLB mesh data can be registered as renderer-owned resources, uploaded to GPU memory, and drawn through the 3D camera/depth path.
 * Frame submissions now carry stable mesh-resource handles instead of raw CPU mesh pointers.
 * Registered mesh resources are tracked as pending, resident, failed, or deferred-destroy.
@@ -113,7 +117,7 @@ Not yet implemented:
 
 * Frustum culling
 * Material binding
-* Directional/IBL lighting beyond simple shader-side normal shading
+* Directional/IBL lighting beyond compact per-frame sun-direction and ambient controls
 * Texture/material resource residency
 * Background resource upload budgets beyond the current mesh upload queue
 

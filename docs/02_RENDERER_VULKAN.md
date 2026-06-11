@@ -259,13 +259,15 @@ M2:
 * Mesh upload queue
 * Mesh residency stats
 * Deferred mesh destruction
+* Compact per-frame world lighting controls
+* Depth-tested world debug lines
 * Uniform buffers
 
 M3:
 
 * Texture and material resources
 * Streaming upload budgets
-* Directional lighting
+* Expanded directional lighting
 * Shadow mapping
 * Frustum culling
 * GPU resource streaming

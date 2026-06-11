@@ -237,6 +237,7 @@ Scenarios:
 * Clear frame
 * Debug triangle
 * Depth-tested world box primitive draw
+* Depth-tested world line primitive draw
 * Basic mesh render
 * Device-local GLB vertex/index upload
 * Vulkan indexed mesh draw submission

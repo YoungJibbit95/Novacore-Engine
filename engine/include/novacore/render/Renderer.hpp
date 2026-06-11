@@ -95,10 +95,21 @@ struct RenderCamera3D final {
     float farPlane = 1000.0F;
 };
 
+struct RenderWorldLighting final {
+    math::Vec3 sunDirection{0.35F, 0.85F, 0.28F};
+    float ambientIntensity = 0.32F;
+};
+
 struct RenderBox3D final {
     math::Vec3 center{};
     math::Vec3 halfExtents{0.5F, 0.5F, 0.5F};
     std::array<float, 4> color{0.72F, 0.82F, 0.86F, 1.0F};
+};
+
+struct RenderLine3D final {
+    math::Vec3 start{};
+    math::Vec3 end{};
+    std::array<float, 4> color{0.80F, 0.95F, 1.0F, 1.0F};
 };
 
 struct RenderMesh3D final {
@@ -113,7 +124,9 @@ struct RenderMesh3D final {
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     RenderCamera3D camera3D{};
+    RenderWorldLighting lighting{};
     std::vector<RenderBox3D> worldBoxes;
+    std::vector<RenderLine3D> worldLines;
     std::vector<RenderMesh3D> worldMeshes;
     std::vector<DebugRect> debugRects;
     std::vector<DebugLine> debugLines;
