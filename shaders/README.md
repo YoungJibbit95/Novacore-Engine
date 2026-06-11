@@ -1,8 +1,13 @@
 # Shaders
 
-Shader source will be authored in HLSL and compiled to SPIR-V with DXC during the renderer milestones.
+Development shaders currently use GLSL and compile to SPIR-V through `glslc` when the Vulkan SDK is visible to CMake.
 
-M1 uses a renderer placeholder. M2 adds the first clear/mesh shader path.
+Current shader paths:
+
+- `debug_triangle.*`: earliest swapchain/pipeline smoke shader.
+- `world_box.*`: depth-tested 3D greybox primitive shader.
+
+The long-term production path can move to HLSL plus DXC once descriptor reflection and cooked shader assets exist.
 
 
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "novacore/platform/Window.hpp"
-#include "novacore/render/VulkanBackend.hpp"
+#include "novacore/math/Types.hpp"
 #include "novacore/render/VulkanRuntime.hpp"
 
 #include <array>
@@ -11,6 +11,8 @@
 #include <vector>
 
 namespace novacore::render {
+
+class VulkanBackend;
 
 struct DebugRect final {
     float x = 0.0F;
@@ -41,8 +43,26 @@ struct RendererCreateInfo final {
     bool preferVulkan = false;
 };
 
+struct RenderCamera3D final {
+    bool enabled = false;
+    math::Vec3 position{0.0F, 1.7F, -8.0F};
+    float yawDegrees = 0.0F;
+    float pitchDegrees = 0.0F;
+    float verticalFovDegrees = 74.0F;
+    float nearPlane = 0.03F;
+    float farPlane = 1000.0F;
+};
+
+struct RenderBox3D final {
+    math::Vec3 center{};
+    math::Vec3 halfExtents{0.5F, 0.5F, 0.5F};
+    std::array<float, 4> color{0.72F, 0.82F, 0.86F, 1.0F};
+};
+
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
+    RenderCamera3D camera3D{};
+    std::vector<RenderBox3D> worldBoxes;
     std::vector<DebugRect> debugRects;
     std::vector<DebugLine> debugLines;
     std::vector<DebugText> debugTexts;
@@ -50,7 +70,7 @@ struct RenderFrameInfo final {
 
 class Renderer final {
 public:
-    Renderer() = default;
+    Renderer();
     ~Renderer();
 
     Renderer(const Renderer&) = delete;

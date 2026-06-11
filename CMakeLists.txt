@@ -144,6 +144,8 @@ if(NOVACORE_ENABLE_VULKAN)
             foreach(shader_source IN ITEMS
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.frag"
             )
                 get_filename_component(shader_name "${shader_source}" NAME)
                 set(shader_output "${NOVACORE_SHADER_BINARY_DIR}/${shader_name}.spv")

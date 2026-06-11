@@ -249,10 +249,11 @@ Renderer should expose profiling for:
 
 M2:
 
+* Depth-tested world box primitives
+* Camera push constants
 * Mesh uploads
 * Indexed drawing
 * Uniform buffers
-* Camera matrices
 
 M3:
 
@@ -274,6 +275,7 @@ M4:
 The renderer is considered production-ready for its milestone when:
 
 * Vulkan initializes successfully.
+* A 3D greybox primitive scene renders through the Vulkan path.
 * Swapchain recreation is stable.
 * Meshes upload correctly into device-local memory.
 * Camera movement updates without artifacts.

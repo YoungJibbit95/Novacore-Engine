@@ -78,25 +78,28 @@ Implemented:
 * Swapchain
 * Image views
 * Render pass
+* Depth image, memory, and image view
 * Framebuffers
 * Command buffers
 * Synchronization primitives
 * Debug graphics pipeline
 * Debug triangle rendering
+* World box graphics pipeline
+* Camera push constants
+* Depth-tested 3D box rendering
 * GLSL → SPIR-V compilation
 
 Current renderer status:
 
 * Vulkan initialization is operational.
 * Basic graphics submission functions correctly.
+* 3D world primitive submission is operational for early greybox visibility.
 * Debug rendering remains available as a fallback path.
 
 Not yet implemented:
 
 * GPU mesh uploads
-* Camera matrices
 * Indexed mesh rendering
-* Depth buffering
 * Frustum culling
 * Material binding
 * Lighting
@@ -212,13 +215,12 @@ Implement:
 * Device-local vertex buffers
 * Index buffers
 * Staging uploads
-* Camera matrices
 * Uniform buffers
 * Mesh draw submission
 
 Target:
 
-Render imported GLB geometry inside a movable 3D camera.
+Render imported GLB geometry inside the existing movable 3D camera/depth path.
 
 ---
 

@@ -1,10 +1,11 @@
-#include "novacore/render/VulkanBackend.hpp"
+#include "VulkanBackend.hpp"
 
 #include "novacore/core/Log.hpp"
 #include "novacore/render/Renderer.hpp"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -100,6 +101,149 @@ constexpr std::uint32_t kMaxFramesInFlight = 2;
     file.seekg(0);
     file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     return buffer;
+}
+
+struct Mat4 final {
+    std::array<float, 16> value{};
+
+    [[nodiscard]] float& at(std::size_t row, std::size_t column) {
+        return value[(column * 4U) + row];
+    }
+
+    [[nodiscard]] float at(std::size_t row, std::size_t column) const {
+        return value[(column * 4U) + row];
+    }
+};
+
+struct WorldBoxPushConstants final {
+    std::array<float, 16> viewProjection{};
+    std::array<float, 4> center{};
+    std::array<float, 4> halfExtents{};
+    std::array<float, 4> color{};
+};
+
+[[nodiscard]] float degreesToRadians(float degrees) {
+    constexpr float kPi = 3.14159265358979323846F;
+    return degrees * (kPi / 180.0F);
+}
+
+[[nodiscard]] novacore::math::Vec3 normalized(novacore::math::Vec3 value) {
+    const float lengthSquared = value.lengthSquared();
+    if (lengthSquared <= 0.000001F) {
+        return novacore::math::Vec3{0.0F, 0.0F, 1.0F};
+    }
+    const float invLength = 1.0F / std::sqrt(lengthSquared);
+    return novacore::math::Vec3{value.x * invLength, value.y * invLength, value.z * invLength};
+}
+
+[[nodiscard]] float dot(novacore::math::Vec3 a, novacore::math::Vec3 b) {
+    return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
+}
+
+[[nodiscard]] novacore::math::Vec3 cross(novacore::math::Vec3 a, novacore::math::Vec3 b) {
+    return novacore::math::Vec3{
+        (a.y * b.z) - (a.z * b.y),
+        (a.z * b.x) - (a.x * b.z),
+        (a.x * b.y) - (a.y * b.x),
+    };
+}
+
+[[nodiscard]] Mat4 identity() {
+    Mat4 result{};
+    result.at(0, 0) = 1.0F;
+    result.at(1, 1) = 1.0F;
+    result.at(2, 2) = 1.0F;
+    result.at(3, 3) = 1.0F;
+    return result;
+}
+
+[[nodiscard]] Mat4 multiply(const Mat4& lhs, const Mat4& rhs) {
+    Mat4 result{};
+    for (std::size_t row = 0; row < 4; ++row) {
+        for (std::size_t column = 0; column < 4; ++column) {
+            float value = 0.0F;
+            for (std::size_t k = 0; k < 4; ++k) {
+                value += lhs.at(row, k) * rhs.at(k, column);
+            }
+            result.at(row, column) = value;
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] Mat4 perspectiveVulkan(float verticalFovDegrees, float aspect, float nearPlane, float farPlane) {
+    const float safeAspect = std::max(0.001F, aspect);
+    const float safeNear = std::max(0.001F, nearPlane);
+    const float safeFar = std::max(safeNear + 0.001F, farPlane);
+    const float f = 1.0F / std::tan(degreesToRadians(verticalFovDegrees) * 0.5F);
+
+    Mat4 result{};
+    result.at(0, 0) = f / safeAspect;
+    result.at(1, 1) = -f;
+    result.at(2, 2) = safeFar / (safeFar - safeNear);
+    result.at(2, 3) = -(safeNear * safeFar) / (safeFar - safeNear);
+    result.at(3, 2) = 1.0F;
+    return result;
+}
+
+[[nodiscard]] Mat4 lookAtLeftHanded(novacore::math::Vec3 eye, novacore::math::Vec3 forward) {
+    constexpr novacore::math::Vec3 kWorldUp{0.0F, 1.0F, 0.0F};
+    const auto zAxis = normalized(forward);
+    auto xAxis = normalized(cross(kWorldUp, zAxis));
+    if (xAxis.lengthSquared() <= 0.000001F) {
+        xAxis = novacore::math::Vec3{1.0F, 0.0F, 0.0F};
+    }
+    const auto yAxis = cross(zAxis, xAxis);
+
+    Mat4 result = identity();
+    result.at(0, 0) = xAxis.x;
+    result.at(0, 1) = xAxis.y;
+    result.at(0, 2) = xAxis.z;
+    result.at(0, 3) = -dot(xAxis, eye);
+
+    result.at(1, 0) = yAxis.x;
+    result.at(1, 1) = yAxis.y;
+    result.at(1, 2) = yAxis.z;
+    result.at(1, 3) = -dot(yAxis, eye);
+
+    result.at(2, 0) = zAxis.x;
+    result.at(2, 1) = zAxis.y;
+    result.at(2, 2) = zAxis.z;
+    result.at(2, 3) = -dot(zAxis, eye);
+    return result;
+}
+
+[[nodiscard]] novacore::math::Vec3 cameraForward(const RenderCamera3D& camera) {
+    const float yaw = degreesToRadians(camera.yawDegrees);
+    const float pitch = degreesToRadians(camera.pitchDegrees);
+    const float cosPitch = std::cos(pitch);
+    return normalized(novacore::math::Vec3{
+        std::sin(yaw) * cosPitch,
+        std::sin(pitch),
+        std::cos(yaw) * cosPitch,
+    });
+}
+
+[[nodiscard]] Mat4 viewProjectionForCamera(const RenderCamera3D& camera, VkExtent2D extent) {
+    const float aspect = static_cast<float>(std::max<std::uint32_t>(extent.width, 1U)) /
+        static_cast<float>(std::max<std::uint32_t>(extent.height, 1U));
+    const auto projection = perspectiveVulkan(camera.verticalFovDegrees, aspect, camera.nearPlane, camera.farPlane);
+    const auto view = lookAtLeftHanded(camera.position, cameraForward(camera));
+    return multiply(projection, view);
+}
+
+[[nodiscard]] WorldBoxPushConstants pushConstantsForBox(const Mat4& viewProjection, const RenderBox3D& box) {
+    return WorldBoxPushConstants{
+        viewProjection.value,
+        {box.center.x, box.center.y, box.center.z, 0.0F},
+        {
+            std::max(0.001F, box.halfExtents.x),
+            std::max(0.001F, box.halfExtents.y),
+            std::max(0.001F, box.halfExtents.z),
+            0.0F,
+        },
+        box.color,
+    };
 }
 
 struct QueueFamilySelection final {
@@ -240,6 +384,10 @@ struct VulkanBackend::Impl final {
     std::vector<VkImageView> swapchainImageViews;
     std::vector<VkImageLayout> imageLayouts;
     VkRenderPass renderPass = VK_NULL_HANDLE;
+    VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+    VkImage depthImage = VK_NULL_HANDLE;
+    VkDeviceMemory depthMemory = VK_NULL_HANDLE;
+    VkImageView depthImageView = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers;
     VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
     VkPipeline graphicsPipeline = VK_NULL_HANDLE;
@@ -251,6 +399,7 @@ struct VulkanBackend::Impl final {
     std::uint32_t currentFrame = 0;
     std::uint32_t acquiredImageIndex = 0;
     bool frameActive = false;
+    bool loggedWorldDrawSubmission = false;
 #endif
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     std::string selectedDeviceName = "none";
@@ -477,6 +626,75 @@ struct VulkanBackend::Impl final {
         return true;
     }
 
+    [[nodiscard]] std::optional<std::uint32_t> findMemoryType(
+        std::uint32_t typeFilter,
+        VkMemoryPropertyFlags properties) const {
+        VkPhysicalDeviceMemoryProperties memoryProperties{};
+        vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);
+
+        for (std::uint32_t index = 0; index < memoryProperties.memoryTypeCount; ++index) {
+            if ((typeFilter & (1U << index)) != 0 &&
+                (memoryProperties.memoryTypes[index].propertyFlags & properties) == properties) {
+                return index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] bool createDepthResources() {
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width = swapchainExtent.width;
+        imageInfo.extent.height = swapchainExtent.height;
+        imageInfo.extent.depth = 1;
+        imageInfo.mipLevels = 1;
+        imageInfo.arrayLayers = 1;
+        imageInfo.format = depthFormat;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        if (!vkOk(vkCreateImage(device, &imageInfo, nullptr, &depthImage), "vkCreateImage(depth)")) {
+            return false;
+        }
+
+        VkMemoryRequirements memoryRequirements{};
+        vkGetImageMemoryRequirements(device, depthImage, &memoryRequirements);
+        const auto memoryType = findMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (!memoryType.has_value()) {
+            core::logWarning("render", "No suitable memory type for Vulkan depth image");
+            return false;
+        }
+
+        VkMemoryAllocateInfo allocateInfo{};
+        allocateInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        allocateInfo.allocationSize = memoryRequirements.size;
+        allocateInfo.memoryTypeIndex = *memoryType;
+
+        if (!vkOk(vkAllocateMemory(device, &allocateInfo, nullptr, &depthMemory), "vkAllocateMemory(depth)")) {
+            return false;
+        }
+        if (!vkOk(vkBindImageMemory(device, depthImage, depthMemory, 0), "vkBindImageMemory(depth)")) {
+            return false;
+        }
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = depthImage;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = depthFormat;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        return vkOk(vkCreateImageView(device, &viewInfo, nullptr, &depthImageView), "vkCreateImageView(depth)");
+    }
+
     [[nodiscard]] bool createRenderPass() {
         VkAttachmentDescription colorAttachment{};
         colorAttachment.format = swapchainFormat;
@@ -492,23 +710,46 @@ struct VulkanBackend::Impl final {
         colorReference.attachment = 0;
         colorReference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
+        VkAttachmentDescription depthAttachment{};
+        depthAttachment.format = depthFormat;
+        depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depthReference{};
+        depthReference.attachment = 1;
+        depthReference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
         VkSubpassDescription subpass{};
         subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         subpass.colorAttachmentCount = 1;
         subpass.pColorAttachments = &colorReference;
+        subpass.pDepthStencilAttachment = &depthReference;
 
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
         dependency.dstSubpass = 0;
-        dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.srcStageMask =
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dependency.srcAccessMask = 0;
-        dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        dependency.dstStageMask =
+            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependency.dstAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        const std::array<VkAttachmentDescription, 2> attachments{colorAttachment, depthAttachment};
 
         VkRenderPassCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        createInfo.attachmentCount = 1;
-        createInfo.pAttachments = &colorAttachment;
+        createInfo.attachmentCount = static_cast<std::uint32_t>(attachments.size());
+        createInfo.pAttachments = attachments.data();
         createInfo.subpassCount = 1;
         createInfo.pSubpasses = &subpass;
         createInfo.dependencyCount = 1;
@@ -520,13 +761,13 @@ struct VulkanBackend::Impl final {
     [[nodiscard]] bool createFramebuffers() {
         framebuffers.resize(swapchainImageViews.size());
         for (std::size_t index = 0; index < swapchainImageViews.size(); ++index) {
-            const VkImageView attachments[] = {swapchainImageViews[index]};
+            const std::array<VkImageView, 2> attachments{swapchainImageViews[index], depthImageView};
 
             VkFramebufferCreateInfo createInfo{};
             createInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
             createInfo.renderPass = renderPass;
-            createInfo.attachmentCount = 1;
-            createInfo.pAttachments = attachments;
+            createInfo.attachmentCount = static_cast<std::uint32_t>(attachments.size());
+            createInfo.pAttachments = attachments.data();
             createInfo.width = swapchainExtent.width;
             createInfo.height = swapchainExtent.height;
             createInfo.layers = 1;
@@ -558,10 +799,10 @@ struct VulkanBackend::Impl final {
 
     [[nodiscard]] bool createGraphicsPipeline() {
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
-        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "debug_triangle.vert.spv");
-        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "debug_triangle.frag.spv");
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_box.vert.spv");
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_box.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
-            core::logWarning("render", "Vulkan debug triangle pipeline skipped because shader binaries are missing");
+            core::logWarning("render", "Vulkan world box pipeline skipped because shader binaries are missing");
             return false;
         }
 
@@ -647,8 +888,23 @@ struct VulkanBackend::Impl final {
         colorBlending.attachmentCount = 1;
         colorBlending.pAttachments = &colorBlendAttachment;
 
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_TRUE;
+        depthStencil.depthWriteEnable = VK_TRUE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants));
+
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout), "vkCreatePipelineLayout")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
@@ -664,6 +920,7 @@ struct VulkanBackend::Impl final {
         pipelineInfo.pViewportState = &viewportState;
         pipelineInfo.pRasterizationState = &rasterizer;
         pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.layout = pipelineLayout;
         pipelineInfo.renderPass = renderPass;
@@ -677,7 +934,7 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
-            core::logInfo("render", "Vulkan debug triangle graphics pipeline created");
+            core::logInfo("render", "Vulkan world box graphics pipeline created");
         }
         return success;
     }
@@ -719,14 +976,15 @@ struct VulkanBackend::Impl final {
         return true;
     }
 
-    void recordClearCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, std::array<float, 4> color) {
+    void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-        VkClearValue clearValue{};
-        clearValue.color = {{color[0], color[1], color[2], color[3]}};
+        std::array<VkClearValue, 2> clearValues{};
+        clearValues[0].color = {{frame.clearColor[0], frame.clearColor[1], frame.clearColor[2], frame.clearColor[3]}};
+        clearValues[1].depthStencil = {1.0F, 0};
 
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -734,14 +992,31 @@ struct VulkanBackend::Impl final {
         renderPassInfo.framebuffer = framebuffers[imageIndex];
         renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = swapchainExtent;
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearValue;
+        renderPassInfo.clearValueCount = static_cast<std::uint32_t>(clearValues.size());
+        renderPassInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-        if (graphicsPipeline != VK_NULL_HANDLE) {
+        if (graphicsPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldBoxes.empty()) {
+            if (!loggedWorldDrawSubmission) {
+                core::logInfo(
+                    "render",
+                    "Vulkan world box draw submission active: boxes=" + std::to_string(frame.worldBoxes.size()));
+                loggedWorldDrawSubmission = true;
+            }
+            const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+            for (const auto& box : frame.worldBoxes) {
+                const auto constants = pushConstantsForBox(viewProjection, box);
+                vkCmdPushConstants(
+                    commandBuffer,
+                    pipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0,
+                    static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants)),
+                    &constants);
+                vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+            }
         }
 
         vkCmdEndRenderPass(commandBuffer);
@@ -775,6 +1050,21 @@ struct VulkanBackend::Impl final {
         if (renderPass != VK_NULL_HANDLE) {
             vkDestroyRenderPass(device, renderPass, nullptr);
             renderPass = VK_NULL_HANDLE;
+        }
+
+        if (depthImageView != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, depthImageView, nullptr);
+            depthImageView = VK_NULL_HANDLE;
+        }
+
+        if (depthImage != VK_NULL_HANDLE) {
+            vkDestroyImage(device, depthImage, nullptr);
+            depthImage = VK_NULL_HANDLE;
+        }
+
+        if (depthMemory != VK_NULL_HANDLE) {
+            vkFreeMemory(device, depthMemory, nullptr);
+            depthMemory = VK_NULL_HANDLE;
         }
 
         for (auto imageView : swapchainImageViews) {
@@ -820,6 +1110,7 @@ bool VulkanBackend::create(platform::Window& window, std::array<float, 4> clearC
         !impl_->createSwapchain(window) ||
         !impl_->createImageViews() ||
         !impl_->createRenderPass() ||
+        !impl_->createDepthResources() ||
         !impl_->createFramebuffers() ||
         !impl_->createCommandPoolAndBuffers() ||
         !impl_->createSyncObjects()) {
@@ -830,7 +1121,7 @@ bool VulkanBackend::create(platform::Window& window, std::array<float, 4> clearC
     (void)impl_->createGraphicsPipeline();
 
     impl_->isReady = true;
-    core::logInfo("render", "Vulkan clear/present backend created");
+    core::logInfo("render", "Vulkan world backend created");
     return true;
 #else
     (void)window;
@@ -870,10 +1161,10 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
 
     vkResetFences(impl_->device, 1, &impl_->inFlight[impl_->currentFrame]);
     vkResetCommandBuffer(impl_->commandBuffers[impl_->currentFrame], 0);
-    impl_->recordClearCommandBuffer(
+    impl_->recordCommandBuffer(
         impl_->commandBuffers[impl_->currentFrame],
         impl_->acquiredImageIndex,
-        frame.clearColor);
+        frame);
     impl_->frameActive = true;
 #else
     (void)frame;
@@ -975,6 +1266,7 @@ void VulkanBackend::shutdown() {
     impl_->currentFrame = 0;
     impl_->acquiredImageIndex = 0;
     impl_->frameActive = false;
+    impl_->loggedWorldDrawSubmission = false;
 #endif
 
     impl_->isReady = false;

@@ -1,5 +1,7 @@
 #include "novacore/render/Renderer.hpp"
 
+#include "VulkanBackend.hpp"
+
 #include "novacore/core/Log.hpp"
 
 #if NOVACORE_HAS_SDL3
@@ -118,6 +120,8 @@ void drawText(SDL_Renderer* renderer, const DebugText& text) {
 #endif
 
 } // namespace
+
+Renderer::Renderer() = default;
 
 Renderer::~Renderer() {
     shutdown();
@@ -242,7 +246,7 @@ void Renderer::shutdown() {
 
 std::string_view Renderer::backendName() const {
     if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
-        return "vulkan-clear";
+        return "vulkan-world";
     }
     if (sdlRenderer_ != nullptr) {
         return "sdl-debug";

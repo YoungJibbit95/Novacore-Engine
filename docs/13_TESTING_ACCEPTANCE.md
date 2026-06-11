@@ -236,6 +236,7 @@ Scenarios:
 * Swapchain recreation
 * Clear frame
 * Debug triangle
+* Depth-tested world box primitive draw
 * Basic mesh render
 * Mesh handle registration
 * GLB CPU mesh extraction
