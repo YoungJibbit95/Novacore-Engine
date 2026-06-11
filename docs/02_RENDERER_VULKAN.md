@@ -14,6 +14,7 @@ The initial milestones focus on correctness and stability before advanced render
 * GPU resources are immutable except through explicit upload commands.
 * Draw submission should minimize pipeline and descriptor changes.
 * Renderer failures must never compromise dedicated server execution.
+* Client launches may require Vulkan explicitly so legacy debug renderers do not mask backend failures.
 
 ## Backend Layers
 

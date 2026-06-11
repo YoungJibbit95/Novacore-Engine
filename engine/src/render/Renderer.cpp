@@ -151,9 +151,22 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
             return true;
         }
         vulkanBackend_.reset();
+        if (info.requireVulkan) {
+            core::logWarning("render", "Vulkan backend failed and Vulkan is required; SDL debug fallback is disabled");
+            ready_ = true;
+            vulkanCapable_ = false;
+            return true;
+        }
         core::logWarning("render", "Vulkan backend failed; falling back to SDL debug/null renderer");
     }
 #endif
+
+    if (info.requireVulkan && !window.isHeadless()) {
+        core::logWarning("render", "Vulkan backend required but unavailable in this build/runtime; SDL debug fallback is disabled");
+        ready_ = true;
+        vulkanCapable_ = false;
+        return true;
+    }
 
 #if NOVACORE_HAS_SDL3
     if (!window.isHeadless()) {

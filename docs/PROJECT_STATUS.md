@@ -101,6 +101,7 @@ Current renderer status:
 * Basic graphics submission functions correctly.
 * 3D world primitive submission is operational for early greybox visibility.
 * Imported CPU GLB mesh data can be uploaded to GPU memory and drawn through the 3D camera/depth path.
+* Vulkan-required launch profiles can disable silent SDL debug fallback.
 * Debug rendering remains available as a fallback path.
 
 Not yet implemented:

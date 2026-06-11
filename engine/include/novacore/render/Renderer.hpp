@@ -42,6 +42,7 @@ struct DebugText final {
 struct RendererCreateInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     bool preferVulkan = false;
+    bool requireVulkan = false;
 };
 
 struct RenderCamera3D final {
