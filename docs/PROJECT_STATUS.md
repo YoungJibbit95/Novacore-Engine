@@ -92,7 +92,10 @@ Implemented:
 * Device-local index buffers
 * Staging uploads through one-time command buffers
 * Indexed GLB mesh draw submission
-* Per-asset Vulkan mesh cache keyed by render asset id
+* Renderer-owned `MeshResourceHandle` registry
+* Vulkan mesh upload queue
+* GPU mesh residency stats
+* Deferred GPU mesh destruction after frames-in-flight retire
 * GLSL → SPIR-V compilation
 
 Current renderer status:
@@ -100,7 +103,9 @@ Current renderer status:
 * Vulkan initialization is operational.
 * Basic graphics submission functions correctly.
 * 3D world primitive submission is operational for early greybox visibility.
-* Imported CPU GLB mesh data can be uploaded to GPU memory and drawn through the 3D camera/depth path.
+* Imported CPU GLB mesh data can be registered as renderer-owned resources, uploaded to GPU memory, and drawn through the 3D camera/depth path.
+* Frame submissions now carry stable mesh-resource handles instead of raw CPU mesh pointers.
+* Registered mesh resources are tracked as pending, resident, failed, or deferred-destroy.
 * Vulkan-required launch profiles can disable silent SDL debug fallback.
 * Debug rendering remains available as a fallback path.
 
@@ -109,7 +114,8 @@ Not yet implemented:
 * Frustum culling
 * Material binding
 * Directional/IBL lighting beyond simple shader-side normal shading
-* Full renderer-owned resource streaming and eviction
+* Texture/material resource residency
+* Background resource upload budgets beyond the current mesh upload queue
 
 ---
 
@@ -127,16 +133,17 @@ Implemented:
 * GLB scene inspection
 * CPU-side mesh extraction
 * Stable mesh handles
-* Renderer handoff for first GPU upload/draw path
+* Renderer handoff through `MeshResourceHandle`
+* First mesh resource registration, lookup, release, upload, and deferred-destroy lifecycle
 
-Current pipeline can move extracted mesh data into the Vulkan backend for first-frame, synchronous device-local upload.
+Current pipeline can register extracted mesh data with the renderer, queue Vulkan uploads, draw resident resources, and release GPU buffers through deferred destruction.
 
 Future work includes:
 
 * Asynchronous decoding
-* Residency tracking
-* Reference counting
-* Streaming eviction
+* Cross-zone reference counting
+* Texture residency tracking
+* Streaming eviction policies
 * Background loading
 
 ---
@@ -312,6 +319,12 @@ Implement:
 Target:
 
 Complete the first playable multiplayer interaction.
+
+---
+
+# Latest Readiness Note
+
+GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, and defers GPU buffer destruction after frames-in-flight retire. The next renderer-heavy work is resize-safe swapchain recreation, validation/debug labels, lighting/material fallback controls, and stronger resource streaming policy.
 
 ---
 

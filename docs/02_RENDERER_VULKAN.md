@@ -255,14 +255,16 @@ M2:
 * Mesh uploads
 * Indexed drawing
 * First synchronous device-local GLB upload path
-* Per-asset mesh cache keyed by render asset id
+* Renderer-owned mesh resources
+* Mesh upload queue
+* Mesh residency stats
+* Deferred mesh destruction
 * Uniform buffers
 
 M3:
 
-* Renderer-owned mesh resources
-* Upload queues
-* Deferred destruction
+* Texture and material resources
+* Streaming upload budgets
 * Directional lighting
 * Shadow mapping
 * Frustum culling

@@ -6,6 +6,8 @@
 #include "novacore/render/VulkanRuntime.hpp"
 
 #include <array>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,6 +16,44 @@
 namespace novacore::render {
 
 class VulkanBackend;
+struct MeshResourceRegistry;
+
+struct MeshResourceHandle final {
+    static constexpr std::uint32_t InvalidIndex = std::numeric_limits<std::uint32_t>::max();
+
+    std::uint32_t index = InvalidIndex;
+    std::uint32_t generation = 0;
+
+    [[nodiscard]] bool isValid() const {
+        return index != InvalidIndex && generation != 0;
+    }
+
+    friend bool operator==(MeshResourceHandle lhs, MeshResourceHandle rhs) {
+        return lhs.index == rhs.index && lhs.generation == rhs.generation;
+    }
+
+    friend bool operator!=(MeshResourceHandle lhs, MeshResourceHandle rhs) {
+        return !(lhs == rhs);
+    }
+};
+
+struct MeshResourceStats final {
+    std::size_t registeredResources = 0;
+    std::size_t pendingUploadResources = 0;
+    std::size_t residentResources = 0;
+    std::size_t failedResources = 0;
+    std::size_t uploadQueueLength = 0;
+    std::size_t deferredDestroyCount = 0;
+    std::size_t totalPrimitives = 0;
+    std::size_t totalVertices = 0;
+    std::size_t totalIndices = 0;
+};
+
+struct MeshResourceView final {
+    MeshResourceHandle handle{};
+    std::string assetId;
+    std::shared_ptr<const assets::GltfMeshData> meshData;
+};
 
 struct DebugRect final {
     float x = 0.0F;
@@ -62,8 +102,8 @@ struct RenderBox3D final {
 };
 
 struct RenderMesh3D final {
+    MeshResourceHandle mesh{};
     std::string assetId;
-    const assets::GltfMeshData* meshData = nullptr;
     math::Vec3 position{};
     math::Vec3 scale{1.0F, 1.0F, 1.0F};
     float yawDegrees = 0.0F;
@@ -91,6 +131,12 @@ public:
     Renderer& operator=(Renderer&&) = delete;
 
     bool create(platform::Window& window, const RendererCreateInfo& info);
+    [[nodiscard]] MeshResourceHandle registerMeshResource(
+        std::string assetId,
+        const assets::GltfMeshData& meshData);
+    void releaseMeshResource(MeshResourceHandle handle);
+    [[nodiscard]] MeshResourceHandle findMeshResource(std::string_view assetId) const;
+    [[nodiscard]] MeshResourceStats meshResourceStats() const;
     void beginFrame(const RenderFrameInfo& info);
     void endFrame();
     void shutdown();
@@ -105,6 +151,7 @@ private:
     bool vulkanCapable_ = false;
     VulkanRuntimeInfo vulkanRuntime_;
     std::string vulkanSummary_ = "not probed";
+    std::unique_ptr<MeshResourceRegistry> meshResources_;
     std::unique_ptr<VulkanBackend> vulkanBackend_;
     void* sdlRenderer_ = nullptr;
     std::array<float, 4> clearColor_{0.03F, 0.04F, 0.06F, 1.0F};

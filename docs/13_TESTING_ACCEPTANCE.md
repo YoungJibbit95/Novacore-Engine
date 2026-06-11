@@ -241,6 +241,9 @@ Scenarios:
 * Device-local GLB vertex/index upload
 * Vulkan indexed mesh draw submission
 * Mesh handle registration
+* Mesh-resource handle reuse and generation bumping
+* Mesh upload queue residency transitions
+* Deferred GPU mesh destruction
 * GLB CPU mesh extraction
 * Material fallback
 * Shader compile failure diagnostics

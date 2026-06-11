@@ -12,6 +12,7 @@
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -326,6 +327,12 @@ struct GpuBuffer final {
     VkDeviceSize size = 0;
 };
 
+enum class GpuMeshState {
+    PendingUpload,
+    Resident,
+    Failed
+};
+
 struct GpuMeshPrimitive final {
     GpuBuffer vertexBuffer{};
     GpuBuffer indexBuffer{};
@@ -333,11 +340,29 @@ struct GpuMeshPrimitive final {
 };
 
 struct GpuMeshAsset final {
+    MeshResourceHandle handle{};
     std::string assetId;
     std::vector<GpuMeshPrimitive> primitives;
     std::size_t vertexCount = 0;
     std::size_t indexCount = 0;
+    GpuMeshState state = GpuMeshState::PendingUpload;
+    std::uint64_t lastTouchedFrame = 0;
 };
+
+struct PendingMeshUpload final {
+    MeshResourceView resource;
+    std::uint64_t queuedFrame = 0;
+};
+
+struct DeferredGpuMeshDestroy final {
+    GpuMeshAsset asset;
+    std::uint64_t retireAfterFrame = 0;
+};
+
+[[nodiscard]] std::uint64_t resourceKey(MeshResourceHandle handle) {
+    return (static_cast<std::uint64_t>(handle.generation) << 32U) |
+        static_cast<std::uint64_t>(handle.index);
+}
 
 [[nodiscard]] QueueFamilySelection findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
     std::uint32_t familyCount = 0;
@@ -472,7 +497,10 @@ struct VulkanBackend::Impl final {
     std::array<VkSemaphore, kMaxFramesInFlight> imageAvailable{};
     std::array<VkSemaphore, kMaxFramesInFlight> renderFinished{};
     std::array<VkFence, kMaxFramesInFlight> inFlight{};
-    std::unordered_map<std::string, GpuMeshAsset> gpuMeshes;
+    std::unordered_map<std::uint64_t, GpuMeshAsset> gpuMeshes;
+    std::vector<PendingMeshUpload> pendingMeshUploads;
+    std::vector<DeferredGpuMeshDestroy> deferredMeshDestroys;
+    std::uint64_t frameSerial = 0;
     std::uint32_t currentFrame = 0;
     std::uint32_t acquiredImageIndex = 0;
     bool frameActive = false;
@@ -1424,27 +1452,96 @@ struct VulkanBackend::Impl final {
             destroyGpuMeshAsset(asset);
         }
         gpuMeshes.clear();
+        pendingMeshUploads.clear();
+        for (auto& item : deferredMeshDestroys) {
+            destroyGpuMeshAsset(item.asset);
+        }
+        deferredMeshDestroys.clear();
     }
 
-    [[nodiscard]] bool ensureMeshUploaded(const RenderMesh3D& renderMesh) {
-        if (renderMesh.assetId.empty()) {
+    void registerMeshResource(const MeshResourceView& resource) {
+        if (!resource.handle.isValid() || resource.assetId.empty() || resource.meshData == nullptr) {
+            return;
+        }
+
+        const auto key = resourceKey(resource.handle);
+        const auto existing = gpuMeshes.find(key);
+        if (existing != gpuMeshes.end()) {
+            existing->second.lastTouchedFrame = frameSerial;
+            if (existing->second.state != GpuMeshState::Failed) {
+                return;
+            }
+        }
+
+        const auto pending = std::ranges::find_if(
+            pendingMeshUploads,
+            [key](const PendingMeshUpload& upload) {
+                return resourceKey(upload.resource.handle) == key;
+            });
+        if (pending != pendingMeshUploads.end()) {
+            return;
+        }
+
+        GpuMeshAsset placeholder{};
+        placeholder.handle = resource.handle;
+        placeholder.assetId = std::string(resource.assetId);
+        placeholder.state = GpuMeshState::PendingUpload;
+        placeholder.lastTouchedFrame = frameSerial;
+        gpuMeshes[key] = std::move(placeholder);
+        pendingMeshUploads.push_back(PendingMeshUpload{resource, frameSerial});
+    }
+
+    void releaseMeshResource(MeshResourceHandle handle) {
+        if (!handle.isValid()) {
+            return;
+        }
+
+        const auto key = resourceKey(handle);
+        std::erase_if(
+            pendingMeshUploads,
+            [key](const PendingMeshUpload& upload) {
+                return resourceKey(upload.resource.handle) == key;
+            });
+
+        const auto it = gpuMeshes.find(key);
+        if (it == gpuMeshes.end()) {
+            return;
+        }
+
+        if (it->second.state == GpuMeshState::Resident) {
+            deferredMeshDestroys.push_back(DeferredGpuMeshDestroy{
+                std::move(it->second),
+                frameSerial + kMaxFramesInFlight + 1U,
+            });
+        } else {
+            destroyGpuMeshAsset(it->second);
+        }
+        gpuMeshes.erase(it);
+    }
+
+    [[nodiscard]] bool uploadMeshResource(const PendingMeshUpload& upload) {
+        const auto key = resourceKey(upload.resource.handle);
+        auto assetIt = gpuMeshes.find(key);
+        if (assetIt == gpuMeshes.end()) {
             return false;
         }
-        if (gpuMeshes.find(renderMesh.assetId) != gpuMeshes.end()) {
-            return true;
-        }
-        if (renderMesh.meshData == nullptr) {
+        if (upload.resource.meshData == nullptr || upload.resource.meshData->primitives.empty()) {
+            assetIt->second.state = GpuMeshState::Failed;
             return false;
         }
 
         GpuMeshAsset asset{};
-        asset.assetId = renderMesh.assetId;
-        asset.primitives.reserve(renderMesh.meshData->primitives.size());
+        asset.handle = upload.resource.handle;
+        asset.assetId = std::string(upload.resource.assetId);
+        asset.primitives.reserve(upload.resource.meshData->primitives.size());
+        asset.state = GpuMeshState::PendingUpload;
+        asset.lastTouchedFrame = frameSerial;
 
-        for (const auto& primitiveData : renderMesh.meshData->primitives) {
+        for (const auto& primitiveData : upload.resource.meshData->primitives) {
             GpuMeshPrimitive gpuPrimitive{};
             if (!uploadMeshPrimitive(primitiveData, gpuPrimitive)) {
                 destroyGpuMeshAsset(asset);
+                assetIt->second.state = GpuMeshState::Failed;
                 return false;
             }
             asset.vertexCount += primitiveData.positions.size();
@@ -1453,27 +1550,73 @@ struct VulkanBackend::Impl final {
         }
 
         if (asset.primitives.empty()) {
+            assetIt->second.state = GpuMeshState::Failed;
             return false;
         }
+        asset.state = GpuMeshState::Resident;
 
         core::logInfo(
             "render",
-            "Vulkan mesh uploaded: " + renderMesh.assetId +
+            "Vulkan mesh resident: " + asset.assetId +
                 " primitives=" + std::to_string(asset.primitives.size()) +
                 " vertices=" + std::to_string(asset.vertexCount) +
                 " indices=" + std::to_string(asset.indexCount));
-        gpuMeshes.emplace(renderMesh.assetId, std::move(asset));
+        assetIt->second = std::move(asset);
         return true;
     }
 
-    void ensureFrameMeshesUploaded(const RenderFrameInfo& frame) {
-        if (worldMeshPipeline == VK_NULL_HANDLE || !frame.camera3D.enabled || frame.worldMeshes.empty()) {
+    void processMeshUploadQueue(std::size_t maxUploadsPerFrame) {
+        if (worldMeshPipeline == VK_NULL_HANDLE || pendingMeshUploads.empty() || maxUploadsPerFrame == 0) {
             return;
         }
 
-        for (const auto& mesh : frame.worldMeshes) {
-            (void)ensureMeshUploaded(mesh);
+        std::size_t processed = 0;
+        while (!pendingMeshUploads.empty() && processed < maxUploadsPerFrame) {
+            auto upload = pendingMeshUploads.front();
+            pendingMeshUploads.erase(pendingMeshUploads.begin());
+            (void)uploadMeshResource(upload);
+            ++processed;
         }
+    }
+
+    void processDeferredMeshDestroys() {
+        if (deferredMeshDestroys.empty()) {
+            return;
+        }
+
+        std::erase_if(
+            deferredMeshDestroys,
+            [this](DeferredGpuMeshDestroy& item) {
+                if (item.retireAfterFrame > frameSerial) {
+                    return false;
+                }
+                destroyGpuMeshAsset(item.asset);
+                return true;
+            });
+    }
+
+    [[nodiscard]] MeshResourceStats meshStats() const {
+        MeshResourceStats stats{};
+        stats.uploadQueueLength = pendingMeshUploads.size();
+        stats.deferredDestroyCount = deferredMeshDestroys.size();
+
+        for (const auto& [_, asset] : gpuMeshes) {
+            switch (asset.state) {
+            case GpuMeshState::PendingUpload:
+                ++stats.pendingUploadResources;
+                break;
+            case GpuMeshState::Resident:
+                ++stats.residentResources;
+                stats.totalPrimitives += asset.primitives.size();
+                stats.totalVertices += asset.vertexCount;
+                stats.totalIndices += asset.indexCount;
+                break;
+            case GpuMeshState::Failed:
+                ++stats.failedResources;
+                break;
+            }
+        }
+        return stats;
     }
 
     [[nodiscard]] bool createSyncObjects() {
@@ -1548,10 +1691,15 @@ struct VulkanBackend::Impl final {
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
             for (const auto& mesh : frame.worldMeshes) {
-                const auto uploaded = gpuMeshes.find(mesh.assetId);
-                if (uploaded == gpuMeshes.end()) {
+                if (!mesh.mesh.isValid()) {
                     continue;
                 }
+
+                const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
+                if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
+                    continue;
+                }
+                uploaded->second.lastTouchedFrame = frameSerial;
 
                 const auto constants = pushConstantsForMesh(viewProjection, mesh);
                 vkCmdPushConstants(
@@ -1708,9 +1856,9 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
         return;
     }
 
-    impl_->ensureFrameMeshesUploaded(frame);
-
     vkWaitForFences(impl_->device, 1, &impl_->inFlight[impl_->currentFrame], VK_TRUE, UINT64_MAX);
+    impl_->processDeferredMeshDestroys();
+    impl_->processMeshUploadQueue(32);
 
     const VkResult acquireResult = vkAcquireNextImageKHR(
         impl_->device,
@@ -1784,7 +1932,38 @@ void VulkanBackend::endFrame() {
     }
 
     impl_->currentFrame = (impl_->currentFrame + 1U) % kMaxFramesInFlight;
+    ++impl_->frameSerial;
     impl_->frameActive = false;
+#endif
+}
+
+void VulkanBackend::registerMeshResource(const MeshResourceView& resource) {
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    if (!impl_->isReady || impl_->device == VK_NULL_HANDLE) {
+        return;
+    }
+    impl_->registerMeshResource(resource);
+#else
+    (void)resource;
+#endif
+}
+
+void VulkanBackend::releaseMeshResource(MeshResourceHandle handle) {
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    if (!impl_->isReady || impl_->device == VK_NULL_HANDLE) {
+        return;
+    }
+    impl_->releaseMeshResource(handle);
+#else
+    (void)handle;
+#endif
+}
+
+MeshResourceStats VulkanBackend::meshResourceStats() const {
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    return impl_->meshStats();
+#else
+    return {};
 #endif
 }
 
@@ -1837,6 +2016,7 @@ void VulkanBackend::shutdown() {
     impl_->presentQueue = VK_NULL_HANDLE;
     impl_->commandBuffers = {};
     impl_->currentFrame = 0;
+    impl_->frameSerial = 0;
     impl_->acquiredImageIndex = 0;
     impl_->frameActive = false;
     impl_->loggedWorldDrawSubmission = false;

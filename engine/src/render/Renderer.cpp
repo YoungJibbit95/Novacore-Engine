@@ -14,6 +14,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace novacore::render {
 
@@ -119,9 +124,132 @@ void drawText(SDL_Renderer* renderer, const DebugText& text) {
 }
 #endif
 
+struct MeshResourceSlot final {
+    MeshResourceHandle handle{};
+    std::string assetId;
+    std::shared_ptr<const assets::GltfMeshData> meshData;
+    bool alive = false;
+};
+
 } // namespace
 
-Renderer::Renderer() = default;
+struct MeshResourceRegistry final {
+    [[nodiscard]] MeshResourceHandle registerResource(
+        std::string assetId,
+        const assets::GltfMeshData& meshData) {
+        if (assetId.empty() || meshData.primitives.empty()) {
+            return {};
+        }
+
+        if (const auto existing = find(assetId); existing.isValid()) {
+            return existing;
+        }
+
+        std::uint32_t slotIndex = 0;
+        if (!freeList.empty()) {
+            slotIndex = freeList.back();
+            freeList.pop_back();
+        } else {
+            slotIndex = static_cast<std::uint32_t>(slots.size());
+            slots.push_back({});
+        }
+
+        auto& slot = slots[slotIndex];
+        const std::uint32_t nextGeneration = slot.handle.generation == 0 ? 1 : slot.handle.generation + 1;
+        slot.handle = MeshResourceHandle{slotIndex, nextGeneration};
+        slot.assetId = std::move(assetId);
+        slot.meshData = std::make_shared<assets::GltfMeshData>(meshData);
+        slot.alive = true;
+        handlesByAssetId.emplace(slot.assetId, slot.handle);
+        return slot.handle;
+    }
+
+    void release(MeshResourceHandle handle) {
+        auto* slot = mutableSlot(handle);
+        if (slot == nullptr) {
+            return;
+        }
+
+        handlesByAssetId.erase(slot->assetId);
+        slot->assetId.clear();
+        slot->meshData.reset();
+        slot->alive = false;
+        freeList.push_back(handle.index);
+    }
+
+    [[nodiscard]] MeshResourceHandle find(std::string_view assetId) const {
+        const auto it = handlesByAssetId.find(std::string(assetId));
+        if (it == handlesByAssetId.end()) {
+            return {};
+        }
+        return view(it->second).has_value() ? it->second : MeshResourceHandle{};
+    }
+
+    [[nodiscard]] std::optional<MeshResourceView> view(MeshResourceHandle handle) const {
+        const auto* slot = constSlot(handle);
+        if (slot == nullptr || slot->meshData == nullptr) {
+            return std::nullopt;
+        }
+        return MeshResourceView{slot->handle, slot->assetId, slot->meshData};
+    }
+
+    [[nodiscard]] std::vector<MeshResourceView> views() const {
+        std::vector<MeshResourceView> result;
+        result.reserve(slots.size());
+        for (const auto& slot : slots) {
+            if (!slot.alive || slot.meshData == nullptr) {
+                continue;
+            }
+            result.push_back(MeshResourceView{slot.handle, slot.assetId, slot.meshData});
+        }
+        return result;
+    }
+
+    [[nodiscard]] MeshResourceStats stats() const {
+        MeshResourceStats result{};
+        for (const auto& slot : slots) {
+            if (!slot.alive || slot.meshData == nullptr) {
+                continue;
+            }
+
+            ++result.registeredResources;
+            result.totalPrimitives += slot.meshData->primitiveCount();
+            result.totalVertices += slot.meshData->vertexCount();
+            result.totalIndices += slot.meshData->indexCount();
+        }
+        return result;
+    }
+
+private:
+    [[nodiscard]] const MeshResourceSlot* constSlot(MeshResourceHandle handle) const {
+        if (!handle.isValid() || handle.index >= slots.size()) {
+            return nullptr;
+        }
+        const auto& slot = slots[handle.index];
+        if (!slot.alive || slot.handle != handle) {
+            return nullptr;
+        }
+        return &slot;
+    }
+
+    [[nodiscard]] MeshResourceSlot* mutableSlot(MeshResourceHandle handle) {
+        if (!handle.isValid() || handle.index >= slots.size()) {
+            return nullptr;
+        }
+        auto& slot = slots[handle.index];
+        if (!slot.alive || slot.handle != handle) {
+            return nullptr;
+        }
+        return &slot;
+    }
+
+    std::vector<MeshResourceSlot> slots;
+    std::vector<std::uint32_t> freeList;
+    std::unordered_map<std::string, MeshResourceHandle> handlesByAssetId;
+};
+
+Renderer::Renderer()
+    : meshResources_(std::make_unique<MeshResourceRegistry>()) {}
 
 Renderer::~Renderer() {
     shutdown();
@@ -145,6 +273,9 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
     if (info.preferVulkan && !window.isHeadless()) {
         vulkanBackend_ = std::make_unique<VulkanBackend>();
         if (vulkanBackend_->create(window, clearColor_)) {
+            for (const auto& resource : meshResources_->views()) {
+                vulkanBackend_->registerMeshResource(resource);
+            }
             ready_ = true;
             vulkanCapable_ = true;
             core::logInfo("render", "Vulkan backend active: " + std::string(vulkanBackend_->deviceName()));
@@ -187,6 +318,52 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
     vulkanCapable_ = false;
     core::logWarning("render", "Using null renderer fallback");
     return true;
+}
+
+MeshResourceHandle Renderer::registerMeshResource(
+    std::string assetId,
+    const assets::GltfMeshData& meshData) {
+    const auto handle = meshResources_->registerResource(std::move(assetId), meshData);
+    if (!handle.isValid()) {
+        core::logWarning("render", "Mesh resource registration rejected invalid mesh data");
+        return {};
+    }
+
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        const auto resource = meshResources_->view(handle);
+        if (resource.has_value()) {
+            vulkanBackend_->registerMeshResource(*resource);
+        }
+    }
+    return handle;
+}
+
+void Renderer::releaseMeshResource(MeshResourceHandle handle) {
+    if (!handle.isValid()) {
+        return;
+    }
+
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        vulkanBackend_->releaseMeshResource(handle);
+    }
+    meshResources_->release(handle);
+}
+
+MeshResourceHandle Renderer::findMeshResource(std::string_view assetId) const {
+    return meshResources_->find(assetId);
+}
+
+MeshResourceStats Renderer::meshResourceStats() const {
+    auto stats = meshResources_->stats();
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        const auto gpuStats = vulkanBackend_->meshResourceStats();
+        stats.pendingUploadResources = gpuStats.pendingUploadResources;
+        stats.residentResources = gpuStats.residentResources;
+        stats.failedResources = gpuStats.failedResources;
+        stats.uploadQueueLength = gpuStats.uploadQueueLength;
+        stats.deferredDestroyCount = gpuStats.deferredDestroyCount;
+    }
+    return stats;
 }
 
 void Renderer::beginFrame(const RenderFrameInfo& info) {

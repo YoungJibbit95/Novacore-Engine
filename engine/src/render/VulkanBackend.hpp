@@ -1,14 +1,13 @@
 #pragma once
 
 #include "novacore/platform/Window.hpp"
+#include "novacore/render/Renderer.hpp"
 
 #include <array>
 #include <memory>
 #include <string_view>
 
 namespace novacore::render {
-
-struct RenderFrameInfo;
 
 class VulkanBackend final {
 public:
@@ -22,12 +21,15 @@ public:
     VulkanBackend& operator=(VulkanBackend&&) noexcept;
 
     [[nodiscard]] bool create(platform::Window& window, std::array<float, 4> clearColor);
+    void registerMeshResource(const MeshResourceView& resource);
+    void releaseMeshResource(MeshResourceHandle handle);
     void beginFrame(const RenderFrameInfo& frame);
     void endFrame();
     void shutdown();
 
     [[nodiscard]] bool ready() const;
     [[nodiscard]] std::string_view deviceName() const;
+    [[nodiscard]] MeshResourceStats meshResourceStats() const;
 
 private:
     struct Impl;

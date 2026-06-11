@@ -9,6 +9,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -467,6 +468,103 @@ void testGltfMetadataAndMeshCatalog() {
     std::filesystem::remove(glbPath);
 }
 
+novacore::assets::GltfMeshData makeSmokeMeshData(std::string_view pathSuffix) {
+    novacore::assets::GltfPrimitiveData primitive{};
+    primitive.meshIndex = 0;
+    primitive.primitiveIndex = 0;
+    primitive.materialIndex = 0;
+    primitive.positions = {
+        {-0.5F, 0.0F, 0.0F},
+        {0.5F, 0.0F, 0.0F},
+        {0.0F, 1.0F, 0.0F},
+    };
+    primitive.normals = {
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 1.0F},
+        {0.0F, 0.0F, 1.0F},
+    };
+    primitive.texcoords = {
+        {0.0F, 0.0F},
+        {1.0F, 0.0F},
+        {0.5F, 1.0F},
+    };
+    primitive.indices = {0, 1, 2};
+
+    novacore::assets::GltfMeshData meshData{};
+    meshData.path = std::filesystem::path("assets/export/gltf/smoke") / pathSuffix;
+    meshData.sceneInfo.path = meshData.path;
+    meshData.sceneInfo.container = novacore::assets::GltfContainerKind::BinaryGlb;
+    meshData.sceneInfo.meshCount = 1;
+    meshData.sceneInfo.nodeCount = 1;
+    meshData.sceneInfo.materialCount = 1;
+    meshData.sceneInfo.accessorCount = 3;
+    meshData.sceneInfo.bufferViewCount = 3;
+    meshData.primitives.push_back(std::move(primitive));
+    return meshData;
+}
+
+void testRendererMeshResourceRegistry() {
+    novacore::render::Renderer renderer;
+
+    auto triangle = makeSmokeMeshData("triangle.glb");
+    const auto invalid = renderer.registerMeshResource("bad_empty_mesh", novacore::assets::GltfMeshData{});
+    expect(!invalid.isValid(), "renderer mesh resources reject empty mesh data");
+
+    const auto first = renderer.registerMeshResource("smoke_triangle", triangle);
+    expect(first.isValid(), "renderer mesh resource creates a valid handle");
+    expect(renderer.findMeshResource("smoke_triangle") == first, "renderer mesh resource resolves by asset id");
+
+    auto stats = renderer.meshResourceStats();
+    expect(stats.registeredResources == 1, "mesh resource stats count registered resource");
+    expect(stats.totalPrimitives == 1, "mesh resource stats count primitives");
+    expect(stats.totalVertices == 3, "mesh resource stats count vertices");
+    expect(stats.totalIndices == 3, "mesh resource stats count indices");
+    expect(stats.pendingUploadResources == 0, "mesh resource stats are CPU-only before renderer create");
+    expect(stats.residentResources == 0, "mesh resource stats have no resident GPU resources before renderer create");
+
+    const auto duplicate = renderer.registerMeshResource("smoke_triangle", triangle);
+    expect(duplicate == first, "duplicate mesh resource registration returns existing handle");
+    stats = renderer.meshResourceStats();
+    expect(stats.registeredResources == 1, "duplicate mesh resource registration does not grow registry");
+
+    auto secondMesh = makeSmokeMeshData("second.glb");
+    secondMesh.primitives.front().positions.push_back({0.0F, -1.0F, 0.0F});
+    secondMesh.primitives.front().normals.push_back({0.0F, 0.0F, 1.0F});
+    secondMesh.primitives.front().texcoords.push_back({0.5F, -1.0F});
+    secondMesh.primitives.front().indices = {0, 1, 2, 0, 2, 3};
+    const auto second = renderer.registerMeshResource("smoke_quad", secondMesh);
+    expect(second.isValid(), "renderer mesh resource accepts second mesh");
+    expect(second != first, "renderer mesh resource handles are unique per asset");
+
+    stats = renderer.meshResourceStats();
+    expect(stats.registeredResources == 2, "mesh resource stats count two registered resources");
+    expect(stats.totalPrimitives == 2, "mesh resource stats aggregate primitive counts");
+    expect(stats.totalVertices == 7, "mesh resource stats aggregate vertex counts");
+    expect(stats.totalIndices == 9, "mesh resource stats aggregate index counts");
+
+    renderer.releaseMeshResource(first);
+    expect(!renderer.findMeshResource("smoke_triangle").isValid(), "released mesh resource no longer resolves by asset id");
+    expect(renderer.findMeshResource("smoke_quad") == second, "unreleased mesh resource survives neighbor release");
+
+    stats = renderer.meshResourceStats();
+    expect(stats.registeredResources == 1, "mesh resource stats drop released resource");
+    expect(stats.totalVertices == 4, "mesh resource stats keep remaining vertex count");
+    expect(stats.totalIndices == 6, "mesh resource stats keep remaining index count");
+
+    const auto reused = renderer.registerMeshResource("smoke_triangle_reloaded", triangle);
+    expect(reused.isValid(), "mesh resource can reuse a released slot");
+    expect(reused.index == first.index, "mesh resource registry reuses freed slot indices");
+    expect(reused.generation != first.generation, "mesh resource registry bumps generation on reused slot");
+    expect(renderer.findMeshResource("smoke_triangle_reloaded") == reused, "reloaded mesh resolves by new asset id");
+
+    renderer.releaseMeshResource(second);
+    renderer.releaseMeshResource(reused);
+    stats = renderer.meshResourceStats();
+    expect(stats.registeredResources == 0, "mesh resource registry releases all resources cleanly");
+    expect(stats.totalVertices == 0, "mesh resource registry clears vertex stats after full release");
+    expect(stats.totalIndices == 0, "mesh resource registry clears index stats after full release");
+}
+
 void testVulkanRuntimeProbeIsStable() {
     const auto info = novacore::render::probeVulkanRuntime();
     const auto summary = novacore::render::vulkanRuntimeSummary(info);
@@ -494,6 +592,7 @@ int main() {
     testAssetManifestAndRegistry();
     testAssetStreamer();
     testGltfMetadataAndMeshCatalog();
+    testRendererMeshResourceRegistry();
     testVulkanRuntimeProbeIsStable();
 
     if (failures > 0) {
