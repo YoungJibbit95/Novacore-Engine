@@ -29,6 +29,10 @@ namespace {
         return 1000;
     case SDLK_DOWN:
         return 1001;
+    case SDLK_LEFT:
+        return 1002;
+    case SDLK_RIGHT:
+        return 1003;
     case SDLK_LSHIFT:
         return 160;
     case SDLK_LALT:
