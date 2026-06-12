@@ -249,6 +249,7 @@ Scenarios:
 * Backend frame stats
 * GLB CPU mesh extraction
 * Material fallback
+* Character controller floor snap, step-up, ramp, ledge, and wall-run contact queries
 * Shader compile failure diagnostics
 * Frame timing output
 * Resize survival

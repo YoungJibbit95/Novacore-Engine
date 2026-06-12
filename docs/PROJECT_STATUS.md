@@ -156,6 +156,32 @@ Future work includes:
 
 ---
 
+## Physics And Character Movement
+
+Implemented:
+
+* `novacore::physics::PhysicsWorld`
+* Static AABB collider registration and lookup
+* Movement bounds clamping
+* Character position resolution for early FPS controller work
+* Surface tagging for floor, wall, ramp, cover, slide, ledge, wall-run, and trigger surfaces
+* Floor snap with configurable snap-down distance
+* Low step-up resolution
+* Ramp height sampling and ramp normals
+* Blocking ledge, wall, and cover side resolution
+* Wall-run surface contact reporting
+* Wall normal and wall tangent reporting for gameplay movement systems
+* Wall proximity probing around the character footprint
+
+Current physics status:
+
+* The first engine-owned character-controller foundation is operational.
+* The system is intentionally lightweight and deterministic for early FPS movement tests.
+* Nemisis consumes this layer for greybox collision, wall-run panel detection, slide-ramp classification, and gameplay debug telemetry.
+* This is not a full rigid-body engine yet. The next physics step is capsule sweeps, richer depenetration ordering, moving platforms, mantle probes, and server-side replay validation.
+
+---
+
 ## Networking
 
 Implemented:
@@ -204,6 +230,7 @@ Implemented:
 * Fixed-step tests
 * Asset manifest tests
 * Mesh extraction tests
+* Character controller surface tests
 * Vulkan runtime probe tests
 * Relative mouse tests
 
@@ -334,6 +361,8 @@ Complete the first playable multiplayer interaction.
 
 GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, defers GPU buffer destruction after frames-in-flight retire, recreates swapchain-dependent resources after out-of-date presentation states, and exposes backend frame stats to game debug UIs. The next renderer-heavy work is validation/debug labels, resize stress coverage, lighting/material fallback controls, and stronger resource streaming policy.
 
+Physics has also moved from planning into the first usable engine layer. NovaCore now exposes a deterministic static-collider `PhysicsWorld` and character resolve/probe API with ramp, ledge, cover, slide, and wall-run surface metadata. Nemisis uses it immediately in the Dev Range for visible wall-run panels and richer KCC debug feedback.
+
 ---
 
 # Current Readiness
@@ -350,8 +379,8 @@ GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns 
 | Networking            | ◑ Foundation complete  |
 | Prediction            | ✖ Planned              |
 | Dedicated Server      | ✔ Foundation complete  |
-| Character Controller  | ✖ Planned              |
-| Physics               | ✖ Planned              |
+| Character Controller  | Foundation complete     |
+| Physics               | Foundation complete     |
 | Gameplay              | ✖ Planned              |
 | Testing               | ✔ Strong foundation    |
 
@@ -359,8 +388,8 @@ GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns 
 
 # Immediate Recommendation
 
-The highest-value next milestone is:
+The highest-value next milestone is now:
 
-**“Load a GLB mesh, upload it to GPU memory, render it with a movable FPS camera and depth testing, then implement a capsule-based character controller inside that greybox scene.”**
+**"Turn the static-collider KCC foundation into a richer FPS physics layer: capsule sweeps, mantle probes, moving-platform contacts, server replay validation, and renderer-visible debug probes."**
 
-Once that milestone is complete, the existing ECS, asset pipeline, server architecture, and networking foundation can begin supporting a genuinely playable FPS rather than continuing to expand infrastructure in isolation.
+GPU mesh rendering and the first character-controller foundation are now in place. The engine can keep building toward visible gameplay while tightening determinism and diagnostics under the hood.

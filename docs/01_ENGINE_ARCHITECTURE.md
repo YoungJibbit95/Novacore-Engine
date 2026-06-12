@@ -47,6 +47,13 @@ Entity allocation, component storage, system scheduling, serialization, hierarch
 
 Collision world, character controller, broadphase queries, raycasts, sweeps, trigger volumes and deterministic fixed-step updates.
 
+Current foundation:
+
+* `novacore::physics::PhysicsWorld` owns static collider definitions and movement bounds.
+* `StaticCollider` carries gameplay surface metadata such as floor, wall, ramp, slide, ledge, cover, wall-run, and trigger.
+* `CharacterQuery` and `CharacterResolveResult` provide the first deterministic character resolution API for game-side movement systems.
+* Wall probes expose normal, tangent, distance, and collider id so games can build wall-run and mantle behavior without hard-coding greybox geometry.
+
 ### Net
 
 Reliable/unreliable transport, snapshot replication, prediction support, reconciliation, bandwidth accounting and serialization.

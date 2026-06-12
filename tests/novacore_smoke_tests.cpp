@@ -570,6 +570,81 @@ void testRendererMeshResourceRegistry() {
     expect(stats.totalIndices == 0, "mesh resource registry clears index stats after full release");
 }
 
+void testPhysicsCharacterControllerSurfaces() {
+    novacore::physics::PhysicsWorld world;
+    world.setBounds({12.0F, 6.0F, 12.0F});
+    world.addStaticCollider(novacore::physics::StaticCollider{
+        "low_step",
+        novacore::physics::SurfaceKind::Cover,
+        {0.0F, 0.18F, 2.0F},
+        {1.0F, 0.18F, 1.0F},
+        true,
+        novacore::physics::RampDirection::None,
+        0.36F,
+    });
+    world.addStaticCollider(novacore::physics::StaticCollider{
+        "slide_ramp",
+        novacore::physics::SurfaceKind::Ramp,
+        {3.0F, 0.45F, 0.0F},
+        {1.2F, 0.45F, 2.0F},
+        true,
+        novacore::physics::RampDirection::PositiveZ,
+    });
+    world.addStaticCollider(novacore::physics::StaticCollider{
+        "left_wallrun_panel",
+        novacore::physics::SurfaceKind::WallRun,
+        {-4.0F, 1.3F, 0.0F},
+        {0.15F, 1.3F, 2.5F},
+        true,
+    });
+    world.addStaticCollider(novacore::physics::StaticCollider{
+        "mid_ledge",
+        novacore::physics::SurfaceKind::Ledge,
+        {6.0F, 0.65F, 0.0F},
+        {1.2F, 0.65F, 1.2F},
+        true,
+    });
+
+    expect(world.colliderCount() == 4, "physics world stores static colliders");
+    expect(world.findStaticCollider("left_wallrun_panel") != nullptr, "physics world finds static collider by id");
+    expect(std::string_view(novacore::physics::surfaceKindName(novacore::physics::SurfaceKind::WallRun)) == "wall_run",
+           "physics surface names are stable for debug UI");
+
+    const auto open = world.resolveCharacter(novacore::physics::CharacterQuery{{0.0F, 0.0F, -3.0F}, 0.42F, 1.80F});
+    expect(open.grounded, "physics character grounds on floor");
+    expect(open.groundColliderId == "floor_main", "physics character reports default floor id");
+    expect(!open.blocked, "open physics lane has no blocking correction");
+
+    const auto step = world.resolveCharacter(novacore::physics::CharacterQuery{{0.0F, 0.0F, 2.0F}, 0.42F, 1.80F});
+    expect(step.grounded, "physics character grounds on low step");
+    expect(step.stepped, "physics character reports step-up");
+    expect(step.groundColliderId == "low_step", "physics character reports stepped collider");
+    expect(step.position.y > 0.34F && step.position.y < 0.38F, "physics step resolves top height");
+
+    const auto ramp = world.resolveCharacter(novacore::physics::CharacterQuery{{3.0F, 0.28F, 0.0F}, 0.42F, 1.80F});
+    expect(ramp.grounded, "physics character grounds on ramp");
+    expect(ramp.onRamp, "physics character reports ramp state");
+    expect(ramp.groundColliderId == "slide_ramp", "physics character reports ramp collider");
+    expect(ramp.groundNormal.y > 0.90F, "physics ramp normal is walkable");
+    expect(ramp.groundNormal.z < 0.0F, "positive-z physics ramp normal leans against slope");
+
+    const auto probe = world.probeWall(novacore::physics::WallProbe{{-3.48F, 0.5F, 0.0F}, 0.42F, 1.80F, 0.35F});
+    expect(probe.hit, "physics wall probe detects nearby wallrun panel");
+    expect(probe.kind == novacore::physics::SurfaceKind::WallRun, "physics wall probe preserves wallrun surface kind");
+    expect(probe.colliderId == "left_wallrun_panel", "physics wall probe reports collider id");
+    expect(probe.tangent.lengthSquared() > 0.5F, "physics wall probe produces runnable tangent");
+
+    const auto wallContact = world.resolveCharacter(novacore::physics::CharacterQuery{{-4.0F, 0.0F, 0.0F}, 0.42F, 1.80F});
+    expect(wallContact.blocked, "physics character is pushed out of wallrun panel");
+    expect(wallContact.nearWallRunSurface, "physics character records wallrun-capable contact");
+    expect(wallContact.wallColliderId == "left_wallrun_panel", "physics character reports wallrun contact id");
+
+    const auto ledge = world.resolveCharacter(novacore::physics::CharacterQuery{{6.0F, 0.0F, 0.0F}, 0.42F, 1.80F});
+    expect(ledge.blocked, "physics ledge blocks when above step height");
+    expect(!ledge.stepped, "physics ledge does not count as step-up");
+    expect(ledge.lastColliderId == "mid_ledge", "physics ledge reports collider id");
+}
+
 void testVulkanRuntimeProbeIsStable() {
     const auto info = novacore::render::probeVulkanRuntime();
     const auto summary = novacore::render::vulkanRuntimeSummary(info);
@@ -598,6 +673,7 @@ int main() {
     testAssetStreamer();
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
+    testPhysicsCharacterControllerSurfaces();
     testVulkanRuntimeProbeIsStable();
 
     if (failures > 0) {
