@@ -153,7 +153,8 @@ namespace {
     return kind == SurfaceKind::Floor ||
         kind == SurfaceKind::Ramp ||
         kind == SurfaceKind::Cover ||
-        kind == SurfaceKind::Slide;
+        kind == SurfaceKind::Slide ||
+        kind == SurfaceKind::Ledge;
 }
 
 [[nodiscard]] bool isBlockingSideSurface(SurfaceKind kind) {
@@ -161,6 +162,14 @@ namespace {
         kind == SurfaceKind::Cover ||
         kind == SurfaceKind::WallRun ||
         kind == SurfaceKind::Ledge;
+}
+
+[[nodiscard]] bool isStandableTopSurface(SurfaceKind kind) {
+    return kind == SurfaceKind::Cover || kind == SurfaceKind::Ledge;
+}
+
+[[nodiscard]] bool isMantleSurface(SurfaceKind kind) {
+    return kind == SurfaceKind::Cover || kind == SurfaceKind::Ledge;
 }
 
 void recordCorrection(CharacterResolveResult& result, math::Vec3 before, const StaticCollider& collider) {
@@ -297,11 +306,11 @@ void resolveAgainstExpandedAabb(
     }
 
     const float topY = maxY(collider);
-    if (collider.kind == SurfaceKind::Cover &&
+    if (isStandableTopSurface(collider.kind) &&
         topY <= result.position.y + std::max(query.maxStepHeight, collider.stepOverrideHeight) &&
         topY >= result.position.y - query.snapDownDistance &&
         horizontalPointInsideExpanded(result.position, collider, query.radius)) {
-        recordGround(result, collider, topY, {0.0F, 1.0F, 0.0F}, true);
+        recordGround(result, collider, topY, {0.0F, 1.0F, 0.0F}, collider.kind == SurfaceKind::Cover);
         return;
     }
 
@@ -408,6 +417,153 @@ void resolveAgainstExpandedAabb(
     return result;
 }
 
+[[nodiscard]] bool rayIntersectsExpandedAabb2D(
+    math::Vec3 origin,
+    math::Vec3 direction,
+    const StaticCollider& collider,
+    float expansion,
+    float maxDistance,
+    float& outDistance,
+    math::Vec3& outNormal) {
+    constexpr float kEpsilon = 0.00001F;
+    float tMin = 0.0F;
+    float tMax = std::max(0.0F, maxDistance);
+    math::Vec3 normal{};
+
+    const auto testAxis = [&](float originValue, float directionValue, float minValue, float maxValue, math::Vec3 minNormal, math::Vec3 maxNormal) {
+        if (std::abs(directionValue) <= kEpsilon) {
+            return originValue >= minValue && originValue <= maxValue;
+        }
+
+        float nearT = (minValue - originValue) / directionValue;
+        float farT = (maxValue - originValue) / directionValue;
+        math::Vec3 nearNormal = minNormal;
+        if (nearT > farT) {
+            std::swap(nearT, farT);
+            nearNormal = maxNormal;
+        }
+
+        if (nearT > tMin) {
+            tMin = nearT;
+            normal = nearNormal;
+        }
+        tMax = std::min(tMax, farT);
+        return tMin <= tMax;
+    };
+
+    if (!testAxis(
+            origin.x,
+            direction.x,
+            minX(collider) - expansion,
+            maxX(collider) + expansion,
+            {-1.0F, 0.0F, 0.0F},
+            {1.0F, 0.0F, 0.0F})) {
+        return false;
+    }
+    if (!testAxis(
+            origin.z,
+            direction.z,
+            minZ(collider) - expansion,
+            maxZ(collider) + expansion,
+            {0.0F, 0.0F, -1.0F},
+            {0.0F, 0.0F, 1.0F})) {
+        return false;
+    }
+
+    outDistance = std::clamp(tMin, 0.0F, maxDistance);
+    if (normal.lengthSquared() <= 0.000001F) {
+        normal = normalizeOrZero({-direction.x, 0.0F, -direction.z});
+    }
+    outNormal = normal;
+    return tMax >= 0.0F && tMin <= maxDistance;
+}
+
+[[nodiscard]] float clampToInset(float value, float minValue, float maxValue, float inset) {
+    const float low = minValue + inset;
+    const float high = maxValue - inset;
+    if (low > high) {
+        return (minValue + maxValue) * 0.5F;
+    }
+    return std::clamp(value, low, high);
+}
+
+[[nodiscard]] bool mantleTargetHasClearance(
+    const std::vector<StaticCollider>& colliders,
+    const StaticCollider& mantleCollider,
+    math::Vec3 target,
+    float radius,
+    float height) {
+    for (const auto& collider : colliders) {
+        if (&collider == &mantleCollider || !collider.blocksMovement || collider.kind == SurfaceKind::Trigger) {
+            continue;
+        }
+        if (!verticalRangesOverlap(target.y + 0.04F, height - 0.08F, collider)) {
+            continue;
+        }
+        if (horizontalPointInsideExpanded(target, collider, radius * 0.85F)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] MantleProbeResult probeMantleCollider(
+    const StaticCollider& collider,
+    const std::vector<StaticCollider>& colliders,
+    MantleProbe probe,
+    math::Vec3 forward) {
+    MantleProbeResult result{};
+    if (!collider.blocksMovement || !isMantleSurface(collider.kind)) {
+        return result;
+    }
+
+    const float topY = maxY(collider);
+    const float mantleHeight = topY - probe.position.y;
+    if (mantleHeight < probe.minHeight || mantleHeight > probe.maxHeight) {
+        return result;
+    }
+
+    float distance = 0.0F;
+    math::Vec3 normal{};
+    if (!rayIntersectsExpandedAabb2D(
+            probe.position,
+            forward,
+            collider,
+            probe.radius,
+            probe.maxDistance + probe.radius,
+            distance,
+            normal)) {
+        return result;
+    }
+
+    const auto hit = probe.position + (forward * distance);
+    const float inset = std::max(0.02F, probe.radius + probe.landingInset);
+    const auto desiredTarget = probe.position + (forward * (distance + inset));
+    const math::Vec3 target{
+        clampToInset(desiredTarget.x, minX(collider), maxX(collider), probe.radius),
+        topY,
+        clampToInset(desiredTarget.z, minZ(collider), maxZ(collider), probe.radius),
+    };
+
+    if (!mantleTargetHasClearance(colliders, collider, target, probe.radius, probe.height)) {
+        return result;
+    }
+
+    result.hit = true;
+    result.obstaclePoint = {
+        std::clamp(hit.x, minX(collider), maxX(collider)),
+        topY,
+        std::clamp(hit.z, minZ(collider), maxZ(collider)),
+    };
+    result.targetPosition = target;
+    result.normal = normal;
+    result.distance = std::max(0.0F, distance - probe.radius);
+    result.height = mantleHeight;
+    result.kind = collider.kind;
+    result.colliderId = collider.id;
+    return result;
+}
+
 } // namespace
 
 void PhysicsWorld::setBounds(math::Vec3 halfExtents) {
@@ -494,6 +650,38 @@ WallProbeResult PhysicsWorld::probeWall(WallProbe probe) const {
     best.distance = std::numeric_limits<float>::max();
     for (const auto& collider : staticColliders_) {
         auto candidate = probeCollider(collider, probe);
+        if (!candidate.hit) {
+            continue;
+        }
+        if (!best.hit || candidate.distance < best.distance) {
+            best = std::move(candidate);
+        }
+    }
+
+    if (!best.hit) {
+        best.distance = 0.0F;
+    }
+    return best;
+}
+
+MantleProbeResult PhysicsWorld::probeMantle(MantleProbe probe) const {
+    probe.radius = std::max(0.01F, probe.radius);
+    probe.height = std::max(0.20F, probe.height);
+    probe.maxDistance = std::max(0.0F, probe.maxDistance);
+    probe.minHeight = std::max(0.0F, probe.minHeight);
+    probe.maxHeight = std::max(probe.minHeight, probe.maxHeight);
+    probe.landingInset = std::max(0.0F, probe.landingInset);
+
+    math::Vec3 forward{probe.forward.x, 0.0F, probe.forward.z};
+    forward = normalizeOrZero(forward);
+    if (forward.lengthSquared() <= 0.000001F) {
+        return {};
+    }
+
+    MantleProbeResult best{};
+    best.distance = std::numeric_limits<float>::max();
+    for (const auto& collider : staticColliders_) {
+        auto candidate = probeMantleCollider(collider, staticColliders_, probe, forward);
         if (!candidate.hit) {
             continue;
         }

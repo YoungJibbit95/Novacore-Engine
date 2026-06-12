@@ -646,6 +646,27 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(ledge.blocked, "physics ledge blocks when above step height");
     expect(!ledge.stepped, "physics ledge does not count as step-up");
     expect(ledge.lastColliderId == "mid_ledge", "physics ledge reports collider id");
+
+    const auto mantle = world.probeMantle(novacore::physics::MantleProbe{
+        {6.0F, 0.0F, -2.05F},
+        {0.0F, 0.0F, 1.0F},
+        0.42F,
+        1.80F,
+        1.35F,
+        0.44F,
+        1.45F,
+        0.18F,
+    });
+    expect(mantle.hit, "physics mantle probe detects reachable ledge top");
+    expect(mantle.colliderId == "mid_ledge", "physics mantle probe reports collider id");
+    expect(mantle.kind == novacore::physics::SurfaceKind::Ledge, "physics mantle probe preserves surface kind");
+    expect(mantle.targetPosition.y > 1.25F && mantle.targetPosition.y < 1.35F, "physics mantle target lands on ledge top");
+    expect(mantle.normal.z < 0.0F, "physics mantle normal faces the approach direction");
+
+    const auto mantled = world.resolveCharacter(novacore::physics::CharacterQuery{mantle.targetPosition, 0.42F, 1.80F});
+    expect(mantled.grounded, "physics character grounds after mantle target snap");
+    expect(!mantled.blocked, "physics mantle target does not side-block the character");
+    expect(mantled.groundColliderId == "mid_ledge", "physics mantle target grounds on the ledge");
 }
 
 void testVulkanRuntimeProbeIsStable() {

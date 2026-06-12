@@ -86,6 +86,28 @@ struct WallProbeResult final {
     std::string colliderId;
 };
 
+struct MantleProbe final {
+    math::Vec3 position{};
+    math::Vec3 forward{0.0F, 0.0F, 1.0F};
+    float radius = 0.42F;
+    float height = 1.80F;
+    float maxDistance = 1.25F;
+    float minHeight = 0.44F;
+    float maxHeight = 1.45F;
+    float landingInset = 0.18F;
+};
+
+struct MantleProbeResult final {
+    bool hit = false;
+    math::Vec3 obstaclePoint{};
+    math::Vec3 targetPosition{};
+    math::Vec3 normal{};
+    float distance = 0.0F;
+    float height = 0.0F;
+    SurfaceKind kind = SurfaceKind::Ledge;
+    std::string colliderId;
+};
+
 class PhysicsWorld final {
 public:
     void setBounds(math::Vec3 halfExtents);
@@ -99,6 +121,7 @@ public:
 
     [[nodiscard]] CharacterResolveResult resolveCharacter(CharacterQuery query) const;
     [[nodiscard]] WallProbeResult probeWall(WallProbe probe) const;
+    [[nodiscard]] MantleProbeResult probeMantle(MantleProbe probe) const;
 
 private:
     math::Vec3 boundsHalfExtents_{100.0F, 100.0F, 100.0F};

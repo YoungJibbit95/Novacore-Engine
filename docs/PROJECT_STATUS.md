@@ -176,13 +176,15 @@ Implemented:
 * Wall-run surface contact reporting
 * Wall normal and wall tangent reporting for gameplay movement systems
 * Wall proximity probing around the character footprint
+* Mantle probing for cover/ledge tops, including approach distance, obstacle point, target foot position, surface normal, and clearance validation
+* Standable ledge-top resolution after a successful mantle target snap
 
 Current physics status:
 
 * The first engine-owned character-controller foundation is operational.
 * The system is intentionally lightweight and deterministic for early FPS movement tests.
-* Nemisis consumes this layer for greybox collision, wall-run panel detection, slide-ramp classification, and gameplay debug telemetry.
-* This is not a full rigid-body engine yet. The next physics step is capsule sweeps, richer depenetration ordering, moving platforms, mantle probes, and server-side replay validation.
+* Nemisis consumes this layer for greybox collision, wall-run panel detection, mantle candidate detection, slide-ramp classification, and gameplay debug telemetry.
+* This is not a full rigid-body engine yet. The next physics step is capsule sweeps, richer depenetration ordering, moving platforms, and server-side replay validation.
 
 ---
 
@@ -377,7 +379,7 @@ Validation:
 
 GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, defers GPU buffer destruction after frames-in-flight retire, recreates swapchain-dependent resources after out-of-date presentation states, and exposes backend frame stats to game debug UIs. The next renderer-heavy work is validation/debug labels, resize stress coverage, lighting/material fallback controls, and stronger resource streaming policy.
 
-Physics has also moved from planning into the first usable engine layer. NovaCore now exposes a deterministic static-collider `PhysicsWorld` and character resolve/probe API with ramp, ledge, cover, slide, and wall-run surface metadata. Nemisis uses it immediately in the Dev Range for visible wall-run panels and richer KCC debug feedback.
+Physics has also moved from planning into the first usable engine layer. NovaCore now exposes a deterministic static-collider `PhysicsWorld` and character resolve/probe API with ramp, ledge, cover, slide, wall-run, and mantle surface metadata. Nemisis uses it immediately in the Dev Range for visible wall-run panels, mantle ledge targeting, and richer KCC debug feedback.
 
 ---
 
@@ -406,6 +408,6 @@ Physics has also moved from planning into the first usable engine layer. NovaCor
 
 The highest-value next milestone is now:
 
-**"Turn the static-collider KCC foundation into a richer FPS physics layer: capsule sweeps, mantle probes, moving-platform contacts, server replay validation, and renderer-visible debug probes."**
+**"Turn the static-collider KCC foundation into a richer FPS physics layer: capsule sweeps, moving-platform contacts, server replay validation, and renderer-visible debug probes."**
 
-GPU mesh rendering and the first character-controller foundation are now in place. The engine can keep building toward visible gameplay while tightening determinism and diagnostics under the hood.
+GPU mesh rendering, Vulkan UI primitives, mantle probes, and the first character-controller foundation are now in place. The engine can keep building toward visible gameplay while tightening determinism and diagnostics under the hood.

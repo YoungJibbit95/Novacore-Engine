@@ -252,6 +252,7 @@ Scenarios:
 * GLB CPU mesh extraction
 * Material fallback
 * Character controller floor snap, step-up, ramp, ledge, and wall-run contact queries
+* Character controller mantle probe and ledge-top target resolution
 * Shader compile failure diagnostics
 * Frame timing output
 * Resize survival
