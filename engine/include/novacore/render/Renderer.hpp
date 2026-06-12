@@ -58,6 +58,9 @@ struct RenderBackendFrameStats final {
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
+    std::size_t lastUiRectCount = 0;
+    std::size_t lastUiLineCount = 0;
+    std::size_t lastUiTextCount = 0;
     bool swapchainReady = false;
 };
 

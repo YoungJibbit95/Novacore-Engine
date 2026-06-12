@@ -233,8 +233,8 @@ Current implementation:
 
 * Window resize and pixel-size events refresh the platform window extent.
 * Swapchain acquire and present paths detect out-of-date/suboptimal presentation.
-* Swapchain image views, render pass, depth resources, framebuffers, and world pipelines are recreated as one dependent-resource group.
-* Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, and last world box/mesh/line counts are exposed through renderer backend stats for game-side diagnostics.
+* Swapchain image views, render pass, depth resources, framebuffers, world pipelines, and UI primitive pipelines are recreated as one dependent-resource group.
+* Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, last world box/mesh/line counts, and last UI rect/line/text counts are exposed through renderer backend stats for game-side diagnostics.
 
 ## Performance Goals
 
@@ -270,6 +270,7 @@ M2:
 * Backend frame stats for debug UI integration
 * Compact per-frame world lighting controls
 * Depth-tested world debug lines
+* Vulkan UI rect, line, and bitmap debug text primitive submission
 * Uniform buffers
 
 M3:
@@ -300,5 +301,5 @@ The renderer is considered production-ready for its milestone when:
 * Camera movement updates without artifacts.
 * Descriptor allocation remains leak-free.
 * Multiple frames in flight execute correctly.
-* Debug overlays coexist with world rendering.
+* Debug overlays and menu/HUD primitive UI coexist with world rendering.
 * Dedicated servers continue functioning without renderer initialization.

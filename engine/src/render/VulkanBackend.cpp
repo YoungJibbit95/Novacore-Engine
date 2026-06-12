@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -140,6 +141,12 @@ struct WorldLinePushConstants final {
     std::array<float, 4> color{};
 };
 
+struct UiPushConstants final {
+    std::array<float, 4> viewport{};
+    std::array<float, 4> rectOrLine{};
+    std::array<float, 4> color{};
+};
+
 struct VulkanMeshVertex final {
     float position[3]{};
     float normal[3]{0.0F, 1.0F, 0.0F};
@@ -148,6 +155,59 @@ struct VulkanMeshVertex final {
 static_assert(sizeof(WorldBoxPushConstants) <= 128, "World box push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldMeshPushConstants) <= 128, "World mesh push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
+static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under the Vulkan minimum limit");
+
+[[nodiscard]] std::array<std::uint8_t, 7> glyphRows(char raw) {
+    const char c = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
+    switch (c) {
+    case 'A': return {0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
+    case 'B': return {0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E};
+    case 'C': return {0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E};
+    case 'D': return {0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E};
+    case 'E': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F};
+    case 'F': return {0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10};
+    case 'G': return {0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0F};
+    case 'H': return {0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11};
+    case 'I': return {0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E};
+    case 'J': return {0x07, 0x02, 0x02, 0x02, 0x12, 0x12, 0x0C};
+    case 'K': return {0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11};
+    case 'L': return {0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F};
+    case 'M': return {0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11};
+    case 'N': return {0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11};
+    case 'O': return {0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
+    case 'P': return {0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10};
+    case 'Q': return {0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D};
+    case 'R': return {0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11};
+    case 'S': return {0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E};
+    case 'T': return {0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04};
+    case 'U': return {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E};
+    case 'V': return {0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04};
+    case 'W': return {0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A};
+    case 'X': return {0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11};
+    case 'Y': return {0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04};
+    case 'Z': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F};
+    case '0': return {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E};
+    case '1': return {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E};
+    case '2': return {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F};
+    case '3': return {0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E};
+    case '4': return {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02};
+    case '5': return {0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E};
+    case '6': return {0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E};
+    case '7': return {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08};
+    case '8': return {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E};
+    case '9': return {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E};
+    case ':': return {0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00};
+    case '.': return {0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x0C};
+    case '-': return {0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00};
+    case '/': return {0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10};
+    case '>': return {0x10, 0x08, 0x04, 0x02, 0x04, 0x08, 0x10};
+    case '<': return {0x01, 0x02, 0x04, 0x08, 0x04, 0x02, 0x01};
+    case '+': return {0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00};
+    case '%': return {0x18, 0x19, 0x02, 0x04, 0x08, 0x13, 0x03};
+    case '_': return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F};
+    default: return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    }
+}
 
 [[nodiscard]] float degreesToRadians(float degrees) {
     constexpr float kPi = 3.14159265358979323846F;
@@ -538,6 +598,10 @@ struct VulkanBackend::Impl final {
     VkPipeline worldLinePipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldMeshPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldMeshPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout uiRectPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline uiRectPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout uiLinePipelineLayout = VK_NULL_HANDLE;
+    VkPipeline uiLinePipeline = VK_NULL_HANDLE;
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kMaxFramesInFlight> commandBuffers{};
     std::array<VkSemaphore, kMaxFramesInFlight> imageAvailable{};
@@ -555,10 +619,14 @@ struct VulkanBackend::Impl final {
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
+    std::size_t lastUiRectCount = 0;
+    std::size_t lastUiLineCount = 0;
+    std::size_t lastUiTextCount = 0;
     bool frameActive = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
     bool loggedWorldMeshSubmission = false;
+    bool loggedUiSubmission = false;
 #endif
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     std::string selectedDeviceName = "none";
@@ -1401,6 +1469,177 @@ struct VulkanBackend::Impl final {
         return success;
     }
 
+    [[nodiscard]] bool createUiPipeline(
+        std::string_view vertexShaderName,
+        VkPrimitiveTopology topology,
+        VkPipelineLayout& outPipelineLayout,
+        VkPipeline& outPipeline,
+        std::string_view label) {
+        const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / std::string(vertexShaderName));
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "ui_flat.frag.spv");
+        if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            core::logWarning("render", "Vulkan " + std::string(label) + " pipeline skipped because shader binaries are missing");
+            return false;
+        }
+
+        const VkShaderModule vertexShader = createShaderModule(vertexShaderBytes);
+        const VkShaderModule fragmentShader = createShaderModule(fragmentShaderBytes);
+        if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
+            if (vertexShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, vertexShader, nullptr);
+            }
+            if (fragmentShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, fragmentShader, nullptr);
+            }
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo vertexStage{};
+        vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vertexStage.module = vertexShader;
+        vertexStage.pName = "main";
+
+        VkPipelineShaderStageCreateInfo fragmentStage{};
+        fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragmentStage.module = fragmentShader;
+        fragmentStage.pName = "main";
+
+        const VkPipelineShaderStageCreateInfo shaderStages[] = {vertexStage, fragmentStage};
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = topology;
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        VkViewport viewport{};
+        viewport.x = 0.0F;
+        viewport.y = 0.0F;
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.minDepth = 0.0F;
+        viewport.maxDepth = 1.0F;
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchainExtent;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = &viewport;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable = VK_FALSE;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0F;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.depthBiasEnable = VK_FALSE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable = VK_FALSE;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT |
+            VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT |
+            VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_TRUE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_FALSE;
+        depthStencil.depthWriteEnable = VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = static_cast<std::uint32_t>(sizeof(UiPushConstants));
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outPipelineLayout), "vkCreatePipelineLayout(" + std::string(label) + ")")) {
+            vkDestroyShaderModule(device, fragmentShader, nullptr);
+            vkDestroyShaderModule(device, vertexShader, nullptr);
+            return false;
+        }
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.layout = outPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        const bool success = vkOk(
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outPipeline),
+            "vkCreateGraphicsPipelines(" + std::string(label) + ")");
+
+        vkDestroyShaderModule(device, fragmentShader, nullptr);
+        vkDestroyShaderModule(device, vertexShader, nullptr);
+
+        if (success) {
+            core::logInfo("render", "Vulkan " + std::string(label) + " graphics pipeline created");
+        }
+        return success;
+    }
+
+    [[nodiscard]] bool createUiRectPipeline() {
+        return createUiPipeline(
+            "ui_rect.vert.spv",
+            VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            uiRectPipelineLayout,
+            uiRectPipeline,
+            "ui rect");
+    }
+
+    [[nodiscard]] bool createUiLinePipeline() {
+        return createUiPipeline(
+            "ui_line.vert.spv",
+            VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+            uiLinePipelineLayout,
+            uiLinePipeline,
+            "ui line");
+    }
+
     [[nodiscard]] bool createCommandPoolAndBuffers() {
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -1832,10 +2071,86 @@ struct VulkanBackend::Impl final {
         return true;
     }
 
+    [[nodiscard]] UiPushConstants uiConstants(std::array<float, 4> rectOrLine, std::array<float, 4> color) const {
+        return UiPushConstants{
+            {
+                static_cast<float>(std::max<std::uint32_t>(swapchainExtent.width, 1U)),
+                static_cast<float>(std::max<std::uint32_t>(swapchainExtent.height, 1U)),
+                0.0F,
+                0.0F,
+            },
+            rectOrLine,
+            color,
+        };
+    }
+
+    void drawUiRect(VkCommandBuffer commandBuffer, const DebugRect& rect) const {
+        if (rect.width <= 0.0F || rect.height <= 0.0F) {
+            return;
+        }
+        const auto constants = uiConstants({rect.x, rect.y, rect.width, rect.height}, rect.color);
+        vkCmdPushConstants(
+            commandBuffer,
+            uiRectPipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            static_cast<std::uint32_t>(sizeof(UiPushConstants)),
+            &constants);
+        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+    }
+
+    void drawUiLine(VkCommandBuffer commandBuffer, const DebugLine& line) const {
+        const auto constants = uiConstants({line.x0, line.y0, line.x1, line.y1}, line.color);
+        vkCmdPushConstants(
+            commandBuffer,
+            uiLinePipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+            0,
+            static_cast<std::uint32_t>(sizeof(UiPushConstants)),
+            &constants);
+        vkCmdDraw(commandBuffer, 2, 1, 0, 0);
+    }
+
+    void drawUiText(VkCommandBuffer commandBuffer, const DebugText& text) const {
+        const float pixel = std::max(1.0F, text.scale);
+        const float step = pixel * 6.0F;
+        float cursorX = text.x;
+
+        for (const char c : text.text) {
+            if (c == ' ') {
+                cursorX += step;
+                continue;
+            }
+
+            const auto rows = glyphRows(c);
+            for (std::size_t row = 0; row < rows.size(); ++row) {
+                for (std::uint8_t col = 0; col < 5; ++col) {
+                    const auto bit = static_cast<std::uint8_t>(1U << (4U - col));
+                    if ((rows[row] & bit) == 0) {
+                        continue;
+                    }
+                    drawUiRect(
+                        commandBuffer,
+                        DebugRect{
+                            cursorX + static_cast<float>(col) * pixel,
+                            text.y + static_cast<float>(row) * pixel,
+                            pixel,
+                            pixel,
+                            text.color,
+                        });
+                }
+            }
+            cursorX += step;
+        }
+    }
+
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
         lastWorldBoxCount = frame.worldBoxes.size();
         lastWorldMeshCount = frame.worldMeshes.size();
         lastWorldLineCount = frame.worldLines.size();
+        lastUiRectCount = frame.debugRects.size();
+        lastUiLineCount = frame.debugLines.size();
+        lastUiTextCount = frame.debugTexts.size();
 
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1948,6 +2263,32 @@ struct VulkanBackend::Impl final {
             }
         }
 
+        if (uiRectPipeline != VK_NULL_HANDLE && (!frame.debugRects.empty() || !frame.debugTexts.empty())) {
+            if (!loggedUiSubmission) {
+                core::logInfo(
+                    "render",
+                    "Vulkan UI draw submission active: rects=" + std::to_string(frame.debugRects.size()) +
+                        " texts=" + std::to_string(frame.debugTexts.size()) +
+                        " lines=" + std::to_string(frame.debugLines.size()));
+                loggedUiSubmission = true;
+            }
+
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, uiRectPipeline);
+            for (const auto& rect : frame.debugRects) {
+                drawUiRect(commandBuffer, rect);
+            }
+            for (const auto& text : frame.debugTexts) {
+                drawUiText(commandBuffer, text);
+            }
+        }
+
+        if (uiLinePipeline != VK_NULL_HANDLE && !frame.debugLines.empty()) {
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, uiLinePipeline);
+            for (const auto& line : frame.debugLines) {
+                drawUiLine(commandBuffer, line);
+            }
+        }
+
         vkCmdEndRenderPass(commandBuffer);
 
         imageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -1957,6 +2298,26 @@ struct VulkanBackend::Impl final {
     void destroySwapchainResources() {
         if (device == VK_NULL_HANDLE) {
             return;
+        }
+
+        if (uiLinePipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, uiLinePipeline, nullptr);
+            uiLinePipeline = VK_NULL_HANDLE;
+        }
+
+        if (uiLinePipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, uiLinePipelineLayout, nullptr);
+            uiLinePipelineLayout = VK_NULL_HANDLE;
+        }
+
+        if (uiRectPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, uiRectPipeline, nullptr);
+            uiRectPipeline = VK_NULL_HANDLE;
+        }
+
+        if (uiRectPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, uiRectPipelineLayout, nullptr);
+            uiRectPipelineLayout = VK_NULL_HANDLE;
         }
 
         if (worldMeshPipeline != VK_NULL_HANDLE) {
@@ -2044,6 +2405,8 @@ struct VulkanBackend::Impl final {
         (void)createWorldBoxPipeline();
         (void)createWorldLinePipeline();
         (void)createWorldMeshPipeline();
+        (void)createUiRectPipeline();
+        (void)createUiLinePipeline();
         return true;
     }
 
@@ -2058,9 +2421,13 @@ struct VulkanBackend::Impl final {
         loggedWorldDrawSubmission = false;
         loggedWorldLineSubmission = false;
         loggedWorldMeshSubmission = false;
+        loggedUiSubmission = false;
         lastWorldBoxCount = 0;
         lastWorldMeshCount = 0;
         lastWorldLineCount = 0;
+        lastUiRectCount = 0;
+        lastUiLineCount = 0;
+        lastUiTextCount = 0;
 
         if (!createSwapchainResources(*ownerWindow)) {
             core::logWarning("render", "Vulkan swapchain recreation failed");
@@ -2260,6 +2627,9 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.lastWorldBoxCount = impl_->lastWorldBoxCount;
     stats.lastWorldMeshCount = impl_->lastWorldMeshCount;
     stats.lastWorldLineCount = impl_->lastWorldLineCount;
+    stats.lastUiRectCount = impl_->lastUiRectCount;
+    stats.lastUiLineCount = impl_->lastUiLineCount;
+    stats.lastUiTextCount = impl_->lastUiTextCount;
     stats.swapchainReady = impl_->isReady && impl_->swapchain != VK_NULL_HANDLE;
     return stats;
 #else
@@ -2325,10 +2695,14 @@ void VulkanBackend::shutdown() {
     impl_->lastWorldBoxCount = 0;
     impl_->lastWorldMeshCount = 0;
     impl_->lastWorldLineCount = 0;
+    impl_->lastUiRectCount = 0;
+    impl_->lastUiLineCount = 0;
+    impl_->lastUiTextCount = 0;
     impl_->frameActive = false;
     impl_->loggedWorldDrawSubmission = false;
     impl_->loggedWorldLineSubmission = false;
     impl_->loggedWorldMeshSubmission = false;
+    impl_->loggedUiSubmission = false;
 #endif
 
     impl_->isReady = false;

@@ -242,11 +242,13 @@ Scenarios:
 * Basic mesh render
 * Device-local GLB vertex/index upload
 * Vulkan indexed mesh draw submission
+* Screen-space UI rect, line, and bitmap debug text primitive draw
 * Mesh handle registration
 * Mesh-resource handle reuse and generation bumping
 * Mesh upload queue residency transitions
 * Deferred GPU mesh destruction
 * Backend frame stats
+* Backend UI submission stats
 * GLB CPU mesh extraction
 * Material fallback
 * Character controller floor snap, step-up, ramp, ledge, and wall-run contact queries

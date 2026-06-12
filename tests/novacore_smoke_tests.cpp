@@ -510,6 +510,9 @@ void testRendererMeshResourceRegistry() {
     expect(!initialFrameStats.swapchainReady, "renderer backend frame stats start with no swapchain");
     expect(initialFrameStats.submittedFrames == 0, "renderer backend frame stats start with zero submitted frames");
     expect(initialFrameStats.swapchainRecreateCount == 0, "renderer backend frame stats start with zero recreates");
+    expect(initialFrameStats.lastUiRectCount == 0, "renderer backend frame stats start with zero UI rects");
+    expect(initialFrameStats.lastUiLineCount == 0, "renderer backend frame stats start with zero UI lines");
+    expect(initialFrameStats.lastUiTextCount == 0, "renderer backend frame stats start with zero UI text");
 
     auto triangle = makeSmokeMeshData("triangle.glb");
     const auto invalid = renderer.registerMeshResource("bad_empty_mesh", novacore::assets::GltfMeshData{});

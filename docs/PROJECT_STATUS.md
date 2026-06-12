@@ -87,6 +87,9 @@ Implemented:
 * World box graphics pipeline
 * World line graphics pipeline
 * World mesh graphics pipeline
+* UI rect graphics pipeline
+* UI line graphics pipeline
+* Bitmap debug text through UI rect primitives
 * Camera push constants
 * Per-frame world lighting push constants
 * Depth-tested 3D box rendering
@@ -101,6 +104,7 @@ Implemented:
 * Deferred GPU mesh destruction after frames-in-flight retire
 * Resize/out-of-date aware Vulkan swapchain recreation
 * Backend frame stats for submitted/skipped frames, swapchain size/readiness, recreate count, and last world draw counts
+* Backend frame stats for last UI rect/line/text command counts
 * GLSL → SPIR-V compilation
 
 Current renderer status:
@@ -113,7 +117,7 @@ Current renderer status:
 * Frame submissions now carry stable mesh-resource handles instead of raw CPU mesh pointers.
 * Registered mesh resources are tracked as pending, resident, failed, or deferred-destroy.
 * Swapchain acquire/present out-of-date states recreate dependent Vulkan resources instead of leaving the client in a stale presentation path.
-* Renderer clients can query backend frame stats for in-game debug UI and smoke-test diagnostics.
+* Renderer clients can query backend frame stats for in-game debug UI and smoke-test diagnostics, including whether Vulkan UI primitives are actually being submitted.
 * Vulkan-required launch profiles can disable silent SDL debug fallback.
 * Debug rendering remains available as a fallback path.
 
@@ -358,6 +362,18 @@ Complete the first playable multiplayer interaction.
 ---
 
 # Latest Readiness Note
+
+Vulkan now draws the same UI/debug primitive stream that the game feeds through `UiCanvas`: screen-space rectangles, lines, and small bitmap debug text. This closes the early grey-screen menu gap where the Vulkan backend cleared/presented correctly but did not yet consume game-side menu primitives. Backend frame stats now expose last UI rect/line/text counts so client UIs can diagnose missing HUD/menu submissions without dropping into the debugger.
+
+Validation:
+
+* `cmake --build --preset windows-msvc-debug --config Debug`
+* `ctest --test-dir build\windows-msvc-debug -C Debug --output-on-failure`
+* Nemisis runtime smoke verified the new Vulkan UI pipelines with live Main Menu and Dev Range UI submissions.
+
+---
+
+# Previous Readiness Note
 
 GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, defers GPU buffer destruction after frames-in-flight retire, recreates swapchain-dependent resources after out-of-date presentation states, and exposes backend frame stats to game debug UIs. The next renderer-heavy work is validation/debug labels, resize stress coverage, lighting/material fallback controls, and stronger resource streaming policy.
 
