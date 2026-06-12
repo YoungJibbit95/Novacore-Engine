@@ -30,6 +30,7 @@ public:
     [[nodiscard]] bool ready() const;
     [[nodiscard]] std::string_view deviceName() const;
     [[nodiscard]] MeshResourceStats meshResourceStats() const;
+    [[nodiscard]] RenderBackendFrameStats frameStats() const;
 
 private:
     struct Impl;

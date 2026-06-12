@@ -93,6 +93,7 @@ Unit tests should be deterministic and should not require a GPU.
 * GLB triangle mesh extraction
 * Vulkan runtime probe stability
 * Mesh-handle registration
+* Renderer backend frame stats default state
 
 This target should stay fast enough to run frequently during development.
 
@@ -245,6 +246,7 @@ Scenarios:
 * Mesh-resource handle reuse and generation bumping
 * Mesh upload queue residency transitions
 * Deferred GPU mesh destruction
+* Backend frame stats
 * GLB CPU mesh extraction
 * Material fallback
 * Shader compile failure diagnostics

@@ -49,6 +49,18 @@ struct MeshResourceStats final {
     std::size_t totalIndices = 0;
 };
 
+struct RenderBackendFrameStats final {
+    std::uint64_t submittedFrames = 0;
+    std::uint64_t skippedFrames = 0;
+    std::uint64_t swapchainRecreateCount = 0;
+    std::uint32_t swapchainWidth = 0;
+    std::uint32_t swapchainHeight = 0;
+    std::size_t lastWorldBoxCount = 0;
+    std::size_t lastWorldMeshCount = 0;
+    std::size_t lastWorldLineCount = 0;
+    bool swapchainReady = false;
+};
+
 struct MeshResourceView final {
     MeshResourceHandle handle{};
     std::string assetId;
@@ -150,6 +162,7 @@ public:
     void releaseMeshResource(MeshResourceHandle handle);
     [[nodiscard]] MeshResourceHandle findMeshResource(std::string_view assetId) const;
     [[nodiscard]] MeshResourceStats meshResourceStats() const;
+    [[nodiscard]] RenderBackendFrameStats backendFrameStats() const;
     void beginFrame(const RenderFrameInfo& info);
     void endFrame();
     void shutdown();

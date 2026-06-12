@@ -366,6 +366,13 @@ MeshResourceStats Renderer::meshResourceStats() const {
     return stats;
 }
 
+RenderBackendFrameStats Renderer::backendFrameStats() const {
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        return vulkanBackend_->frameStats();
+    }
+    return {};
+}
+
 void Renderer::beginFrame(const RenderFrameInfo& info) {
     clearColor_ = info.clearColor;
 

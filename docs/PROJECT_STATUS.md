@@ -99,6 +99,8 @@ Implemented:
 * Vulkan mesh upload queue
 * GPU mesh residency stats
 * Deferred GPU mesh destruction after frames-in-flight retire
+* Resize/out-of-date aware Vulkan swapchain recreation
+* Backend frame stats for submitted/skipped frames, swapchain size/readiness, recreate count, and last world draw counts
 * GLSL → SPIR-V compilation
 
 Current renderer status:
@@ -110,6 +112,8 @@ Current renderer status:
 * Imported CPU GLB mesh data can be registered as renderer-owned resources, uploaded to GPU memory, and drawn through the 3D camera/depth path.
 * Frame submissions now carry stable mesh-resource handles instead of raw CPU mesh pointers.
 * Registered mesh resources are tracked as pending, resident, failed, or deferred-destroy.
+* Swapchain acquire/present out-of-date states recreate dependent Vulkan resources instead of leaving the client in a stale presentation path.
+* Renderer clients can query backend frame stats for in-game debug UI and smoke-test diagnostics.
 * Vulkan-required launch profiles can disable silent SDL debug fallback.
 * Debug rendering remains available as a fallback path.
 
@@ -328,7 +332,7 @@ Complete the first playable multiplayer interaction.
 
 # Latest Readiness Note
 
-GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, and defers GPU buffer destruction after frames-in-flight retire. The next renderer-heavy work is resize-safe swapchain recreation, validation/debug labels, lighting/material fallback controls, and stronger resource streaming policy.
+GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns mesh-resource handles, queues Vulkan mesh uploads, reports pending/resident/failed/deferred stats, defers GPU buffer destruction after frames-in-flight retire, recreates swapchain-dependent resources after out-of-date presentation states, and exposes backend frame stats to game debug UIs. The next renderer-heavy work is validation/debug labels, resize stress coverage, lighting/material fallback controls, and stronger resource streaming policy.
 
 ---
 
@@ -340,7 +344,7 @@ GPU mesh rendering has moved past the "next milestone" state. NovaCore now owns 
 | ECS                   | ✔ Foundation complete  |
 | Platform              | ✔ Ready                |
 | Vulkan Initialization | ✔ Ready                |
-| GPU Mesh Rendering    | ◑ Next major milestone |
+| GPU Mesh Rendering    | ✔ Ready                |
 | Asset Registry        | ✔ Ready                |
 | Streaming             | ◑ Skeleton complete    |
 | Networking            | ◑ Foundation complete  |

@@ -229,6 +229,13 @@ Window resize triggers:
 
 Application state must survive swapchain recreation.
 
+Current implementation:
+
+* Window resize and pixel-size events refresh the platform window extent.
+* Swapchain acquire and present paths detect out-of-date/suboptimal presentation.
+* Swapchain image views, render pass, depth resources, framebuffers, and world pipelines are recreated as one dependent-resource group.
+* Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, and last world box/mesh/line counts are exposed through renderer backend stats for game-side diagnostics.
+
 ## Performance Goals
 
 Target hardware:
@@ -259,6 +266,8 @@ M2:
 * Mesh upload queue
 * Mesh residency stats
 * Deferred mesh destruction
+* Resize-safe swapchain recreation
+* Backend frame stats for debug UI integration
 * Compact per-frame world lighting controls
 * Depth-tested world debug lines
 * Uniform buffers

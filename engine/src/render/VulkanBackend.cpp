@@ -490,7 +490,10 @@ struct DeferredGpuMeshDestroy final {
 
 [[nodiscard]] VkExtent2D chooseExtent(const VkSurfaceCapabilitiesKHR& capabilities, int width, int height) {
     if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
-        return capabilities.currentExtent;
+        VkExtent2D extent = capabilities.currentExtent;
+        extent.width = std::max(1U, extent.width);
+        extent.height = std::max(1U, extent.height);
+        return extent;
     }
 
     VkExtent2D extent{
@@ -510,6 +513,7 @@ struct VulkanBackend::Impl final {
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
+    platform::Window* ownerWindow = nullptr;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphicsQueue = VK_NULL_HANDLE;
@@ -545,6 +549,12 @@ struct VulkanBackend::Impl final {
     std::uint64_t frameSerial = 0;
     std::uint32_t currentFrame = 0;
     std::uint32_t acquiredImageIndex = 0;
+    std::uint64_t submittedFrameCount = 0;
+    std::uint64_t skippedFrameCount = 0;
+    std::uint64_t swapchainRecreateCount = 0;
+    std::size_t lastWorldBoxCount = 0;
+    std::size_t lastWorldMeshCount = 0;
+    std::size_t lastWorldLineCount = 0;
     bool frameActive = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
@@ -1823,6 +1833,10 @@ struct VulkanBackend::Impl final {
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
+        lastWorldBoxCount = frame.worldBoxes.size();
+        lastWorldMeshCount = frame.worldMeshes.size();
+        lastWorldLineCount = frame.worldLines.size();
+
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -2016,6 +2030,51 @@ struct VulkanBackend::Impl final {
             swapchain = VK_NULL_HANDLE;
         }
     }
+
+    [[nodiscard]] bool createSwapchainResources(platform::Window& window) {
+        if (!createSwapchain(window) ||
+            !createImageViews() ||
+            !createRenderPass() ||
+            !createDepthResources() ||
+            !createFramebuffers()) {
+            destroySwapchainResources();
+            return false;
+        }
+
+        (void)createWorldBoxPipeline();
+        (void)createWorldLinePipeline();
+        (void)createWorldMeshPipeline();
+        return true;
+    }
+
+    [[nodiscard]] bool recreateSwapchain() {
+        if (device == VK_NULL_HANDLE || ownerWindow == nullptr) {
+            return false;
+        }
+
+        frameActive = false;
+        vkDeviceWaitIdle(device);
+        destroySwapchainResources();
+        loggedWorldDrawSubmission = false;
+        loggedWorldLineSubmission = false;
+        loggedWorldMeshSubmission = false;
+        lastWorldBoxCount = 0;
+        lastWorldMeshCount = 0;
+        lastWorldLineCount = 0;
+
+        if (!createSwapchainResources(*ownerWindow)) {
+            core::logWarning("render", "Vulkan swapchain recreation failed");
+            isReady = false;
+            return false;
+        }
+
+        ++swapchainRecreateCount;
+        core::logInfo(
+            "render",
+            "Vulkan swapchain recreated: " + std::to_string(swapchainExtent.width) + "x" +
+                std::to_string(swapchainExtent.height) + " count=" + std::to_string(swapchainRecreateCount));
+        return true;
+    }
 #endif
 };
 
@@ -2033,6 +2092,7 @@ bool VulkanBackend::create(platform::Window& window, std::array<float, 4> clearC
     impl_->clearColor = clearColor;
 
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    impl_->ownerWindow = &window;
     if (window.isHeadless()) {
         core::logWarning("render", "Vulkan backend skipped because the window is headless");
         return false;
@@ -2042,20 +2102,12 @@ bool VulkanBackend::create(platform::Window& window, std::array<float, 4> clearC
         !impl_->createSurface(window) ||
         !impl_->selectPhysicalDevice() ||
         !impl_->createLogicalDevice() ||
-        !impl_->createSwapchain(window) ||
-        !impl_->createImageViews() ||
-        !impl_->createRenderPass() ||
-        !impl_->createDepthResources() ||
-        !impl_->createFramebuffers() ||
+        !impl_->createSwapchainResources(window) ||
         !impl_->createCommandPoolAndBuffers() ||
         !impl_->createSyncObjects()) {
         shutdown();
         return false;
     }
-
-        (void)impl_->createWorldBoxPipeline();
-    (void)impl_->createWorldLinePipeline();
-    (void)impl_->createWorldMeshPipeline();
 
     impl_->isReady = true;
     core::logInfo("render", "Vulkan world and mesh backend created");
@@ -2089,11 +2141,14 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
 
     if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR || acquireResult == VK_SUBOPTIMAL_KHR) {
         core::logWarning("render", "Vulkan swapchain needs rebuild: " + vkResultName(acquireResult));
+        ++impl_->skippedFrameCount;
+        (void)impl_->recreateSwapchain();
         impl_->frameActive = false;
         return;
     }
     if (acquireResult != VK_SUCCESS) {
         core::logWarning("render", "vkAcquireNextImageKHR failed: " + vkResultName(acquireResult));
+        ++impl_->skippedFrameCount;
         impl_->frameActive = false;
         return;
     }
@@ -2131,6 +2186,7 @@ void VulkanBackend::endFrame() {
     submitInfo.pSignalSemaphores = signalSemaphores;
 
     if (!vkOk(vkQueueSubmit(impl_->graphicsQueue, 1, &submitInfo, impl_->inFlight[impl_->currentFrame]), "vkQueueSubmit")) {
+        ++impl_->skippedFrameCount;
         impl_->frameActive = false;
         return;
     }
@@ -2144,15 +2200,22 @@ void VulkanBackend::endFrame() {
     presentInfo.pImageIndices = &impl_->acquiredImageIndex;
 
     const VkResult presentResult = vkQueuePresentKHR(impl_->presentQueue, &presentInfo);
+    bool recreateSwapchain = false;
     if (presentResult == VK_ERROR_OUT_OF_DATE_KHR || presentResult == VK_SUBOPTIMAL_KHR) {
         core::logWarning("render", "Vulkan present requested swapchain rebuild: " + vkResultName(presentResult));
+        recreateSwapchain = true;
     } else if (presentResult != VK_SUCCESS) {
         core::logWarning("render", "vkQueuePresentKHR failed: " + vkResultName(presentResult));
+        ++impl_->skippedFrameCount;
     }
 
+    ++impl_->submittedFrameCount;
     impl_->currentFrame = (impl_->currentFrame + 1U) % kMaxFramesInFlight;
     ++impl_->frameSerial;
     impl_->frameActive = false;
+    if (recreateSwapchain) {
+        (void)impl_->recreateSwapchain();
+    }
 #endif
 }
 
@@ -2181,6 +2244,24 @@ void VulkanBackend::releaseMeshResource(MeshResourceHandle handle) {
 MeshResourceStats VulkanBackend::meshResourceStats() const {
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
     return impl_->meshStats();
+#else
+    return {};
+#endif
+}
+
+RenderBackendFrameStats VulkanBackend::frameStats() const {
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    RenderBackendFrameStats stats{};
+    stats.submittedFrames = impl_->submittedFrameCount;
+    stats.skippedFrames = impl_->skippedFrameCount;
+    stats.swapchainRecreateCount = impl_->swapchainRecreateCount;
+    stats.swapchainWidth = impl_->swapchainExtent.width;
+    stats.swapchainHeight = impl_->swapchainExtent.height;
+    stats.lastWorldBoxCount = impl_->lastWorldBoxCount;
+    stats.lastWorldMeshCount = impl_->lastWorldMeshCount;
+    stats.lastWorldLineCount = impl_->lastWorldLineCount;
+    stats.swapchainReady = impl_->isReady && impl_->swapchain != VK_NULL_HANDLE;
+    return stats;
 #else
     return {};
 #endif
@@ -2231,12 +2312,19 @@ void VulkanBackend::shutdown() {
     }
 
     impl_->physicalDevice = VK_NULL_HANDLE;
+    impl_->ownerWindow = nullptr;
     impl_->graphicsQueue = VK_NULL_HANDLE;
     impl_->presentQueue = VK_NULL_HANDLE;
     impl_->commandBuffers = {};
     impl_->currentFrame = 0;
     impl_->frameSerial = 0;
     impl_->acquiredImageIndex = 0;
+    impl_->submittedFrameCount = 0;
+    impl_->skippedFrameCount = 0;
+    impl_->swapchainRecreateCount = 0;
+    impl_->lastWorldBoxCount = 0;
+    impl_->lastWorldMeshCount = 0;
+    impl_->lastWorldLineCount = 0;
     impl_->frameActive = false;
     impl_->loggedWorldDrawSubmission = false;
     impl_->loggedWorldLineSubmission = false;

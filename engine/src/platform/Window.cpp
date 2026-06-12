@@ -184,6 +184,11 @@ void Window::pollEvents(InputSystem& input) {
                 normalizedGamepadAxis(event.gaxis.value),
                 InputDeviceKind::Controller);
             break;
+        case SDL_EVENT_WINDOW_RESIZED:
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+            width_ = std::max(1, event.window.data1);
+            height_ = std::max(1, event.window.data2);
+            break;
         default:
             break;
         }

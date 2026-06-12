@@ -506,6 +506,11 @@ novacore::assets::GltfMeshData makeSmokeMeshData(std::string_view pathSuffix) {
 void testRendererMeshResourceRegistry() {
     novacore::render::Renderer renderer;
 
+    const auto initialFrameStats = renderer.backendFrameStats();
+    expect(!initialFrameStats.swapchainReady, "renderer backend frame stats start with no swapchain");
+    expect(initialFrameStats.submittedFrames == 0, "renderer backend frame stats start with zero submitted frames");
+    expect(initialFrameStats.swapchainRecreateCount == 0, "renderer backend frame stats start with zero recreates");
+
     auto triangle = makeSmokeMeshData("triangle.glb");
     const auto invalid = renderer.registerMeshResource("bad_empty_mesh", novacore::assets::GltfMeshData{});
     expect(!invalid.isValid(), "renderer mesh resources reject empty mesh data");
