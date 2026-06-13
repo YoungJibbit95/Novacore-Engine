@@ -186,6 +186,24 @@ namespace {
     return kind == SurfaceKind::Cover || kind == SurfaceKind::Ledge;
 }
 
+void appendContact(CharacterResolveResult& result, CharacterContact contact) {
+    if (contact.colliderId.empty()) {
+        return;
+    }
+
+    contact.normal = normalizeOrZero(contact.normal);
+    for (auto& existing : result.contacts) {
+        if (existing.colliderId == contact.colliderId && existing.role == contact.role) {
+            if (contact.distance <= existing.distance || contact.penetrationDepth >= existing.penetrationDepth) {
+                existing = std::move(contact);
+            }
+            return;
+        }
+    }
+
+    result.contacts.push_back(std::move(contact));
+}
+
 void recordCorrection(CharacterResolveResult& result, math::Vec3 before, const StaticCollider& collider) {
     const auto delta = result.position - before;
     if (delta.lengthSquared() <= 0.000001F) {
@@ -214,6 +232,20 @@ void recordGround(
     result.nearSlideSurface = result.nearSlideSurface || collider.kind == SurfaceKind::Slide;
     result.groundColliderId = collider.id;
     result.groundKind = collider.kind;
+    appendContact(
+        result,
+        CharacterContact{
+            collider.id,
+            collider.kind,
+            stepped ? CharacterContactRole::Step : CharacterContactRole::Ground,
+            {result.position.x, groundHeight, result.position.z},
+            result.groundNormal,
+            std::abs(groundHeight - before.y),
+            1.0F,
+            0.0F,
+            false,
+            true,
+        });
 
     const auto delta = result.position - before;
     if (delta.lengthSquared() > 0.000001F) {
@@ -280,14 +312,35 @@ void resolveBounds(CharacterResolveResult& result, math::Vec3 boundsHalfExtents,
     const auto before = result.position;
     result.position.x = std::clamp(result.position.x, -boundsHalfExtents.x + radius, boundsHalfExtents.x - radius);
     result.position.z = std::clamp(result.position.z, -boundsHalfExtents.z + radius, boundsHalfExtents.z - radius);
-    if ((result.position - before).lengthSquared() > 0.000001F) {
+    const auto delta = result.position - before;
+    if (delta.lengthSquared() > 0.000001F) {
         StaticCollider bounds{};
         bounds.id = "world_bounds";
         bounds.kind = SurfaceKind::Wall;
-        result.correction = result.correction + (result.position - before);
+        math::Vec3 normal{};
+        if (std::abs(delta.x) >= std::abs(delta.z)) {
+            normal = {delta.x < 0.0F ? -1.0F : 1.0F, 0.0F, 0.0F};
+        } else {
+            normal = {0.0F, 0.0F, delta.z < 0.0F ? -1.0F : 1.0F};
+        }
+        result.correction = result.correction + delta;
         result.blocked = true;
         ++result.hitCount;
         result.lastColliderId = bounds.id;
+        appendContact(
+            result,
+            CharacterContact{
+                bounds.id,
+                bounds.kind,
+                CharacterContactRole::Bounds,
+                result.position,
+                normal,
+                0.0F,
+                1.0F,
+                horizontalLength(delta),
+                true,
+                false,
+            });
     }
 }
 
@@ -306,6 +359,20 @@ void recordWallContact(
     result.wallColliderId = collider.id;
     result.wallKind = collider.kind;
     result.nearWallRunSurface = collider.kind == SurfaceKind::WallRun;
+    appendContact(
+        result,
+        CharacterContact{
+            collider.id,
+            collider.kind,
+            CharacterContactRole::Wall,
+            result.position,
+            result.wallNormal,
+            distance,
+            1.0F,
+            0.0F,
+            true,
+            false,
+        });
 }
 
 void resolveAgainstExpandedAabb(
@@ -837,6 +904,18 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
             result.hitColliderId = hit.collider->id;
             result.hitKind = hit.collider->kind;
         }
+        result.sweepContacts.push_back(CharacterContact{
+            hit.collider->id,
+            hit.collider->kind,
+            CharacterContactRole::Sweep,
+            position,
+            hit.normal,
+            0.0F,
+            hit.fraction,
+            0.0F,
+            true,
+            false,
+        });
 
         remaining = remaining * (1.0F - safeFraction);
         const float intoWall = dotHorizontal(remaining, hit.normal);
@@ -851,6 +930,9 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
     auto resolveQuery = characterQueryFromSweep(query, position);
     result.resolve = resolveCharacter(resolveQuery);
     result.appliedDisplacement = result.resolve.position - result.startPosition;
+    for (const auto& contact : result.sweepContacts) {
+        appendContact(result.resolve, contact);
+    }
 
     if (result.hit) {
         const auto requestedEnd = result.startPosition + query.desiredDisplacement;
@@ -948,6 +1030,22 @@ const char* surfaceKindName(SurfaceKind kind) {
         return "ledge";
     case SurfaceKind::Trigger:
         return "trigger";
+    }
+    return "unknown";
+}
+
+const char* contactRoleName(CharacterContactRole role) {
+    switch (role) {
+    case CharacterContactRole::Ground:
+        return "ground";
+    case CharacterContactRole::Step:
+        return "step";
+    case CharacterContactRole::Wall:
+        return "wall";
+    case CharacterContactRole::Bounds:
+        return "bounds";
+    case CharacterContactRole::Sweep:
+        return "sweep";
     }
     return "unknown";
 }

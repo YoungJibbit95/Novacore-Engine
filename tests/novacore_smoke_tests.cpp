@@ -1,5 +1,6 @@
 #include "novacore/Novacore.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cmath>
 #include <cstdint>
@@ -639,17 +640,25 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(world.findStaticCollider("left_wallrun_panel") != nullptr, "physics world finds static collider by id");
     expect(std::string_view(novacore::physics::surfaceKindName(novacore::physics::SurfaceKind::WallRun)) == "wall_run",
            "physics surface names are stable for debug UI");
+    expect(
+        std::string_view(novacore::physics::contactRoleName(novacore::physics::CharacterContactRole::Sweep)) == "sweep",
+        "physics contact role names are stable for debug UI");
 
     const auto open = world.resolveCharacter(novacore::physics::CharacterQuery{{0.0F, 0.0F, -3.0F}, 0.42F, 1.80F});
     expect(open.grounded, "physics character grounds on floor");
     expect(open.groundColliderId == "floor_main", "physics character reports default floor id");
     expect(!open.blocked, "open physics lane has no blocking correction");
+    expect(open.contacts.size() == 1, "open physics lane records one floor contact");
+    expect(open.contacts.front().role == novacore::physics::CharacterContactRole::Ground, "open physics lane contact is ground role");
+    expect(open.contacts.front().walkable, "open physics lane contact is walkable");
 
     const auto step = world.resolveCharacter(novacore::physics::CharacterQuery{{0.0F, 0.0F, 2.0F}, 0.42F, 1.80F});
     expect(step.grounded, "physics character grounds on low step");
     expect(step.stepped, "physics character reports step-up");
     expect(step.groundColliderId == "low_step", "physics character reports stepped collider");
     expect(step.position.y > 0.34F && step.position.y < 0.38F, "physics step resolves top height");
+    expect(!step.contacts.empty(), "physics step records contact manifold");
+    expect(step.contacts.front().role == novacore::physics::CharacterContactRole::Step, "physics step contact records step role");
 
     novacore::physics::CharacterQuery rising{};
     rising.position = {0.0F, 0.09F, -3.0F};
@@ -688,6 +697,17 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(wallContact.blocked, "physics character is pushed out of wallrun panel");
     expect(wallContact.nearWallRunSurface, "physics character records wallrun-capable contact");
     expect(wallContact.wallColliderId == "left_wallrun_panel", "physics character reports wallrun contact id");
+    expect(wallContact.contacts.size() >= 2, "physics character records floor and wall contacts");
+    expect(
+        std::any_of(
+            wallContact.contacts.begin(),
+            wallContact.contacts.end(),
+            [](const novacore::physics::CharacterContact& contact) {
+                return contact.role == novacore::physics::CharacterContactRole::Wall &&
+                    contact.colliderId == "left_wallrun_panel" &&
+                    contact.blocking;
+            }),
+        "physics wall contact appears in contact manifold");
 
     novacore::physics::CharacterQuery wallProbeQuery{};
     wallProbeQuery.position = {-3.30F, 0.80F, 0.0F};
@@ -725,6 +745,17 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(fastLedgeResult.hitColliderId == "mid_ledge", "physics sweep reports first blocking collider id");
     expect(fastLedgeResult.resolve.position.x < 4.45F, "physics sweep stops before high ledge face");
     expect(fastLedgeResult.resolve.blocked, "physics sweep marks blocked movement");
+    expect(!fastLedgeResult.sweepContacts.empty(), "physics sweep stores sweep contact manifold");
+    expect(fastLedgeResult.sweepContacts.front().role == novacore::physics::CharacterContactRole::Sweep, "physics sweep contact role is explicit");
+    expect(
+        std::any_of(
+            fastLedgeResult.resolve.contacts.begin(),
+            fastLedgeResult.resolve.contacts.end(),
+            [](const novacore::physics::CharacterContact& contact) {
+                return contact.role == novacore::physics::CharacterContactRole::Sweep &&
+                    contact.colliderId == "mid_ledge";
+            }),
+        "physics sweep contact is merged into final resolve contacts");
 
     novacore::physics::CharacterSweepQuery stepSweep{};
     stepSweep.startPosition = {0.0F, 0.0F, -0.35F};

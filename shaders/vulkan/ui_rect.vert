@@ -17,7 +17,7 @@ void main() {
     vec2 pixel = pc.rect.xy + (k_corners[gl_VertexIndex] * pc.rect.zw);
     vec2 ndc = vec2(
         (pixel.x / max(pc.viewport.x, 1.0)) * 2.0 - 1.0,
-        1.0 - (pixel.y / max(pc.viewport.y, 1.0)) * 2.0
+        (pixel.y / max(pc.viewport.y, 1.0)) * 2.0 - 1.0
     );
     gl_Position = vec4(ndc, 0.0, 1.0);
     v_color = pc.color;

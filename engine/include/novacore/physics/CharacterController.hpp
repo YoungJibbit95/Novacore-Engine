@@ -28,6 +28,14 @@ enum class RampDirection {
     NegativeZ,
 };
 
+enum class CharacterContactRole {
+    Ground,
+    Step,
+    Wall,
+    Bounds,
+    Sweep,
+};
+
 struct StaticCollider final {
     std::string id;
     SurfaceKind kind = SurfaceKind::Wall;
@@ -64,6 +72,19 @@ struct CharacterSweepQuery final {
     bool enableStepUp = true;
 };
 
+struct CharacterContact final {
+    std::string colliderId;
+    SurfaceKind surfaceKind = SurfaceKind::Wall;
+    CharacterContactRole role = CharacterContactRole::Wall;
+    math::Vec3 point{};
+    math::Vec3 normal{};
+    float distance = 0.0F;
+    float fraction = 1.0F;
+    float penetrationDepth = 0.0F;
+    bool blocking = false;
+    bool walkable = false;
+};
+
 struct CharacterResolveResult final {
     math::Vec3 position{};
     math::Vec3 correction{};
@@ -84,6 +105,7 @@ struct CharacterResolveResult final {
     std::string wallColliderId;
     SurfaceKind groundKind = SurfaceKind::Floor;
     SurfaceKind wallKind = SurfaceKind::Wall;
+    std::vector<CharacterContact> contacts;
 };
 
 struct CharacterSweepResult final {
@@ -99,6 +121,7 @@ struct CharacterSweepResult final {
     bool hit = false;
     std::string hitColliderId;
     SurfaceKind hitKind = SurfaceKind::Wall;
+    std::vector<CharacterContact> sweepContacts;
 };
 
 struct WallProbe final {
@@ -162,5 +185,6 @@ private:
 };
 
 [[nodiscard]] const char* surfaceKindName(SurfaceKind kind);
+[[nodiscard]] const char* contactRoleName(CharacterContactRole role);
 
 } // namespace novacore::physics

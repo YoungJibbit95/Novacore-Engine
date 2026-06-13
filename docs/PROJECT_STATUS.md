@@ -417,6 +417,20 @@ Complete the first playable multiplayer interaction.
 
 # Latest Readiness Note
 
+NovaCore now has the next character-controller backbone piece: KCC resolution and swept movement expose a contact manifold instead of only a last-hit string. `CharacterContact` records role, surface kind, point, normal, fraction, penetration depth, blocking/walkable flags, and collider id for ground, steps, walls, world bounds, and sweeps. This gives Nemisis and future server replay validation deterministic reasons for movement corrections.
+
+The Vulkan UI orientation issue has also been fixed at the engine layer. UI rect/line shaders now use a top-left screen-space convention that matches the game UI coordinates under Vulkan, and Vulkan bitmap debug text now uses the same left-to-right glyph bit order as the SDL debug path.
+
+Validation:
+
+* `cmake --build --preset windows-msvc-debug --config Debug`
+* `ctest --test-dir build\windows-msvc-debug -C Debug --output-on-failure`
+* Result: 1/1 NovaCore smoke tests passing.
+
+---
+
+# Previous Readiness Note
+
 Vulkan now draws the same UI/debug primitive stream that the game feeds through `UiCanvas`: screen-space rectangles, lines, and small bitmap debug text. This closes the early grey-screen menu gap where the Vulkan backend cleared/presented correctly but did not yet consume game-side menu primitives. Backend frame stats now expose last UI rect/line/text counts so client UIs can diagnose missing HUD/menu submissions without dropping into the debugger.
 
 Validation:
