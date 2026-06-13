@@ -715,6 +715,41 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(!offLedgeResult.grounded, "physics character loses ground when past ledge support");
     expect(offLedgeResult.groundColliderId.empty(), "off-ledge query reports no stale ground collider");
 
+    novacore::physics::CharacterSweepQuery fastLedgeSweep{};
+    fastLedgeSweep.startPosition = {2.0F, 0.0F, 0.0F};
+    fastLedgeSweep.desiredDisplacement = {7.0F, 0.0F, 0.0F};
+    fastLedgeSweep.radius = 0.42F;
+    fastLedgeSweep.height = 1.80F;
+    const auto fastLedgeResult = world.sweepCharacter(fastLedgeSweep);
+    expect(fastLedgeResult.hit, "physics character sweep catches fast ledge tunneling");
+    expect(fastLedgeResult.hitColliderId == "mid_ledge", "physics sweep reports first blocking collider id");
+    expect(fastLedgeResult.resolve.position.x < 4.45F, "physics sweep stops before high ledge face");
+    expect(fastLedgeResult.resolve.blocked, "physics sweep marks blocked movement");
+
+    novacore::physics::CharacterSweepQuery stepSweep{};
+    stepSweep.startPosition = {0.0F, 0.0F, -0.35F};
+    stepSweep.desiredDisplacement = {0.0F, 0.0F, 2.75F};
+    stepSweep.radius = 0.42F;
+    stepSweep.height = 1.80F;
+    const auto stepSweepResult = world.sweepCharacter(stepSweep);
+    expect(!stepSweepResult.hit, "physics sweep does not side-block a valid low step");
+    expect(stepSweepResult.resolve.grounded, "physics sweep resolves low step as ground");
+    expect(stepSweepResult.resolve.stepped, "physics sweep preserves step telemetry");
+    expect(stepSweepResult.resolve.groundColliderId == "low_step", "physics sweep grounds on stepped collider");
+
+    novacore::physics::CharacterSweepQuery wallSlideSweep{};
+    wallSlideSweep.startPosition = {-2.6F, 0.0F, -2.0F};
+    wallSlideSweep.desiredDisplacement = {-2.0F, 0.0F, 3.5F};
+    wallSlideSweep.radius = 0.42F;
+    wallSlideSweep.height = 1.80F;
+    wallSlideSweep.wallProbeDistance = 0.50F;
+    const auto wallSlideResult = world.sweepCharacter(wallSlideSweep);
+    expect(wallSlideResult.hit, "physics sweep hits wallrun panel during diagonal movement");
+    expect(wallSlideResult.hitColliderId == "left_wallrun_panel", "physics sweep reports wallrun panel hit");
+    expect(wallSlideResult.resolve.position.x > -3.48F, "physics sweep keeps capsule outside wallrun panel");
+    expect(wallSlideResult.resolve.position.z > -0.20F, "physics sweep keeps tangential slide movement");
+    expect(wallSlideResult.resolve.nearWallRunSurface, "physics sweep preserves wallrun surface telemetry");
+
     const auto mantle = world.probeMantle(novacore::physics::MantleProbe{
         {6.0F, 0.0F, -2.05F},
         {0.0F, 0.0F, 1.0F},

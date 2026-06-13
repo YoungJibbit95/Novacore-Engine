@@ -14,6 +14,23 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 Implemented:
 
+* Added `CharacterSweepQuery`, `CharacterSweepResult`, and `PhysicsWorld::sweepCharacter` as the first swept KCC movement API.
+* Swept character movement resolves fast horizontal displacement against expanded static colliders, stops before high ledges/walls, preserves valid low-step movement, and keeps tangential slide movement along walls.
+* Sweep results report first hit fraction, normal, collider id, surface kind, applied displacement, remaining displacement, and iteration count for game-side debug UI and future server validation.
+* The final sweep position is fed through the existing character resolver so floor, ramp, step, wall-run, and wall probe telemetry stay consistent.
+
+Validation:
+
+* Added NovaCore smoke coverage for high-speed ledge tunneling prevention, swept low-step traversal, and wallrun-panel tangent sliding.
+* Verified `cmake --build --preset windows-msvc-debug --config Debug`.
+* Verified `ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure`.
+
+---
+
+## Previous KCC Stability Block
+
+Implemented:
+
 * `CharacterQuery` now exposes `wallProbeDistance`, `enableGroundSnap`, and `enableStepUp` so game-side KCC integration can distinguish grounded support, rising jump arcs, airborne ledge exits, and wall-run proximity checks.
 * Ground resolution and standable ledge/cover-top resolution now honor the same snap/step gates, preventing upward jump frames from being pulled back to the floor or low steps.
 * Character wall-run contact resolution now uses the query-controlled wall probe distance instead of a hard-coded probe width.

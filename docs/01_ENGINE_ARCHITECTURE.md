@@ -57,6 +57,7 @@ Current foundation:
 * `novacore::physics::PhysicsWorld` owns static collider definitions and movement bounds.
 * `StaticCollider` carries gameplay surface metadata such as floor, wall, ramp, slide, ledge, cover, wall-run, and trigger.
 * `CharacterQuery` and `CharacterResolveResult` provide the first deterministic character resolution API for game-side movement systems.
+* `CharacterSweepQuery` and `CharacterSweepResult` provide the first swept displacement API for preventing high-speed character tunneling and reporting sweep diagnostics to game/debug/server validation layers.
 * Wall probes expose normal, tangent, distance, and collider id so games can build wall-run and mantle behavior without hard-coding greybox geometry.
 
 ### Net

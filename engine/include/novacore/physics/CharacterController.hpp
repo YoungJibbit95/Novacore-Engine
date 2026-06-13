@@ -50,6 +50,20 @@ struct CharacterQuery final {
     bool enableStepUp = true;
 };
 
+struct CharacterSweepQuery final {
+    math::Vec3 startPosition{};
+    math::Vec3 desiredDisplacement{};
+    float radius = 0.42F;
+    float height = 1.80F;
+    float maxStepHeight = 0.42F;
+    float snapDownDistance = 0.35F;
+    float walkableSlopeCosine = 0.68F;
+    float wallProbeDistance = 0.30F;
+    int maxIterations = 4;
+    bool enableGroundSnap = true;
+    bool enableStepUp = true;
+};
+
 struct CharacterResolveResult final {
     math::Vec3 position{};
     math::Vec3 correction{};
@@ -70,6 +84,21 @@ struct CharacterResolveResult final {
     std::string wallColliderId;
     SurfaceKind groundKind = SurfaceKind::Floor;
     SurfaceKind wallKind = SurfaceKind::Wall;
+};
+
+struct CharacterSweepResult final {
+    CharacterResolveResult resolve{};
+    math::Vec3 startPosition{};
+    math::Vec3 desiredDisplacement{};
+    math::Vec3 appliedDisplacement{};
+    math::Vec3 remainingDisplacement{};
+    math::Vec3 hitNormal{};
+    float firstHitFraction = 1.0F;
+    std::size_t iterationCount = 0;
+    bool swept = false;
+    bool hit = false;
+    std::string hitColliderId;
+    SurfaceKind hitKind = SurfaceKind::Wall;
 };
 
 struct WallProbe final {
@@ -123,6 +152,7 @@ public:
     [[nodiscard]] std::size_t colliderCount() const;
 
     [[nodiscard]] CharacterResolveResult resolveCharacter(CharacterQuery query) const;
+    [[nodiscard]] CharacterSweepResult sweepCharacter(CharacterSweepQuery query) const;
     [[nodiscard]] WallProbeResult probeWall(WallProbe probe) const;
     [[nodiscard]] MantleProbeResult probeMantle(MantleProbe probe) const;
 

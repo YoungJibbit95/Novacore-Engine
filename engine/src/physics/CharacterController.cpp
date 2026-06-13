@@ -58,6 +58,14 @@ namespace {
     return normalizeOrZero(tangent);
 }
 
+[[nodiscard]] float horizontalLength(math::Vec3 value) {
+    return std::sqrt((value.x * value.x) + (value.z * value.z));
+}
+
+[[nodiscard]] float dotHorizontal(math::Vec3 lhs, math::Vec3 rhs) {
+    return (lhs.x * rhs.x) + (lhs.z * rhs.z);
+}
+
 [[nodiscard]] bool verticalRangesOverlap(float playerFeetY, float playerHeight, const StaticCollider& collider) {
     const float playerMinY = playerFeetY;
     const float playerMaxY = playerFeetY + playerHeight;
@@ -482,6 +490,142 @@ void resolveAgainstExpandedAabb(
     return tMax >= 0.0F && tMin <= maxDistance;
 }
 
+[[nodiscard]] CharacterQuery characterQueryFromSweep(CharacterSweepQuery query, math::Vec3 position) {
+    CharacterQuery characterQuery{};
+    characterQuery.position = position;
+    characterQuery.radius = query.radius;
+    characterQuery.height = query.height;
+    characterQuery.maxStepHeight = query.maxStepHeight;
+    characterQuery.snapDownDistance = query.snapDownDistance;
+    characterQuery.walkableSlopeCosine = query.walkableSlopeCosine;
+    characterQuery.wallProbeDistance = query.wallProbeDistance;
+    characterQuery.enableGroundSnap = query.enableGroundSnap;
+    characterQuery.enableStepUp = query.enableStepUp;
+    return characterQuery;
+}
+
+[[nodiscard]] bool verticalSweepRangeOverlaps(
+    math::Vec3 start,
+    math::Vec3 end,
+    float height,
+    const StaticCollider& collider) {
+    const float playerMinY = std::min(start.y, end.y);
+    const float playerMaxY = std::max(start.y, end.y) + height;
+    return playerMaxY >= minY(collider) && playerMinY <= maxY(collider);
+}
+
+[[nodiscard]] bool canStepOntoColliderDuringSweep(
+    const StaticCollider& collider,
+    const CharacterSweepQuery& query,
+    math::Vec3 position) {
+    if (!query.enableStepUp || !isStandableTopSurface(collider.kind)) {
+        return false;
+    }
+
+    CharacterResolveResult result{};
+    result.position = position;
+    return canSnapToSurface(
+        result,
+        collider,
+        characterQueryFromSweep(query, position),
+        maxY(collider),
+        {0.0F, 1.0F, 0.0F});
+}
+
+struct SweepHitCandidate final {
+    bool hit = false;
+    float fraction = 1.0F;
+    math::Vec3 normal{};
+    const StaticCollider* collider = nullptr;
+};
+
+[[nodiscard]] SweepHitCandidate sweepExpandedAabb2D(
+    math::Vec3 position,
+    math::Vec3 displacement,
+    const StaticCollider& collider,
+    float radius) {
+    constexpr float kEpsilon = 0.00001F;
+    SweepHitCandidate result{};
+    float tEnter = 0.0F;
+    float tExit = 1.0F;
+    math::Vec3 normal{};
+
+    const auto testAxis = [&](float origin, float delta, float low, float high, math::Vec3 lowNormal, math::Vec3 highNormal) {
+        if (std::abs(delta) <= kEpsilon) {
+            return origin >= low && origin <= high;
+        }
+
+        float nearT = (low - origin) / delta;
+        float farT = (high - origin) / delta;
+        math::Vec3 nearNormal = lowNormal;
+        if (nearT > farT) {
+            std::swap(nearT, farT);
+            nearNormal = highNormal;
+        }
+
+        if (nearT > tEnter) {
+            tEnter = nearT;
+            normal = nearNormal;
+        }
+        tExit = std::min(tExit, farT);
+        return tEnter <= tExit;
+    };
+
+    const float expandedMinX = minX(collider) - radius;
+    const float expandedMaxX = maxX(collider) + radius;
+    const float expandedMinZ = minZ(collider) - radius;
+    const float expandedMaxZ = maxZ(collider) + radius;
+    if (!testAxis(position.x, displacement.x, expandedMinX, expandedMaxX, {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F})) {
+        return result;
+    }
+    if (!testAxis(position.z, displacement.z, expandedMinZ, expandedMaxZ, {0.0F, 0.0F, -1.0F}, {0.0F, 0.0F, 1.0F})) {
+        return result;
+    }
+
+    if (tEnter < 0.0F || tEnter > 1.0F || tExit < 0.0F) {
+        return result;
+    }
+    if (normal.lengthSquared() <= 0.000001F || dotHorizontal(displacement, normal) >= 0.0F) {
+        return result;
+    }
+
+    result.hit = true;
+    result.fraction = std::clamp(tEnter, 0.0F, 1.0F);
+    result.normal = normal;
+    result.collider = &collider;
+    return result;
+}
+
+[[nodiscard]] SweepHitCandidate findEarliestSweepHit(
+    const std::vector<StaticCollider>& colliders,
+    const CharacterSweepQuery& query,
+    math::Vec3 position,
+    math::Vec3 displacement) {
+    SweepHitCandidate best{};
+    best.fraction = 1.0F;
+    const auto end = position + displacement;
+    for (const auto& collider : colliders) {
+        if (!collider.blocksMovement || !isBlockingSideSurface(collider.kind)) {
+            continue;
+        }
+        if (!verticalSweepRangeOverlaps(position, end, query.height, collider)) {
+            continue;
+        }
+        if (canStepOntoColliderDuringSweep(collider, query, end)) {
+            continue;
+        }
+
+        const auto candidate = sweepExpandedAabb2D(position, displacement, collider, query.radius);
+        if (!candidate.hit) {
+            continue;
+        }
+        if (!best.hit || candidate.fraction < best.fraction) {
+            best = candidate;
+        }
+    }
+    return best;
+}
+
 [[nodiscard]] float clampToInset(float value, float minValue, float maxValue, float inset) {
     const float low = minValue + inset;
     const float high = maxValue - inset;
@@ -640,6 +784,91 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
     if (wall.hit) {
         if (const auto* collider = findStaticCollider(wall.colliderId)) {
             recordWallContact(result, *collider, wall.normal, wall.distance);
+        }
+    }
+
+    return result;
+}
+
+CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) const {
+    query.radius = std::max(0.01F, query.radius);
+    query.height = std::max(0.01F, query.height);
+    query.maxStepHeight = std::max(0.0F, query.maxStepHeight);
+    query.snapDownDistance = std::max(0.0F, query.snapDownDistance);
+    query.walkableSlopeCosine = std::clamp(query.walkableSlopeCosine, 0.0F, 1.0F);
+    query.wallProbeDistance = std::max(0.0F, query.wallProbeDistance);
+    query.maxIterations = std::clamp(query.maxIterations, 1, 8);
+
+    CharacterSweepResult result{};
+    result.startPosition = query.startPosition;
+    result.desiredDisplacement = query.desiredDisplacement;
+
+    auto startResolveQuery = characterQueryFromSweep(query, query.startPosition);
+    startResolveQuery.enableGroundSnap = false;
+    auto start = resolveCharacter(startResolveQuery);
+    math::Vec3 position = start.position;
+    math::Vec3 remaining = query.desiredDisplacement + (query.startPosition - position);
+    result.startPosition = position;
+
+    for (int iteration = 0; iteration < query.maxIterations; ++iteration) {
+        if (horizontalLength(remaining) <= 0.0001F) {
+            position = position + remaining;
+            remaining = {};
+            break;
+        }
+
+        auto hit = findEarliestSweepHit(staticColliders_, query, position, remaining);
+        if (!hit.hit || hit.collider == nullptr) {
+            position = position + remaining;
+            remaining = {};
+            result.iterationCount = static_cast<std::size_t>(iteration + 1);
+            break;
+        }
+
+        const float travelLength = std::max(0.001F, horizontalLength(remaining));
+        const float safetyFraction = std::min(0.05F, 0.003F / travelLength);
+        const float safeFraction = std::max(0.0F, hit.fraction - safetyFraction);
+        position = position + (remaining * safeFraction);
+        result.swept = true;
+        result.hit = true;
+        if (result.hitColliderId.empty()) {
+            result.firstHitFraction = hit.fraction;
+            result.hitNormal = hit.normal;
+            result.hitColliderId = hit.collider->id;
+            result.hitKind = hit.collider->kind;
+        }
+
+        remaining = remaining * (1.0F - safeFraction);
+        const float intoWall = dotHorizontal(remaining, hit.normal);
+        if (intoWall < 0.0F) {
+            remaining.x -= hit.normal.x * intoWall;
+            remaining.z -= hit.normal.z * intoWall;
+        }
+        result.iterationCount = static_cast<std::size_t>(iteration + 1);
+    }
+
+    result.remainingDisplacement = remaining;
+    auto resolveQuery = characterQueryFromSweep(query, position);
+    result.resolve = resolveCharacter(resolveQuery);
+    result.appliedDisplacement = result.resolve.position - result.startPosition;
+
+    if (result.hit) {
+        const auto requestedEnd = result.startPosition + query.desiredDisplacement;
+        const auto correction = result.resolve.position - requestedEnd;
+        if (correction.lengthSquared() > 0.000001F) {
+            result.resolve.correction = result.resolve.correction + correction;
+            result.resolve.blocked = true;
+            ++result.resolve.hitCount;
+            if (result.resolve.lastColliderId.empty()) {
+                result.resolve.lastColliderId = result.hitColliderId;
+            }
+        }
+        if (result.resolve.wallColliderId.empty() && !result.hitColliderId.empty()) {
+            result.resolve.wallColliderId = result.hitColliderId;
+            result.resolve.wallNormal = result.hitNormal;
+            result.resolve.wallTangent = tangentForWallNormal(result.hitNormal);
+            result.resolve.wallKind = result.hitKind;
+            result.resolve.nearWallRunSurface = result.hitKind == SurfaceKind::WallRun;
         }
     }
 
