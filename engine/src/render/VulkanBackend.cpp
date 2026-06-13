@@ -2125,7 +2125,7 @@ struct VulkanBackend::Impl final {
             const auto rows = glyphRows(c);
             for (std::size_t row = 0; row < rows.size(); ++row) {
                 for (std::uint8_t col = 0; col < 5; ++col) {
-                    const auto bit = static_cast<std::uint8_t>(1U << (4U - col));
+                    const auto bit = static_cast<std::uint8_t>(1U << col);
                     if ((rows[row] & bit) == 0) {
                         continue;
                     }

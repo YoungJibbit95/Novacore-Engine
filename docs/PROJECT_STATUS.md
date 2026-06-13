@@ -10,6 +10,25 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 ---
 
+## Added In Latest Block
+
+Implemented:
+
+* glTF CPU mesh extraction now applies scene/node hierarchy transforms instead of importing raw accessor-local vertices only.
+* Node transform support covers glTF matrix transforms plus TRS composition with translation, quaternion rotation, and scale.
+* Meshes referenced by multiple nodes are emitted as transformed primitive instances so scene-authored Blender objects keep their placement.
+* Imported normals are transformed and renormalized for the current simple Vulkan lighting path.
+* Vulkan bitmap debug text now samples the glyph rows with the screen-facing bit order used by the live UI path.
+
+Validation:
+
+* Added a NovaCore smoke test that writes a parent/child transformed GLB and verifies translated/scaled vertex positions after import.
+* Verified `cmake --build --preset windows-msvc-debug --config Debug`.
+* Verified `ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure`.
+* Verified through the Nemisis Dev Range runtime that A2 GLB assets upload and submit through the Vulkan mesh path after transform application.
+
+---
+
 # Current Foundation
 
 ## Core Runtime

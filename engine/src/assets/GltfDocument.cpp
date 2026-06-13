@@ -4,11 +4,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -50,6 +52,29 @@ struct AccessorDesc final {
     std::size_t count = 0;
     std::string type;
     bool normalized = false;
+};
+
+struct GltfMat4 final {
+    float value[16]{
+        1.0F, 0.0F, 0.0F, 0.0F,
+        0.0F, 1.0F, 0.0F, 0.0F,
+        0.0F, 0.0F, 1.0F, 0.0F,
+        0.0F, 0.0F, 0.0F, 1.0F,
+    };
+
+    [[nodiscard]] float at(std::size_t row, std::size_t col) const {
+        return value[(row * 4U) + col];
+    }
+
+    float& at(std::size_t row, std::size_t col) {
+        return value[(row * 4U) + col];
+    }
+};
+
+struct GltfNodeDesc final {
+    std::optional<std::size_t> meshIndex;
+    std::vector<std::size_t> children;
+    GltfMat4 localTransform{};
 };
 
 [[nodiscard]] std::string lowercaseExtension(const std::filesystem::path& path) {
@@ -271,6 +296,261 @@ struct AccessorDesc final {
 
 [[nodiscard]] GltfMeshDataLoadResult toMeshResult(const GltfSceneInfoLoadResult& result) {
     return GltfMeshDataLoadResult{result.errors};
+}
+
+[[nodiscard]] float numberOrFloat(
+    const core::ConfigDocument& document,
+    const std::string& key,
+    float fallback) {
+    return static_cast<float>(document.numberOr(key, static_cast<double>(fallback)));
+}
+
+[[nodiscard]] math::Vec3 normalizedOrFallback(math::Vec3 value, math::Vec3 fallback) {
+    const float lengthSquared = value.lengthSquared();
+    if (lengthSquared <= 0.000001F) {
+        return fallback;
+    }
+    const float invLength = 1.0F / std::sqrt(lengthSquared);
+    return math::Vec3{value.x * invLength, value.y * invLength, value.z * invLength};
+}
+
+[[nodiscard]] GltfMat4 identityMatrix() {
+    return {};
+}
+
+[[nodiscard]] GltfMat4 multiply(GltfMat4 lhs, GltfMat4 rhs) {
+    GltfMat4 result{};
+    for (std::size_t row = 0; row < 4; ++row) {
+        for (std::size_t col = 0; col < 4; ++col) {
+            result.at(row, col) =
+                (lhs.at(row, 0) * rhs.at(0, col)) +
+                (lhs.at(row, 1) * rhs.at(1, col)) +
+                (lhs.at(row, 2) * rhs.at(2, col)) +
+                (lhs.at(row, 3) * rhs.at(3, col));
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] GltfMat4 translation(math::Vec3 value) {
+    auto result = identityMatrix();
+    result.at(0, 3) = value.x;
+    result.at(1, 3) = value.y;
+    result.at(2, 3) = value.z;
+    return result;
+}
+
+[[nodiscard]] GltfMat4 scale(math::Vec3 value) {
+    GltfMat4 result{};
+    result.at(0, 0) = value.x;
+    result.at(1, 1) = value.y;
+    result.at(2, 2) = value.z;
+    result.at(3, 3) = 1.0F;
+    return result;
+}
+
+[[nodiscard]] GltfMat4 rotation(math::Quat value) {
+    const float lengthSquared =
+        (value.x * value.x) +
+        (value.y * value.y) +
+        (value.z * value.z) +
+        (value.w * value.w);
+    if (lengthSquared <= 0.000001F) {
+        return identityMatrix();
+    }
+
+    const float invLength = 1.0F / std::sqrt(lengthSquared);
+    const float x = value.x * invLength;
+    const float y = value.y * invLength;
+    const float z = value.z * invLength;
+    const float w = value.w * invLength;
+
+    GltfMat4 result = identityMatrix();
+    result.at(0, 0) = 1.0F - (2.0F * y * y) - (2.0F * z * z);
+    result.at(0, 1) = (2.0F * x * y) - (2.0F * z * w);
+    result.at(0, 2) = (2.0F * x * z) + (2.0F * y * w);
+    result.at(1, 0) = (2.0F * x * y) + (2.0F * z * w);
+    result.at(1, 1) = 1.0F - (2.0F * x * x) - (2.0F * z * z);
+    result.at(1, 2) = (2.0F * y * z) - (2.0F * x * w);
+    result.at(2, 0) = (2.0F * x * z) - (2.0F * y * w);
+    result.at(2, 1) = (2.0F * y * z) + (2.0F * x * w);
+    result.at(2, 2) = 1.0F - (2.0F * x * x) - (2.0F * y * y);
+    return result;
+}
+
+[[nodiscard]] math::Vec3 transformPoint(GltfMat4 transform, math::Vec3 point) {
+    return math::Vec3{
+        (transform.at(0, 0) * point.x) + (transform.at(0, 1) * point.y) + (transform.at(0, 2) * point.z) + transform.at(0, 3),
+        (transform.at(1, 0) * point.x) + (transform.at(1, 1) * point.y) + (transform.at(1, 2) * point.z) + transform.at(1, 3),
+        (transform.at(2, 0) * point.x) + (transform.at(2, 1) * point.y) + (transform.at(2, 2) * point.z) + transform.at(2, 3),
+    };
+}
+
+[[nodiscard]] math::Vec3 transformVector(GltfMat4 transform, math::Vec3 vector) {
+    return math::Vec3{
+        (transform.at(0, 0) * vector.x) + (transform.at(0, 1) * vector.y) + (transform.at(0, 2) * vector.z),
+        (transform.at(1, 0) * vector.x) + (transform.at(1, 1) * vector.y) + (transform.at(1, 2) * vector.z),
+        (transform.at(2, 0) * vector.x) + (transform.at(2, 1) * vector.y) + (transform.at(2, 2) * vector.z),
+    };
+}
+
+[[nodiscard]] GltfMat4 readMatrixTransform(
+    const core::ConfigDocument& document,
+    const std::string& prefix) {
+    GltfMat4 result{};
+    for (std::size_t col = 0; col < 4; ++col) {
+        for (std::size_t row = 0; row < 4; ++row) {
+            const std::size_t gltfIndex = (col * 4U) + row;
+            result.at(row, col) = numberOrFloat(document, prefix + ".matrix." + std::to_string(gltfIndex), row == col ? 1.0F : 0.0F);
+        }
+    }
+    return result;
+}
+
+[[nodiscard]] GltfMat4 readTrsTransform(
+    const core::ConfigDocument& document,
+    const std::string& prefix) {
+    const math::Vec3 nodeTranslation{
+        numberOrFloat(document, prefix + ".translation.0", 0.0F),
+        numberOrFloat(document, prefix + ".translation.1", 0.0F),
+        numberOrFloat(document, prefix + ".translation.2", 0.0F),
+    };
+    const math::Quat nodeRotation{
+        numberOrFloat(document, prefix + ".rotation.0", 0.0F),
+        numberOrFloat(document, prefix + ".rotation.1", 0.0F),
+        numberOrFloat(document, prefix + ".rotation.2", 0.0F),
+        numberOrFloat(document, prefix + ".rotation.3", 1.0F),
+    };
+    const math::Vec3 nodeScale{
+        numberOrFloat(document, prefix + ".scale.0", 1.0F),
+        numberOrFloat(document, prefix + ".scale.1", 1.0F),
+        numberOrFloat(document, prefix + ".scale.2", 1.0F),
+    };
+
+    return multiply(translation(nodeTranslation), multiply(rotation(nodeRotation), scale(nodeScale)));
+}
+
+[[nodiscard]] GltfMat4 readNodeTransform(
+    const core::ConfigDocument& document,
+    const std::string& prefix) {
+    if (document.contains(prefix + ".matrix.0")) {
+        return readMatrixTransform(document, prefix);
+    }
+    return readTrsTransform(document, prefix);
+}
+
+[[nodiscard]] std::vector<GltfNodeDesc> readNodes(const core::ConfigDocument& document) {
+    const auto nodeIndices = collectArrayIndices(document, "nodes");
+    std::vector<GltfNodeDesc> nodes;
+    if (nodeIndices.empty()) {
+        return nodes;
+    }
+
+    const auto maxNodeIndex = *std::ranges::max_element(nodeIndices);
+    nodes.resize(maxNodeIndex + 1U);
+
+    for (const auto nodeIndex : nodeIndices) {
+        const std::string prefix = "nodes." + std::to_string(nodeIndex);
+        if (const auto meshIndex = sizeValue(document, prefix + ".mesh"); meshIndex.has_value()) {
+            nodes[nodeIndex].meshIndex = *meshIndex;
+        }
+        for (const auto childArrayIndex : collectArrayIndices(document, prefix + ".children")) {
+            if (const auto childNodeIndex = sizeValue(document, prefix + ".children." + std::to_string(childArrayIndex));
+                childNodeIndex.has_value()) {
+                nodes[nodeIndex].children.push_back(*childNodeIndex);
+            }
+        }
+        nodes[nodeIndex].localTransform = readNodeTransform(document, prefix);
+    }
+
+    return nodes;
+}
+
+[[nodiscard]] std::vector<std::size_t> sceneRootNodes(
+    const core::ConfigDocument& document,
+    const std::vector<GltfNodeDesc>& nodes) {
+    std::vector<std::size_t> roots;
+    const auto sceneIndex = sizeValue(document, "scene").value_or(0);
+    const std::string sceneNodesPrefix = "scenes." + std::to_string(sceneIndex) + ".nodes";
+    for (const auto rootArrayIndex : collectArrayIndices(document, sceneNodesPrefix)) {
+        if (const auto rootNodeIndex = sizeValue(document, sceneNodesPrefix + "." + std::to_string(rootArrayIndex));
+            rootNodeIndex.has_value()) {
+            roots.push_back(*rootNodeIndex);
+        }
+    }
+
+    if (!roots.empty()) {
+        return roots;
+    }
+
+    std::vector<bool> referenced(nodes.size(), false);
+    for (const auto& node : nodes) {
+        for (const auto childIndex : node.children) {
+            if (childIndex < referenced.size()) {
+                referenced[childIndex] = true;
+            }
+        }
+    }
+    for (std::size_t index = 0; index < nodes.size(); ++index) {
+        if (!referenced[index]) {
+            roots.push_back(index);
+        }
+    }
+    return roots;
+}
+
+void collectMeshNodeTransforms(
+    const std::vector<GltfNodeDesc>& nodes,
+    std::size_t nodeIndex,
+    GltfMat4 parentTransform,
+    std::vector<bool>& activeStack,
+    std::unordered_map<std::size_t, std::vector<GltfMat4>>& meshTransforms,
+    std::vector<std::string>& errors) {
+    if (nodeIndex >= nodes.size()) {
+        errors.push_back("node hierarchy references missing node " + std::to_string(nodeIndex));
+        return;
+    }
+    if (activeStack[nodeIndex]) {
+        errors.push_back("node hierarchy contains a cycle at node " + std::to_string(nodeIndex));
+        return;
+    }
+
+    activeStack[nodeIndex] = true;
+    const auto& node = nodes[nodeIndex];
+    const auto worldTransform = multiply(parentTransform, node.localTransform);
+    if (node.meshIndex.has_value()) {
+        meshTransforms[*node.meshIndex].push_back(worldTransform);
+    }
+
+    for (const auto childIndex : node.children) {
+        collectMeshNodeTransforms(nodes, childIndex, worldTransform, activeStack, meshTransforms, errors);
+    }
+    activeStack[nodeIndex] = false;
+}
+
+[[nodiscard]] std::unordered_map<std::size_t, std::vector<GltfMat4>> meshNodeTransforms(
+    const core::ConfigDocument& document,
+    std::vector<std::string>& errors) {
+    std::unordered_map<std::size_t, std::vector<GltfMat4>> transforms;
+    const auto nodes = readNodes(document);
+    if (nodes.empty()) {
+        return transforms;
+    }
+
+    std::vector<bool> activeStack(nodes.size(), false);
+    for (const auto rootIndex : sceneRootNodes(document, nodes)) {
+        collectMeshNodeTransforms(nodes, rootIndex, identityMatrix(), activeStack, transforms, errors);
+    }
+    return transforms;
+}
+
+void applyNodeTransform(GltfPrimitiveData& primitive, GltfMat4 transform) {
+    for (auto& position : primitive.positions) {
+        position = transformPoint(transform, position);
+    }
+    for (auto& normal : primitive.normals) {
+        normal = normalizedOrFallback(transformVector(transform, normal), {0.0F, 1.0F, 0.0F});
+    }
 }
 
 [[nodiscard]] std::optional<BufferViewDesc> readBufferView(
@@ -636,6 +916,7 @@ GltfMeshDataLoadResult loadGltfMeshData(
     meshData.path = path;
     meshData.sceneInfo = std::move(sceneInfo);
     std::vector<std::string> errors;
+    const auto transformsByMesh = meshNodeTransforms(document, errors);
 
     for (const auto meshIndex : collectArrayIndices(document, "meshes")) {
         const std::string primitivePrefix = "meshes." + std::to_string(meshIndex) + ".primitives";
@@ -693,7 +974,17 @@ GltfMeshDataLoadResult loadGltfMeshData(
                 }
             }
 
-            meshData.primitives.push_back(std::move(primitive));
+            const auto transformIt = transformsByMesh.find(meshIndex);
+            if (transformIt == transformsByMesh.end() || transformIt->second.empty()) {
+                meshData.primitives.push_back(std::move(primitive));
+                continue;
+            }
+
+            for (const auto& transform : transformIt->second) {
+                auto transformedPrimitive = primitive;
+                applyNodeTransform(transformedPrimitive, transform);
+                meshData.primitives.push_back(std::move(transformedPrimitive));
+            }
         }
     }
 

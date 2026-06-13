@@ -323,7 +323,10 @@ void appendPaddedChunk(std::string& bytes, std::string chunk, std::uint32_t chun
     bytes += chunk;
 }
 
-void writeTinyGlb(const std::filesystem::path& path) {
+void writeTinyGlb(
+    const std::filesystem::path& path,
+    std::string nodesJson = R"([{ "mesh": 0 }])",
+    std::string sceneNodesJson = "[0]") {
     constexpr std::uint32_t kGlbMagic = 0x46546C67U;
     constexpr std::uint32_t kGlbJsonChunk = 0x4E4F534AU;
     constexpr std::uint32_t kGlbBinaryChunk = 0x004E4942U;
@@ -331,8 +334,8 @@ void writeTinyGlb(const std::filesystem::path& path) {
     const std::string json = R"({
         "asset": { "version": "2.0" },
         "scene": 0,
-        "scenes": [{ "nodes": [0] }],
-        "nodes": [{ "mesh": 0 }],
+        "scenes": [{ "nodes": )" + sceneNodesJson + R"( }],
+        "nodes": )" + nodesJson + R"(,
         "meshes": [{ "primitives": [{ "attributes": { "POSITION": 0 }, "indices": 1, "material": 0 }] }],
         "materials": [{ "name": "mat_smoke" }],
         "buffers": [{ "byteLength": 42 }],
@@ -371,6 +374,30 @@ void writeTinyGlb(const std::filesystem::path& path) {
 
     std::ofstream file(path, std::ios::binary);
     file.write(glb.data(), static_cast<std::streamsize>(glb.size()));
+}
+
+void testGltfMeshDataAppliesNodeTransforms() {
+    const auto glbPath = std::filesystem::temp_directory_path() / "novacore_smoke_mesh_transformed.glb";
+    writeTinyGlb(
+        glbPath,
+        R"([
+            { "translation": [2.0, 0.0, 0.0], "children": [1] },
+            { "mesh": 0, "translation": [0.0, 3.0, 4.0], "scale": [2.0, 1.0, 1.0] }
+        ])");
+
+    novacore::assets::GltfMeshData meshData;
+    const auto meshDataResult = novacore::assets::loadGltfMeshData(glbPath, meshData);
+    expect(meshDataResult.ok(), "glb mesh data imports transformed node hierarchy");
+    expect(meshData.primitiveCount() == 1, "transformed glb keeps one mesh primitive instance");
+    expect(!meshData.primitives.empty() && meshData.primitives[0].positions.size() == 3, "transformed glb keeps positions");
+    if (!meshData.primitives.empty() && meshData.primitives[0].positions.size() == 3) {
+        const auto& positions = meshData.primitives[0].positions;
+        expect(positions[0].x == 2.0F && positions[0].y == 3.0F && positions[0].z == 4.0F, "node hierarchy translates first vertex");
+        expect(positions[1].x == 4.0F && positions[1].y == 3.0F && positions[1].z == 4.0F, "node hierarchy scales child mesh x");
+        expect(positions[2].x == 2.0F && positions[2].y == 4.0F && positions[2].z == 4.0F, "node hierarchy preserves child mesh y");
+    }
+
+    std::filesystem::remove(glbPath);
 }
 
 void testGltfMetadataAndMeshCatalog() {
@@ -695,6 +722,7 @@ int main() {
     testConfigRegistry();
     testAssetManifestAndRegistry();
     testAssetStreamer();
+    testGltfMeshDataAppliesNodeTransforms();
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
     testPhysicsCharacterControllerSurfaces();
