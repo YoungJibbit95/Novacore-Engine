@@ -14,6 +14,22 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 Implemented:
 
+* Added full `RenderMesh3D` pitch and roll fields alongside yaw so game-side GLB instances can use complete Euler placement without baking axis hacks into asset data.
+* Extended the Vulkan world mesh model matrix path with X/Y/Z rotation composition before scale, preserving the existing yaw-only behavior for all callers with default pitch/roll values.
+* Enabled Nemisis first-person weapons, arms, local body presentation, and skybox experiments to share the same renderer-owned mesh path with stable full 3D transforms.
+
+Validation:
+
+* Verified `cmake --build --preset windows-msvc-debug`.
+* Verified `ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure`.
+* Verified through Nemisis Debug build and 32/32 Nemisis CTest suite.
+
+---
+
+## Previous Block - Swept KCC Movement
+
+Implemented:
+
 * Added `CharacterSweepQuery`, `CharacterSweepResult`, and `PhysicsWorld::sweepCharacter` as the first swept KCC movement API.
 * Swept character movement resolves fast horizontal displacement against expanded static colliders, stops before high ledges/walls, preserves valid low-step movement, and keeps tangential slide movement along walls.
 * Sweep results report first hit fraction, normal, collider id, surface kind, applied displacement, remaining displacement, and iteration count for game-side debug UI and future server validation.

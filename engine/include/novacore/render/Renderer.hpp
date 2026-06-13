@@ -133,6 +133,8 @@ struct RenderMesh3D final {
     math::Vec3 position{};
     math::Vec3 scale{1.0F, 1.0F, 1.0F};
     float yawDegrees = 0.0F;
+    float pitchDegrees = 0.0F;
+    float rollDegrees = 0.0F;
     std::array<float, 4> color{0.70F, 0.78F, 0.80F, 1.0F};
 };
 

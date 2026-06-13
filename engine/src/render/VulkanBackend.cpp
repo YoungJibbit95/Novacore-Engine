@@ -298,8 +298,40 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     return result;
 }
 
+[[nodiscard]] Mat4 rotationX(float pitchDegrees) {
+    const float pitch = degreesToRadians(pitchDegrees);
+    const float s = std::sin(pitch);
+    const float c = std::cos(pitch);
+
+    Mat4 result = identity();
+    result.at(1, 1) = c;
+    result.at(1, 2) = -s;
+    result.at(2, 1) = s;
+    result.at(2, 2) = c;
+    return result;
+}
+
+[[nodiscard]] Mat4 rotationZ(float rollDegrees) {
+    const float roll = degreesToRadians(rollDegrees);
+    const float s = std::sin(roll);
+    const float c = std::cos(roll);
+
+    Mat4 result = identity();
+    result.at(0, 0) = c;
+    result.at(0, 1) = -s;
+    result.at(1, 0) = s;
+    result.at(1, 1) = c;
+    return result;
+}
+
+[[nodiscard]] Mat4 meshRotation(const RenderMesh3D& mesh) {
+    return multiply(
+        rotationY(mesh.yawDegrees),
+        multiply(rotationX(mesh.pitchDegrees), rotationZ(mesh.rollDegrees)));
+}
+
 [[nodiscard]] Mat4 modelMatrixForMesh(const RenderMesh3D& mesh) {
-    return multiply(translation(mesh.position), multiply(rotationY(mesh.yawDegrees), scale(mesh.scale)));
+    return multiply(translation(mesh.position), multiply(meshRotation(mesh), scale(mesh.scale)));
 }
 
 [[nodiscard]] Mat4 perspectiveVulkan(float verticalFovDegrees, float aspect, float nearPlane, float farPlane) {
