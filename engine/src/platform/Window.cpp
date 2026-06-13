@@ -134,6 +134,9 @@ void Window::pollEvents(InputSystem& input) {
             break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             input.noteKeyboardMouseActivity();
+            inputSnapshot_.setPointerPosition(
+                {static_cast<float>(event.button.x), static_cast<float>(event.button.y)},
+                InputDeviceKind::KeyboardMouse);
             inputSnapshot_.setButton(
                 InputControl{InputControlKind::MouseButton, static_cast<std::uint16_t>(event.button.button)},
                 true,
@@ -141,6 +144,9 @@ void Window::pollEvents(InputSystem& input) {
             break;
         case SDL_EVENT_MOUSE_BUTTON_UP:
             input.noteKeyboardMouseActivity();
+            inputSnapshot_.setPointerPosition(
+                {static_cast<float>(event.button.x), static_cast<float>(event.button.y)},
+                InputDeviceKind::KeyboardMouse);
             inputSnapshot_.setButton(
                 InputControl{InputControlKind::MouseButton, static_cast<std::uint16_t>(event.button.button)},
                 false,
@@ -148,6 +154,9 @@ void Window::pollEvents(InputSystem& input) {
             break;
         case SDL_EVENT_MOUSE_MOTION:
             input.noteKeyboardMouseActivity();
+            inputSnapshot_.setPointerPosition(
+                {static_cast<float>(event.motion.x), static_cast<float>(event.motion.y)},
+                InputDeviceKind::KeyboardMouse);
             inputSnapshot_.addAxisDelta(
                 InputControl{InputControlKind::MouseAxis, 0},
                 static_cast<float>(event.motion.xrel),

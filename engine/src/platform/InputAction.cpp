@@ -16,6 +16,9 @@ namespace {
 } // namespace
 
 void InputSnapshot::beginFrame() {
+    pressedControls_.clear();
+    releasedControls_.clear();
+
     std::vector<std::uint64_t> transientKeys;
     for (const auto& [key, _] : axes_) {
         if (isTransientAxis(key)) {
@@ -31,15 +34,26 @@ void InputSnapshot::beginFrame() {
 
 void InputSnapshot::clear() {
     downControls_.clear();
+    pressedControls_.clear();
+    releasedControls_.clear();
     axes_.clear();
     devices_.clear();
+    pointerPosition_ = {};
+    pointerPositionValid_ = false;
 }
 
 void InputSnapshot::setButton(InputControl control, bool down, InputDeviceKind device) {
     const auto key = control.key();
+    const bool wasDown = downControls_.contains(key);
     if (down) {
+        if (!wasDown) {
+            pressedControls_.insert(key);
+        }
         downControls_.insert(key);
     } else {
+        if (wasDown || pressedControls_.contains(key)) {
+            releasedControls_.insert(key);
+        }
         downControls_.erase(key);
     }
     devices_.insert_or_assign(key, device);
@@ -55,8 +69,23 @@ void InputSnapshot::addAxisDelta(InputControl control, float delta, InputDeviceK
     setAxis(control, axisValue(control) + delta, device);
 }
 
+void InputSnapshot::setPointerPosition(math::Vec2 position, InputDeviceKind device) {
+    pointerPosition_ = position;
+    pointerPositionValid_ = true;
+    devices_.insert_or_assign(InputControl{InputControlKind::MouseAxis, 0}.key(), device);
+    devices_.insert_or_assign(InputControl{InputControlKind::MouseAxis, 1}.key(), device);
+}
+
 bool InputSnapshot::isDown(InputControl control) const {
     return downControls_.contains(control.key());
+}
+
+bool InputSnapshot::wasPressed(InputControl control) const {
+    return pressedControls_.contains(control.key());
+}
+
+bool InputSnapshot::wasReleased(InputControl control) const {
+    return releasedControls_.contains(control.key());
 }
 
 float InputSnapshot::axisValue(InputControl control) const {
@@ -73,6 +102,14 @@ InputDeviceKind InputSnapshot::deviceFor(InputControl control) const {
         return InputDeviceKind::KeyboardMouse;
     }
     return it->second;
+}
+
+bool InputSnapshot::hasPointerPosition() const {
+    return pointerPositionValid_;
+}
+
+math::Vec2 InputSnapshot::pointerPosition() const {
+    return pointerPosition_;
 }
 
 void InputActionMap::bind(InputBinding binding) {
@@ -93,6 +130,8 @@ void InputActionMap::update(const InputSnapshot& snapshot) {
         next.device = previous.device;
 
         float activationThreshold = 0.5F;
+        bool pressedThisFrame = false;
+        bool releasedThisFrame = false;
         for (const auto& binding : bindings) {
             float value = 0.0F;
             if (binding.control.kind == InputControlKind::GamepadAxis ||
@@ -107,11 +146,19 @@ void InputActionMap::update(const InputSnapshot& snapshot) {
                 next.device = snapshot.deviceFor(binding.control);
                 activationThreshold = binding.activationThreshold;
             }
+            if (snapshot.wasPressed(binding.control)) {
+                pressedThisFrame = true;
+                next.device = snapshot.deviceFor(binding.control);
+            }
+            if (snapshot.wasReleased(binding.control)) {
+                releasedThisFrame = true;
+                next.device = snapshot.deviceFor(binding.control);
+            }
         }
 
         next.down = std::abs(next.value) >= activationThreshold;
-        next.pressed = next.down && !previous.down;
-        next.released = !next.down && previous.down;
+        next.pressed = pressedThisFrame || (next.down && !previous.down);
+        next.released = releasedThisFrame || (!next.down && previous.down);
         states_.insert_or_assign(action, next);
     }
 }

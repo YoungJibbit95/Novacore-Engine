@@ -122,12 +122,36 @@ void testInputActions() {
     expect(jump.down, "bound button drives action down state");
     expect(jump.pressed, "first down frame reports pressed");
 
+    snapshot.beginFrame();
     actionMap.update(snapshot);
     expect(!actionMap.stateOrDefault("jump").pressed, "held button does not repeat pressed");
 
+    snapshot.beginFrame();
     snapshot.setButton(jumpKey, false, novacore::platform::InputDeviceKind::KeyboardMouse);
     actionMap.update(snapshot);
     expect(actionMap.stateOrDefault("jump").released, "button release reports released");
+}
+
+void testInputShortTapAndPointerSnapshot() {
+    novacore::platform::InputActionMap actionMap;
+    novacore::platform::InputControl leftMouse{
+        novacore::platform::InputControlKind::MouseButton,
+        1,
+    };
+    actionMap.bind(novacore::platform::InputBinding{"primary", leftMouse, 1.0F, 0.5F});
+
+    novacore::platform::InputSnapshot snapshot;
+    snapshot.setPointerPosition({640.0F, 360.0F}, novacore::platform::InputDeviceKind::KeyboardMouse);
+    snapshot.setButton(leftMouse, true, novacore::platform::InputDeviceKind::KeyboardMouse);
+    snapshot.setButton(leftMouse, false, novacore::platform::InputDeviceKind::KeyboardMouse);
+    actionMap.update(snapshot);
+
+    const auto primary = actionMap.stateOrDefault("primary");
+    expect(!primary.down, "short mouse tap ends frame released");
+    expect(primary.pressed, "short mouse tap still reports pressed edge");
+    expect(primary.released, "short mouse tap reports release edge");
+    expect(snapshot.hasPointerPosition(), "input snapshot tracks pointer position");
+    expect(snapshot.pointerPosition().x == 640.0F && snapshot.pointerPosition().y == 360.0F, "input snapshot preserves pointer coordinates");
 }
 
 void testTransientMouseAxis() {
@@ -687,6 +711,20 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(ramp.groundNormal.y > 0.90F, "physics ramp normal is walkable");
     expect(ramp.groundNormal.z < 0.0F, "positive-z physics ramp normal leans against slope");
 
+    const auto rampHigh = world.resolveCharacter(novacore::physics::CharacterQuery{{3.0F, 0.08F, 1.85F}, 0.42F, 1.80F});
+    expect(rampHigh.grounded, "physics character can walk onto the high end of a ramp");
+    expect(rampHigh.groundColliderId == "slide_ramp", "high ramp walk reports ramp collider");
+    expect(rampHigh.position.y > 0.82F, "high ramp walk resolves near ramp top");
+
+    novacore::physics::CharacterQuery rampAirborne{};
+    rampAirborne.position = {3.0F, 0.08F, 1.85F};
+    rampAirborne.radius = 0.42F;
+    rampAirborne.height = 1.80F;
+    rampAirborne.enableGroundSnap = false;
+    rampAirborne.enableStepUp = false;
+    const auto rampAirborneResult = world.resolveCharacter(rampAirborne);
+    expect(!rampAirborneResult.grounded, "disabled step-up prevents airborne ramp magnetism");
+
     const auto probe = world.probeWall(novacore::physics::WallProbe{{-3.48F, 0.5F, 0.0F}, 0.42F, 1.80F, 0.35F});
     expect(probe.hit, "physics wall probe detects nearby wallrun panel");
     expect(probe.kind == novacore::physics::SurfaceKind::WallRun, "physics wall probe preserves wallrun surface kind");
@@ -822,6 +860,7 @@ int main() {
     testPacketBitStream();
     testHeadlessRelativeMouseFallback();
     testInputActions();
+    testInputShortTapAndPointerSnapshot();
     testTransientMouseAxis();
     testInputDeviceActivity();
     testFileChangeTracker();

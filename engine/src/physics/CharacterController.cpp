@@ -148,12 +148,20 @@ namespace {
     }
 
     const float verticalDelta = groundHeight - result.position.y;
-    const float maxStepUp = query.enableStepUp
+    const bool rampLike = collider.kind == SurfaceKind::Ramp || collider.kind == SurfaceKind::Slide;
+    const float rampRise = rampLike ? std::max(0.0F, maxY(collider) - minY(collider)) : 0.0F;
+    float maxStepUp = query.enableStepUp
         ? std::max(query.maxStepHeight, collider.stepOverrideHeight)
         : 0.001F;
-    const float maxSnapDown = query.enableGroundSnap
+    float maxSnapDown = query.enableGroundSnap
         ? query.snapDownDistance
         : 0.001F;
+    if (rampLike && query.enableStepUp) {
+        maxStepUp = std::max(maxStepUp, rampRise + 0.04F);
+    }
+    if (rampLike && query.enableGroundSnap) {
+        maxSnapDown = std::max(maxSnapDown, query.snapDownDistance + rampRise + 0.04F);
+    }
     if (verticalDelta > maxStepUp) {
         return false;
     }
