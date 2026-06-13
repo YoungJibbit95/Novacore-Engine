@@ -14,6 +14,22 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 Implemented:
 
+* `CharacterQuery` now exposes `wallProbeDistance`, `enableGroundSnap`, and `enableStepUp` so game-side KCC integration can distinguish grounded support, rising jump arcs, airborne ledge exits, and wall-run proximity checks.
+* Ground resolution and standable ledge/cover-top resolution now honor the same snap/step gates, preventing upward jump frames from being pulled back to the floor or low steps.
+* Character wall-run contact resolution now uses the query-controlled wall probe distance instead of a hard-coded probe width.
+
+Validation:
+
+* Added NovaCore smoke coverage for disabled ground snap during rising jumps, disabled airborne step-up, configurable wall-run probing, and losing ground after moving past ledge support.
+* Verified `cmake --build --preset windows-msvc-debug --config Debug`.
+* Verified `ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure`.
+
+---
+
+## Previous Asset Transform Block
+
+Implemented:
+
 * glTF CPU mesh extraction now applies scene/node hierarchy transforms instead of importing raw accessor-local vertices only.
 * Node transform support covers glTF matrix transforms plus TRS composition with translation, quaternion rotation, and scale.
 * Meshes referenced by multiple nodes are emitted as transformed primitive instances so scene-authored Blender objects keep their placement.

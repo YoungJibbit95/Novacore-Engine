@@ -651,6 +651,26 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(step.groundColliderId == "low_step", "physics character reports stepped collider");
     expect(step.position.y > 0.34F && step.position.y < 0.38F, "physics step resolves top height");
 
+    novacore::physics::CharacterQuery rising{};
+    rising.position = {0.0F, 0.09F, -3.0F};
+    rising.radius = 0.42F;
+    rising.height = 1.80F;
+    rising.snapDownDistance = 0.35F;
+    rising.enableGroundSnap = false;
+    const auto risingResult = world.resolveCharacter(rising);
+    expect(!risingResult.grounded, "physics character can disable ground snap while rising");
+    expect(risingResult.position.y > 0.08F, "disabled ground snap preserves upward jump clearance");
+
+    novacore::physics::CharacterQuery airborneStep{};
+    airborneStep.position = {0.0F, 0.12F, 2.0F};
+    airborneStep.radius = 0.42F;
+    airborneStep.height = 1.80F;
+    airborneStep.enableStepUp = false;
+    airborneStep.enableGroundSnap = false;
+    const auto airborneStepResult = world.resolveCharacter(airborneStep);
+    expect(!airborneStepResult.grounded, "physics character can disable airborne step-up");
+    expect(!airborneStepResult.stepped, "disabled step-up avoids step telemetry while airborne");
+
     const auto ramp = world.resolveCharacter(novacore::physics::CharacterQuery{{3.0F, 0.28F, 0.0F}, 0.42F, 1.80F});
     expect(ramp.grounded, "physics character grounds on ramp");
     expect(ramp.onRamp, "physics character reports ramp state");
@@ -669,10 +689,31 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(wallContact.nearWallRunSurface, "physics character records wallrun-capable contact");
     expect(wallContact.wallColliderId == "left_wallrun_panel", "physics character reports wallrun contact id");
 
+    novacore::physics::CharacterQuery wallProbeQuery{};
+    wallProbeQuery.position = {-3.30F, 0.80F, 0.0F};
+    wallProbeQuery.radius = 0.42F;
+    wallProbeQuery.height = 1.80F;
+    wallProbeQuery.snapDownDistance = 0.10F;
+    wallProbeQuery.wallProbeDistance = 0.62F;
+    wallProbeQuery.enableGroundSnap = false;
+    const auto wallProbeContact = world.resolveCharacter(wallProbeQuery);
+    expect(!wallProbeContact.grounded, "physics wall probe query can stay airborne");
+    expect(wallProbeContact.nearWallRunSurface, "physics character uses configurable wall probe distance");
+    expect(wallProbeContact.wallColliderId == "left_wallrun_panel", "configurable wall probe reports wallrun id");
+
     const auto ledge = world.resolveCharacter(novacore::physics::CharacterQuery{{6.0F, 0.0F, 0.0F}, 0.42F, 1.80F});
     expect(ledge.blocked, "physics ledge blocks when above step height");
     expect(!ledge.stepped, "physics ledge does not count as step-up");
     expect(ledge.lastColliderId == "mid_ledge", "physics ledge reports collider id");
+
+    novacore::physics::CharacterQuery offLedge{};
+    offLedge.position = {6.0F, 1.30F, 2.05F};
+    offLedge.radius = 0.42F;
+    offLedge.height = 1.80F;
+    offLedge.snapDownDistance = 0.20F;
+    const auto offLedgeResult = world.resolveCharacter(offLedge);
+    expect(!offLedgeResult.grounded, "physics character loses ground when past ledge support");
+    expect(offLedgeResult.groundColliderId.empty(), "off-ledge query reports no stale ground collider");
 
     const auto mantle = world.probeMantle(novacore::physics::MantleProbe{
         {6.0F, 0.0F, -2.05F},

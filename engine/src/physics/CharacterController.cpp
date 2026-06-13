@@ -140,10 +140,16 @@ namespace {
     }
 
     const float verticalDelta = groundHeight - result.position.y;
-    if (verticalDelta > std::max(query.maxStepHeight, collider.stepOverrideHeight)) {
+    const float maxStepUp = query.enableStepUp
+        ? std::max(query.maxStepHeight, collider.stepOverrideHeight)
+        : 0.001F;
+    const float maxSnapDown = query.enableGroundSnap
+        ? query.snapDownDistance
+        : 0.001F;
+    if (verticalDelta > maxStepUp) {
         return false;
     }
-    if (verticalDelta < -query.snapDownDistance) {
+    if (verticalDelta < -maxSnapDown) {
         return false;
     }
     return normalizeOrUp(normal).y >= query.walkableSlopeCosine;
@@ -307,9 +313,7 @@ void resolveAgainstExpandedAabb(
 
     const float topY = maxY(collider);
     if (isStandableTopSurface(collider.kind) &&
-        topY <= result.position.y + std::max(query.maxStepHeight, collider.stepOverrideHeight) &&
-        topY >= result.position.y - query.snapDownDistance &&
-        horizontalPointInsideExpanded(result.position, collider, query.radius)) {
+        canSnapToSurface(result, collider, query, topY, {0.0F, 1.0F, 0.0F})) {
         recordGround(result, collider, topY, {0.0F, 1.0F, 0.0F}, collider.kind == SurfaceKind::Cover);
         return;
     }
@@ -611,6 +615,7 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
     query.maxStepHeight = std::max(0.0F, query.maxStepHeight);
     query.snapDownDistance = std::max(0.0F, query.snapDownDistance);
     query.walkableSlopeCosine = std::clamp(query.walkableSlopeCosine, 0.0F, 1.0F);
+    query.wallProbeDistance = std::max(0.0F, query.wallProbeDistance);
 
     CharacterResolveResult result{};
     result.position = query.position;
@@ -631,7 +636,7 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
         resolveAgainstExpandedAabb(result, collider, query);
     }
 
-    const auto wall = probeWall(WallProbe{result.position, query.radius, query.height, 0.18F});
+    const auto wall = probeWall(WallProbe{result.position, query.radius, query.height, query.wallProbeDistance});
     if (wall.hit) {
         if (const auto* collider = findStaticCollider(wall.colliderId)) {
             recordWallContact(result, *collider, wall.normal, wall.distance);

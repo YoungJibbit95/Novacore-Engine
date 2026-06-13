@@ -45,6 +45,9 @@ struct CharacterQuery final {
     float maxStepHeight = 0.42F;
     float snapDownDistance = 0.35F;
     float walkableSlopeCosine = 0.68F;
+    float wallProbeDistance = 0.30F;
+    bool enableGroundSnap = true;
+    bool enableStepUp = true;
 };
 
 struct CharacterResolveResult final {
