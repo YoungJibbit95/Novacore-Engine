@@ -113,6 +113,12 @@ struct RenderCamera3D final {
 struct RenderWorldLighting final {
     math::Vec3 sunDirection{0.35F, 0.85F, 0.28F};
     float ambientIntensity = 0.32F;
+    math::Vec3 fillDirection{-0.45F, 0.35F, -0.62F};
+    float fillIntensity = 0.18F;
+    float rimIntensity = 0.16F;
+    float specularIntensity = 0.12F;
+    float contrast = 1.08F;
+    float saturation = 1.04F;
 };
 
 struct RenderBox3D final {

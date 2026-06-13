@@ -10,7 +10,24 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 ---
 
-## Added In Latest Block
+## Added In Latest Block - Mesh Lighting Response
+
+Implemented:
+
+* Added fill-light, rim-light, specular, contrast, and saturation controls to `RenderWorldLighting` for imported mesh readability.
+* Extended the Vulkan world-mesh push constant payload to the 128-byte budget with packed fill-light and material-response data.
+* Updated `world_mesh.vert` so GLB meshes receive key light, fill light, rim highlight, simple specular, contrast shaping, and saturation adjustment before fragment output.
+* Kept the current no-descriptor material path intact, giving Nemisis better Project/A1/A2 asset visibility while texture/material residency is still upcoming.
+
+Validation:
+
+* Verified `cmake --build --preset windows-msvc-debug`.
+* Verified `ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure`.
+* Verified through Nemisis Debug build and 32/32 Nemisis CTest suite.
+
+---
+
+## Previous Block - Full Mesh Transform Placement
 
 Implemented:
 

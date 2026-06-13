@@ -132,6 +132,8 @@ struct WorldMeshPushConstants final {
     std::array<float, 16> worldViewProjection{};
     std::array<float, 4> color{};
     std::array<float, 4> lightDirectionAmbient{};
+    std::array<float, 4> fillDirectionIntensity{};
+    std::array<float, 4> materialResponse{};
 };
 
 struct WorldLinePushConstants final {
@@ -230,6 +232,25 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
         direction.y,
         direction.z,
         std::clamp(lighting.ambientIntensity, 0.02F, 0.95F),
+    };
+}
+
+[[nodiscard]] std::array<float, 4> packedFillLighting(const RenderWorldLighting& lighting) {
+    const auto direction = normalized(lighting.fillDirection);
+    return {
+        direction.x,
+        direction.y,
+        direction.z,
+        std::clamp(lighting.fillIntensity, 0.0F, 1.0F),
+    };
+}
+
+[[nodiscard]] std::array<float, 4> packedMaterialResponse(const RenderWorldLighting& lighting) {
+    return {
+        std::clamp(lighting.rimIntensity, 0.0F, 1.0F),
+        std::clamp(lighting.specularIntensity, 0.0F, 1.0F),
+        std::clamp(lighting.contrast, 0.5F, 1.8F),
+        std::clamp(lighting.saturation, 0.0F, 2.0F),
     };
 }
 
@@ -422,6 +443,8 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
         worldViewProjection.value,
         mesh.color,
         packedLighting(lighting),
+        packedFillLighting(lighting),
+        packedMaterialResponse(lighting),
     };
 }
 
