@@ -8,6 +8,20 @@ Maximize implementation work per token. Minimize conversational output. Prefer s
 
 NovaCore is a modular C++23 engine repository for a modern multiplayer FPS.
 
+## AAA Foundation Directive
+
+NovaCore is the long-term technical foundation for a game targeting AAA-level graphics, performance, networking, tooling, and player feel. Treat this as an engineering quality bar, not marketing language.
+
+Every engine decision should support:
+
+* production-grade rendering architecture
+* scalable material, lighting, animation, physics, networking, audio, UI, and asset systems
+* deterministic FPS movement, prediction, replay, and server validation
+* clean game/engine boundaries without preventing deep integration by Nemisis
+* performance-conscious code that can evolve without foundational rewrites
+
+Prefer coherent, durable subsystems over temporary shortcuts. Avoid over-fragmented changes when a complete, well-scoped system slice can be implemented safely.
+
 NovaCore owns reusable engine technology only:
 
 * Core runtime
@@ -58,6 +72,8 @@ Prefer:
 * Small public headers
 * Clear module boundaries
 * Dependency-light smoke tests
+* Engine APIs designed around real game usage from Nemisis
+* Production-minded debugging, profiling, validation, and telemetry
 
 Avoid:
 
@@ -67,6 +83,7 @@ Avoid:
 * Gameplay logic inside engine systems
 * Large abstractions without a real boundary
 * Silent fallbacks that hide broken configuration
+* Prototype-only architecture that would require a future rewrite to support AAA FPS goals
 
 ## Public vs Private Code
 
@@ -170,6 +187,8 @@ Rules:
 * Separate CPU asset data from GPU resources.
 * Keep SDL debug renderer available as a fallback/tool path.
 * Keep null/headless renderer support.
+* Grow UI and text rendering toward production-grade font rendering, layout, batching, clipping, and input navigation instead of relying on debug text paths.
+* Design material, lighting, resource residency, and shader systems as first-class engine systems, not game-specific hacks.
 
 ## Asset Rules
 
@@ -248,6 +267,8 @@ When implementing movement:
 * Keep camera presentation separate from physics state.
 * Support ground detection, sliding, step-up, step-down, jumping, sprinting, crouching, and air control as explicit systems.
 * Design movement for future client prediction and reconciliation.
+* Treat wallrunning, sliding, mantling, double jump, camera response, and input feel as core FPS engine requirements when they need reusable physics, prediction, replay, or validation support.
+* Keep character controller code deterministic, debuggable, and suitable for later capsule sweeps, moving platforms, contact manifolds, and server replay checks.
 
 Do not implement FPS movement as a camera-only transform hack.
 
@@ -368,4 +389,3 @@ Favor spending tokens on repository inspection and code generation rather than e
 Unless explicitly requested, do **not** produce tutorials, architectural essays, design discussions, or verbose justifications.
 
 Assume the user prefers concise responses and implementation-first behavior.
-

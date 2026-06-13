@@ -6,6 +6,8 @@ NovaCore is a modular C++23 engine designed around deterministic simulation, cle
 
 The engine is designed for a modern multiplayer FPS and intentionally avoids assumptions inherited from existing commercial engines. Rendering, gameplay, networking, physics, and asset management are separate layers communicating through explicit interfaces.
 
+NovaCore's long-term target is to be a production-grade foundation for an AAA-quality FPS. This does not mean copying the complexity of existing engines blindly; it means choosing architecture that can scale to high-end rendering, animation, physics, networking, UI, asset streaming, profiling, and tooling without a foundational rewrite.
+
 ## Core Design Principles
 
 * Deterministic fixed-step simulation.
@@ -16,6 +18,9 @@ The engine is designed for a modern multiplayer FPS and intentionally avoids ass
 * Assets are referenced through stable handles rather than raw pointers.
 * CPU-side and GPU-side resources are treated as separate lifetimes.
 * Every subsystem documents its ownership, update frequency, and threading guarantees.
+* Engine features are prioritized by real game value for Nemisis while remaining reusable and game-agnostic.
+* Debug/profiling visibility is part of the architecture, not an afterthought.
+* Temporary debug paths must not become permanent substitutes for production renderer, UI, font, material, animation, physics, or networking systems.
 
 ## Top-Level Modules
 
