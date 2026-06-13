@@ -1,15 +1,15 @@
 # NovaCore Engine
 
+NovaCore is a modern **C++23**, **Vulkan-first** game engine focused on deterministic simulation, high-performance rendering, and server-authoritative multiplayer.
+
+The engine is being developed as the reusable technology foundation for **Project Nemisis**, but is intentionally designed to remain independent of any game-specific content or gameplay logic.
+
 <p align="center">
   <img src="https://img.shields.io/github/last-commit/YoungJibbit95/Novacore-Engine?style=for-the-badge&color=8b5cf6" />
   <img src="https://img.shields.io/github/repo-size/YoungJibbit95/Novacore-Engine?style=for-the-badge&color=6366f1" />
   <img src="https://img.shields.io/github/issues/YoungJibbit95/Novacore-Engine?style=for-the-badge&color=ec4899" />
   <img src="https://komarev.com/ghpvc/?username=YoungJibbit95-Novacore-Engine&label=repo%20views&color=8b5cf6&style=for-the-badge" />
 </p>
-
-NovaCore is a modern **C++23**, **Vulkan-first** game engine focused on deterministic simulation, high-performance rendering, and server-authoritative multiplayer.
-
-The engine is being developed as the reusable technology foundation for **Project Nemisis**, but is intentionally designed to remain independent of any game-specific content or gameplay logic.
 
 ## Design Goals
 
