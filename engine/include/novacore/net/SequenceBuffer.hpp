@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace novacore::net {
@@ -128,6 +129,36 @@ public:
         return erased;
     }
 
+    [[nodiscard]] std::size_t eraseAfter(std::uint64_t sequence) {
+        std::size_t erased = 0;
+        for (auto& entry : entries_) {
+            if (!entry.occupied || entry.sequence <= sequence) {
+                continue;
+            }
+            entry.occupied = false;
+            ++erased;
+        }
+        size_ -= erased;
+        if (erased > 0U) {
+            recomputeNewest();
+        }
+        return erased;
+    }
+
+    template <typename Visitor>
+    void forEach(Visitor&& visitor) const {
+        for (const auto& entry : entries_) {
+            if (!entry.occupied) {
+                continue;
+            }
+            if constexpr (std::is_invocable_v<Visitor, std::uint64_t, const Value&>) {
+                visitor(entry.sequence, entry.value);
+            } else {
+                visitor(entry);
+            }
+        }
+    }
+
     void clear() {
         for (auto& entry : entries_) {
             entry.occupied = false;
@@ -157,6 +188,22 @@ private:
             entry.occupied = false;
             --size_;
         }
+    }
+
+    void recomputeNewest() {
+        std::uint64_t newest = 0;
+        bool hasNewest = false;
+        for (const auto& entry : entries_) {
+            if (!entry.occupied) {
+                continue;
+            }
+            if (!hasNewest || entry.sequence > newest) {
+                newest = entry.sequence;
+                hasNewest = true;
+            }
+        }
+        newestSequence_ = newest;
+        hasNewest_ = hasNewest;
     }
 
     std::array<Entry, Capacity> entries_{};

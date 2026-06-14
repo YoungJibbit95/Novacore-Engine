@@ -97,9 +97,51 @@ void testSequenceBufferStoresWrapsAndPrunes() {
     expect(!buffer.contains(11) && !buffer.contains(12), "sequence buffer removes acknowledged entries");
     expect(buffer.contains(13) && buffer.contains(14), "sequence buffer keeps newer entries after prune");
 
+    expect(buffer.eraseAfter(13) == 1, "sequence buffer erases rollback range after a sequence");
+    expect(buffer.contains(13) && !buffer.contains(14), "sequence buffer keeps rollback anchor");
+    expect(buffer.newestSequence().has_value() && *buffer.newestSequence() == 13, "sequence buffer recomputes newest after rollback erase");
+
+    std::uint32_t visitedSum = 0;
+    buffer.forEach([&](std::uint64_t, std::uint32_t value) {
+        visitedSum += value;
+    });
+    expect(visitedSum == 130, "sequence buffer visits occupied entries");
+
     buffer.clear();
     expect(buffer.empty(), "sequence buffer clears entries");
     expect(!buffer.newestSequence().has_value(), "sequence buffer clears newest sequence marker");
+}
+
+void testInterpolationBufferSamplesSnapshots() {
+    novacore::net::InterpolationBuffer<float, 8> buffer;
+
+    expect(!buffer.sample(10).valid(), "empty interpolation buffer has no sample");
+    expect(buffer.store(10, 10.0F), "interpolation buffer stores first snapshot");
+    expect(buffer.store(14, 14.0F), "interpolation buffer stores second snapshot");
+    expect(buffer.store(17, 17.0F), "interpolation buffer stores third snapshot");
+
+    const auto exact = buffer.sample(14);
+    expect(exact.valid() && exact.exact, "interpolation buffer reports exact sample");
+    expect(exact.from == exact.to && exact.from != nullptr && *exact.from == 14.0F, "exact sample points to matching snapshot");
+
+    const auto middle = buffer.sample(12);
+    expect(middle.valid(), "interpolation buffer samples between snapshots");
+    expect(middle.interpolating(), "interpolation buffer reports active interpolation");
+    expect(middle.fromSequence == 10 && middle.toSequence == 14, "interpolation buffer chooses neighboring snapshots");
+    expect(std::abs(middle.alpha - 0.5F) < 0.001F, "interpolation buffer computes normalized alpha");
+
+    const auto oldest = buffer.sample(5);
+    expect(oldest.valid() && oldest.clampedToOldest, "interpolation buffer clamps before oldest snapshot");
+    expect(oldest.fromSequence == 10 && oldest.toSequence == 10, "oldest clamp uses first snapshot");
+
+    const auto newest = buffer.sample(20);
+    expect(newest.valid() && newest.clampedToNewest, "interpolation buffer clamps after newest snapshot");
+    expect(newest.fromSequence == 17 && newest.toSequence == 17, "newest clamp uses last snapshot");
+
+    expect(buffer.eraseThrough(14) == 2, "interpolation buffer prunes acknowledged snapshots");
+    expect(!buffer.sample(14).exact, "pruned interpolation snapshot is gone");
+    expect(buffer.eraseAfter(15) == 1, "interpolation buffer supports rollback erase");
+    expect(buffer.empty(), "interpolation buffer is empty after prune and rollback");
 }
 
 void testPacketBitStream() {
@@ -891,6 +933,7 @@ int main() {
     testFixedStepAccumulator();
     testLoopbackChannel();
     testSequenceBufferStoresWrapsAndPrunes();
+    testInterpolationBufferSamplesSnapshots();
     testPacketBitStream();
     testHeadlessRelativeMouseFallback();
     testInputActions();
