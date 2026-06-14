@@ -63,7 +63,7 @@ struct VkPhysicalDeviceProperties final {
     std::uint32_t deviceType = 0;
     char deviceName[kVkMaxPhysicalDeviceNameSize]{};
     std::uint8_t pipelineCacheUUID[kVkUuidSize]{};
-    alignas(8) std::array<std::uint8_t, 4096> limits{};
+    std::array<std::uint64_t, 512> limits{};
     std::array<std::uint8_t, 64> sparseProperties{};
 };
 

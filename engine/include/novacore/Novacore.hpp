@@ -19,6 +19,7 @@
 #include "novacore/io/FileSystem.hpp"
 #include "novacore/net/BitStream.hpp"
 #include "novacore/net/Client.hpp"
+#include "novacore/net/InterpolationBuffer.hpp"
 #include "novacore/net/Loopback.hpp"
 #include "novacore/net/SequenceBuffer.hpp"
 #include "novacore/net/Server.hpp"

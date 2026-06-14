@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    add_compile_options(/EHsc)
+endif()
+
 include(FetchContent)
 
 option(NOVACORE_ENABLE_SDL3 "Enable SDL3 platform window/input backend when available" ON)
