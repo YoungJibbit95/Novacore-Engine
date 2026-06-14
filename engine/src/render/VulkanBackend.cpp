@@ -39,9 +39,9 @@ namespace novacore::render {
 
 namespace {
 
-constexpr std::uint32_t kMaxFramesInFlight = 2;
-
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+
+constexpr std::uint32_t kMaxFramesInFlight = 2;
 
 [[nodiscard]] std::string vkResultName(VkResult result) {
     switch (result) {

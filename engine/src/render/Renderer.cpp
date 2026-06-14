@@ -24,11 +24,11 @@ namespace novacore::render {
 
 namespace {
 
+#if NOVACORE_HAS_SDL3
 [[nodiscard]] std::uint8_t colorByte(float value) {
     return static_cast<std::uint8_t>(std::clamp(value, 0.0F, 1.0F) * 255.0F);
 }
 
-#if NOVACORE_HAS_SDL3
 void setDrawColor(SDL_Renderer* renderer, std::array<float, 4> color) {
     SDL_SetRenderDrawColor(
         renderer,

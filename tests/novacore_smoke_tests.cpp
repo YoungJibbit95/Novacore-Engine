@@ -69,6 +69,39 @@ void testLoopbackChannel() {
     expect(received.payload.size() == 4, "packet payload survives loopback");
 }
 
+void testSequenceBufferStoresWrapsAndPrunes() {
+    novacore::net::SequenceBuffer<std::uint32_t, 4> buffer;
+
+    expect(buffer.empty(), "sequence buffer starts empty");
+    expect(buffer.store(10, 100), "sequence buffer stores first value");
+    expect(buffer.store(11, 110), "sequence buffer stores next value");
+    expect(buffer.store(12, 120), "sequence buffer stores third value");
+    expect(buffer.size() == 3, "sequence buffer counts occupied slots");
+    expect(buffer.contains(11), "sequence buffer finds stored sequence");
+    expect(buffer.find(11) != nullptr && *buffer.find(11) == 110, "sequence buffer reads stored value");
+    expect(buffer.newestSequence().has_value() && *buffer.newestSequence() == 12, "sequence buffer tracks newest sequence");
+    expect(buffer.oldestSequence().has_value() && *buffer.oldestSequence() == 10, "sequence buffer tracks oldest occupied sequence");
+
+    expect(buffer.store(11, 111), "sequence buffer overwrites matching sequence in-place");
+    expect(buffer.size() == 3, "sequence buffer overwrite does not grow size");
+    expect(buffer.find(11) != nullptr && *buffer.find(11) == 111, "sequence buffer keeps overwritten value");
+
+    expect(buffer.store(13, 130), "sequence buffer fills final slot");
+    expect(buffer.store(14, 140), "sequence buffer wraps and expires oldest slot");
+    expect(!buffer.contains(10), "sequence buffer expires entries outside the newest window");
+    expect(buffer.contains(14), "sequence buffer keeps newest wrapped entry");
+    expect(!buffer.store(9, 90), "sequence buffer rejects stale sequence");
+
+    const auto erased = buffer.eraseThrough(12);
+    expect(erased == 2, "sequence buffer erases acknowledged range");
+    expect(!buffer.contains(11) && !buffer.contains(12), "sequence buffer removes acknowledged entries");
+    expect(buffer.contains(13) && buffer.contains(14), "sequence buffer keeps newer entries after prune");
+
+    buffer.clear();
+    expect(buffer.empty(), "sequence buffer clears entries");
+    expect(!buffer.newestSequence().has_value(), "sequence buffer clears newest sequence marker");
+}
+
 void testPacketBitStream() {
     novacore::net::PacketWriter writer;
     writer.writeU8(7);
@@ -857,6 +890,7 @@ int main() {
     testWorldLifetime();
     testFixedStepAccumulator();
     testLoopbackChannel();
+    testSequenceBufferStoresWrapsAndPrunes();
     testPacketBitStream();
     testHeadlessRelativeMouseFallback();
     testInputActions();

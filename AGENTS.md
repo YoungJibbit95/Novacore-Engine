@@ -1,26 +1,108 @@
 # AGENTS.md
 
-## PRIMARY DIRECTIVE
-
-Maximize implementation work per token. Minimize conversational output. Prefer spending context and tokens on repository inspection, code generation, debugging, and testing rather than explanations.
-
-## Project
+## Primary Directive
 
 NovaCore is a modular C++23 engine repository for a modern multiplayer FPS.
 
-## AAA Foundation Directive
+Work implementation-first. Maximize useful code, tests, validation, and durable engine progress per session. Minimize conversational output.
 
-NovaCore is the long-term technical foundation for a game targeting AAA-level graphics, performance, networking, tooling, and player feel. Treat this as an engineering quality bar, not marketing language.
+At task start:
+- maximum one sentence
+- no bullets unless the user asks for a plan
+- immediately inspect files and implement
 
-Every engine decision should support:
+Spend tokens in this order:
 
-* production-grade rendering architecture
-* scalable material, lighting, animation, physics, networking, audio, UI, and asset systems
-* deterministic FPS movement, prediction, replay, and server validation
-* clean game/engine boundaries without preventing deep integration by Nemisis
-* performance-conscious code that can evolve without foundational rewrites
+1. Inspect existing code.
+2. Modify or add code.
+3. Build and run relevant tests.
+4. Fix failures.
+5. Update documentation only when needed.
+6. Report briefly.
 
-Prefer coherent, durable subsystems over temporary shortcuts. Avoid over-fragmented changes when a complete, well-scoped system slice can be implemented safely.
+Do not spend tokens on obvious explanations, repeated summaries, tutorials, or speculative architecture discussion unless explicitly requested.
+
+## Agent Operating Mode
+
+Primary behavior: produce a large, coherent implementation patch per task while keeping chat minimal.
+
+Hard rules:
+
+* Spend most context on repository inspection, code edits, tests, and fixes.
+* Do not stop after a small cleanup unless the user explicitly requested a small cleanup.
+* Do not choose the smallest safe slice by default.
+* If the task is broad, implement the largest coherent slice that can be safely built and tested in the session.
+* Prefer 5-15 meaningful file edits over 1-3 tiny edits when the task scope allows it.
+* Prefer complete gameplay/render/UI/asset systems over cosmetic cleanup.
+* Remove dead code only when it is part of enabling a larger feature or requested directly.
+* Do not add filler, dead code, duplicate systems, artificial abstractions, or line-count padding.
+* Do not optimize for raw line count. Optimize for meaningful shipped functionality.
+* Do not narrate routine edits.
+* Do not summarize every file after changing it.
+* Stay quiet during work unless blocked, a command fails, or user input is required.
+
+At task start, output at most 2 short bullets:
+* implementation target
+* expected validation
+
+During work:
+* continue implementing until the largest coherent slice is complete
+* when one file is changed, immediately inspect adjacent systems and finish the connected feature path
+* do not stop at cleanup if a playable/rendered/testable improvement is possible
+* run build/tests, fix failures, and keep going if time/context remains
+
+Final response must be short and contain only:
+* files changed
+* build/test/playable validation commands run
+* result
+* real blockers or skipped validation, if any
+
+## Silence Policy
+
+During implementation, do not send status updates.
+
+Allowed messages:
+1. One initial message before tool use, maximum one sentence.
+2. One blocking message if user input is required.
+3. One final report after build/test.
+
+Forbidden during implementation:
+* "I am checking..."
+* "I will now..."
+* "Next I will..."
+* "I found..."
+* "I am going to..."
+* progress summaries
+* per-file summaries
+* reasoning updates
+* Kanban/GitHub/project-board narration
+* repeated validation plans
+
+Use tool calls silently instead of describing tool calls.
+
+## Work Output Standard
+
+A successful session should usually produce one substantial outcome, such as:
+
+* a playable Dev Range improvement
+* a complete movement mechanic slice
+* a complete weapon/HUD interaction slice
+* a renderable asset or scene pipeline improvement
+* a test-covered gameplay system
+* a real UI/settings/loadout flow
+* a bug fix plus regression test plus cleanup of the affected path
+
+Avoid ending a session with only:
+
+* dead-code deletion
+* comment/doc edits
+* tiny cosmetic changes
+* one isolated helper function
+* refactors that do not unlock visible or testable behavior
+
+Small patches are acceptable only when the user explicitly asks for a small fix or the repository state makes a larger safe change impossible.
+
+## Project Boundary
 
 NovaCore owns reusable engine technology only:
 
@@ -40,8 +122,6 @@ NovaCore owns reusable engine technology only:
 
 Game-specific content belongs in Nemisis, not NovaCore.
 
-## Repository Boundary
-
 NovaCore must not include:
 
 * Nemisis headers
@@ -60,32 +140,23 @@ Nemisis -> NovaCore
 
 Never introduce a dependency from NovaCore back to Nemisis.
 
-## Architecture Priorities
+## Engineering Quality Bar
 
-Prefer:
+NovaCore is the long-term technical foundation for a game targeting high-quality graphics, performance, networking, tooling, and FPS feel.
 
-* Explicit ownership
-* Stable handles instead of raw cross-system pointers
-* Deterministic fixed-step simulation
-* Server/headless compatibility
-* Data-oriented layouts for high-frequency systems
-* Small public headers
-* Clear module boundaries
-* Dependency-light smoke tests
-* Engine APIs designed around real game usage from Nemisis
-* Production-minded debugging, profiling, validation, and telemetry
+Treat this as an engineering standard:
 
-Avoid:
+* build durable systems instead of throwaway prototypes
+* keep APIs reusable from Nemisis without importing Nemisis concepts
+* prefer explicit ownership and stable handles
+* preserve deterministic fixed-step simulation where gameplay or networking may depend on it
+* keep server/headless compatibility intact
+* keep public headers small and dependency-light
+* avoid hidden global state and silent fallbacks
+* avoid large abstractions unless they protect a real boundary
+* avoid prototype-only architecture that requires a future rewrite
 
-* Actor-style inheritance
-* Hidden global state
-* Renderer dependencies in server code
-* Gameplay logic inside engine systems
-* Large abstractions without a real boundary
-* Silent fallbacks that hide broken configuration
-* Prototype-only architecture that would require a future rewrite to support AAA FPS goals
-
-## Public vs Private Code
+## Public and Private Code
 
 Public engine API lives under:
 
@@ -102,9 +173,9 @@ engine/src
 Rules:
 
 * Keep public headers minimal.
-* Do not expose Vulkan/SDL internals unless intentionally part of the public API.
+* Prefer forward declarations where practical.
+* Do not expose Vulkan, SDL, or other backend internals unless intentionally part of the public API.
 * Do not include private headers from game-facing public headers.
-* Prefer forward declarations where possible.
 
 ## Build Targets
 
@@ -117,22 +188,22 @@ Important targets:
 
 The server target must remain buildable without renderer, audio, or window dependencies.
 
-## Preferred Build Commands
+## Build and Test Commands
 
 Use a dependency-light build first when touching core systems:
 
 ```powershell
 cmake --preset windows-vs2022-no-deps
 cmake --build --preset windows-vs2022-no-deps
-ctest --test-dir build/windows-vs2022-no-deps -C Debug
+ctest --test-dir build/windows-vs2022-no-deps -C Debug --output-on-failure
 ```
 
 For normal visible Windows development:
 
 ```powershell
 cmake --preset windows-msvc-debug
-cmake --build --preset windows-msvc-debug
-ctest --test-dir build/windows-msvc-debug -C Debug
+cmake --build --preset windows-msvc-debug --config Debug
+ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure
 ```
 
 For Vulkan/vcpkg work:
@@ -140,16 +211,18 @@ For Vulkan/vcpkg work:
 ```powershell
 cmake --preset windows-ninja-vcpkg-debug
 cmake --build --preset windows-ninja-vcpkg-debug
-ctest --test-dir build/windows-ninja-vcpkg-debug
+ctest --test-dir build/windows-ninja-vcpkg-debug --output-on-failure
 ```
 
-If Vulkan SDK is not visible, do not remove Vulkan code. Keep graceful fallback paths and report diagnostics clearly.
+If Vulkan SDK is unavailable, do not remove Vulkan code. Keep graceful fallback paths and report the missing dependency clearly.
 
 ## Testing Rules
 
-After engine changes, run the most relevant tests.
+After engine changes, run the most relevant build and tests available.
 
-Always run smoke tests after changes to:
+Always add or update tests when fixing bugs or adding reusable behavior.
+
+Run smoke or targeted tests after changes to:
 
 * ECS
 * Config
@@ -160,23 +233,22 @@ Always run smoke tests after changes to:
 * Mesh catalog
 * Renderer backend selection
 * Platform/headless behavior
+* Server/headless runtime behavior
 
-Add or update tests when fixing bugs.
-
-Do not accept changes that only “seem to work” without a relevant smoke, unit, or runtime validation path.
+Do not claim a feature works unless it was built and validated, or clearly state that validation was skipped.
 
 ## Renderer Rules
 
-The Vulkan renderer must remain explicit and debuggable.
+The renderer must remain explicit, debuggable, and suitable for Vulkan-first growth.
 
-Important upcoming priorities:
+Current high-value renderer priorities:
 
-1. Swapchain resize/recreate.
-2. GPU upload/resource ownership for extracted mesh data.
-3. Device-local vertex/index buffers.
-4. Camera matrices.
-5. Depth buffer.
-6. Mesh draw submission through `MeshCatalog`.
+1. GPU upload for extracted GLB mesh data.
+2. Vertex/index buffer ownership.
+3. Mesh draw submission through `MeshCatalog`.
+4. Depth buffer.
+5. Camera matrix path.
+6. Swapchain resize/recreate.
 7. First in-world greybox rendering.
 
 Rules:
@@ -187,8 +259,8 @@ Rules:
 * Separate CPU asset data from GPU resources.
 * Keep SDL debug renderer available as a fallback/tool path.
 * Keep null/headless renderer support.
-* Grow UI and text rendering toward production-grade font rendering, layout, batching, clipping, and input navigation instead of relying on debug text paths.
-* Design material, lighting, resource residency, and shader systems as first-class engine systems, not game-specific hacks.
+* Grow material, lighting, resource residency, shader, and draw-submission systems as engine systems, not game-specific hacks.
+* Grow UI/text infrastructure toward font rendering, layout, batching, clipping, scaling, and input navigation instead of relying on debug text paths.
 
 ## Asset Rules
 
@@ -202,10 +274,10 @@ Rules:
 
 * Gameplay code should use stable handles.
 * Do not load authoring files directly from gameplay code.
-* Preserve manifest/registry ownership boundaries.
+* Preserve manifest and registry ownership boundaries.
 * Missing assets should fail loudly but gracefully.
-* Do not silently ignore invalid metadata.
-* Keep source assets, cooked assets, and runtime resources conceptually separate.
+* Invalid metadata must not be silently ignored.
+* Keep source assets, cooked assets, metadata, CPU assets, GPU resources, and runtime handles conceptually separate.
 
 ## ECS Rules
 
@@ -219,9 +291,10 @@ Rules:
 
 * Validate entity liveness.
 * Preserve generation-based stale ID detection.
-* Avoid scanning all entities when component views are possible.
-* Keep transform, movement, and physics paths ready for future packed storage.
+* Prefer component views over scanning all entities.
 * Prefer deferred destruction during simulation ticks.
+* Keep transform, movement, and physics paths ready for future packed storage.
+* Avoid actor-style inheritance.
 
 ## Networking Rules
 
@@ -233,10 +306,10 @@ Rules:
 * Keep packet readers strict.
 * Reject overreads.
 * Keep simulation tick numbers explicit.
-* Do not let clients authoritatively decide damage, score, spawns, or match results.
+* Do not let clients authoritatively decide damage, score, spawns, objectives, or match results.
 * Loopback and future UDP paths should share protocol logic.
 
-Important future priorities:
+High-value networking priorities:
 
 1. UDP transport.
 2. Input command packets.
@@ -260,21 +333,23 @@ Rules:
 
 ## Movement and Physics Rules
 
-When implementing movement:
+Movement and physics engine code must support deterministic FPS gameplay.
+
+Rules:
 
 * Use fixed timestep simulation.
-* Prefer capsule-based character controller.
+* Prefer capsule-based character controller foundations.
 * Keep camera presentation separate from physics state.
-* Support ground detection, sliding, step-up, step-down, jumping, sprinting, crouching, and air control as explicit systems.
-* Design movement for future client prediction and reconciliation.
-* Treat wallrunning, sliding, mantling, double jump, camera response, and input feel as core FPS engine requirements when they need reusable physics, prediction, replay, or validation support.
+* Support ground detection, sliding, step-up, step-down, jumping, sprinting, crouching, and air control as explicit systems when implemented in engine code.
+* Design movement for future client prediction, reconciliation, replay, and server validation.
 * Keep character controller code deterministic, debuggable, and suitable for later capsule sweeps, moving platforms, contact manifolds, and server replay checks.
+* Do not implement FPS movement as a camera-only transform hack.
 
-Do not implement FPS movement as a camera-only transform hack.
+Game-specific movement tuning belongs in Nemisis.
 
 ## Documentation Rules
 
-When changing architecture, update relevant docs.
+Update documentation only when architecture, public APIs, build/test flow, or actual project status changes.
 
 Important docs:
 
@@ -289,7 +364,7 @@ Important docs:
 * `docs/14_IDE_And_Toolchain_Runbook.md`
 * `docs/PROJECT_STATUS.md`
 
-Keep `PROJECT_STATUS.md` focused on actual current state and next engine blocks.
+Keep `PROJECT_STATUS.md` focused on actual current state and next concrete engine blocks.
 
 Do not document aspirational features as implemented.
 
@@ -298,18 +373,19 @@ Do not document aspirational features as implemented.
 For large work:
 
 1. Inspect existing code first.
-2. Make a small plan.
-3. Implement one coherent block.
-4. Build.
-5. Run relevant tests.
-6. Update docs/status if architecture changed.
-7. Keep commits focused.
+2. Implement one coherent block.
+3. Build.
+4. Run relevant tests.
+5. Fix failures.
+6. Update docs/status if required.
 
-Do not mix unrelated renderer, ECS, netcode, and tooling changes in one large patch unless explicitly requested.
+Do not mix unrelated renderer, ECS, netcode, tooling, and documentation changes in one patch unless explicitly requested.
+
+Do not commit, push, or update GitHub Projects unless explicitly requested.
 
 ## Current Highest-Value Next Steps
 
-Prioritize visible engine progress:
+Prefer visible, playable, or reusable engine progress:
 
 1. GPU upload for extracted GLB mesh data.
 2. Vertex/index buffer ownership.
@@ -322,70 +398,4 @@ Prioritize visible engine progress:
 9. UDP transport.
 10. Prediction/reconciliation.
 
-Avoid spending too long expanding infrastructure without producing a playable or visible test scene.
-
-## Safety Checks Before Finishing
-
-Before reporting completion:
-
-* Mention what files changed.
-* Mention what build/test command was run.
-* Mention any skipped tests and why.
-* Mention known limitations.
-* Do not claim Vulkan, networking, or physics features work unless verified.
-
-## Agent Communication Policy (High Priority)
-
-Optimize for implementation speed and token efficiency.
-
-### Communication Rules
-
-* Minimize natural language output.
-* Do **not** explain obvious code changes.
-* Do **not** narrate your reasoning or implementation process.
-* Do **not** provide long plans unless explicitly requested.
-* Do **not** repeatedly summarize repository architecture or existing code.
-* Avoid unnecessary progress updates while working.
-
-### Preferred Workflow
-
-At task start, provide **at most 3 concise bullet points** covering:
-
-* objective
-* major files expected to change
-* notable risks (if any)
-
-Then spend remaining effort on implementation.
-
-During implementation:
-
-* focus on reading code, writing code, building, and testing
-* prefer tool use over discussion
-* avoid conversational filler
-* avoid speculative analysis when the code can be inspected directly
-
-At task completion, provide a **brief final report** containing only:
-
-* files changed
-* build/test command(s) executed
-* one short summary of completed work
-* any remaining limitation or TODO
-
-Keep the final report under ~10 bullet points whenever possible.
-
-### Token Budget Priority
-
-Priority order:
-
-1. Read existing code.
-2. Write or modify code.
-3. Build and run relevant tests.
-4. Fix issues found.
-5. Update documentation if required.
-6. Produce minimal human-facing output.
-
-Favor spending tokens on repository inspection and code generation rather than explanations.
-
-Unless explicitly requested, do **not** produce tutorials, architectural essays, design discussions, or verbose justifications.
-
-Assume the user prefers concise responses and implementation-first behavior.
+Avoid spending long sessions expanding infrastructure without producing a validated engine capability.

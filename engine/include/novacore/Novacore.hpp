@@ -20,6 +20,7 @@
 #include "novacore/net/BitStream.hpp"
 #include "novacore/net/Client.hpp"
 #include "novacore/net/Loopback.hpp"
+#include "novacore/net/SequenceBuffer.hpp"
 #include "novacore/net/Server.hpp"
 #include "novacore/net/Types.hpp"
 #include "novacore/physics/CharacterController.hpp"
