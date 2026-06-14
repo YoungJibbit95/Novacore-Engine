@@ -233,6 +233,7 @@ bool Window::setRelativeMouseMode(bool enabled) {
     relativeMouseMode_ = SDL_GetWindowRelativeMouseMode(static_cast<SDL_Window*>(handle_));
     return relativeMouseMode_ == enabled;
 #else
+    (void)enabled;
     relativeMouseMode_ = false;
     return false;
 #endif
