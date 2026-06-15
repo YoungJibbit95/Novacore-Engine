@@ -15,6 +15,7 @@
 #include <optional>
 #include <ranges>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -77,6 +78,33 @@ constexpr std::uint32_t kMaxFramesInFlight = 2;
     }
     core::logWarning("render", std::string(label) + " failed: " + vkResultName(result));
     return false;
+}
+
+[[nodiscard]] bool hasInstanceExtension(std::string_view name) {
+    std::uint32_t extensionCount = 0;
+    if (vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr) != VK_SUCCESS || extensionCount == 0) {
+        return false;
+    }
+
+    std::vector<VkExtensionProperties> extensions(extensionCount);
+    if (vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, extensions.data()) != VK_SUCCESS) {
+        return false;
+    }
+
+    return std::ranges::any_of(
+        extensions,
+        [name](const VkExtensionProperties& extension) {
+            return name == extension.extensionName;
+        });
+}
+
+template <typename Handle>
+[[nodiscard]] std::uint64_t vulkanObjectHandle(Handle handle) {
+    if constexpr (std::is_pointer_v<Handle>) {
+        return reinterpret_cast<std::uint64_t>(handle);
+    } else {
+        return static_cast<std::uint64_t>(handle);
+    }
 }
 
 [[nodiscard]] std::string deviceTypeName(VkPhysicalDeviceType type) {
@@ -256,11 +284,12 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 [[nodiscard]] std::array<float, 4> packedMaterialResponse(
     const RenderWorldLighting& lighting,
     const RenderMaterialFallback& material) {
+    const auto safeMaterial = sanitizeRenderMaterialFallback(material);
     return {
-        std::clamp(lighting.rimIntensity * std::clamp(material.rimScale, 0.0F, 3.0F), 0.0F, 1.0F),
-        std::clamp(lighting.specularIntensity * std::clamp(material.specularScale, 0.0F, 3.0F), 0.0F, 1.0F),
-        std::clamp(lighting.contrast * std::clamp(material.contrastScale, 0.25F, 2.5F), 0.5F, 1.8F),
-        std::clamp(lighting.saturation * std::clamp(material.saturationScale, 0.0F, 2.5F), 0.0F, 2.0F),
+        std::clamp(lighting.rimIntensity * safeMaterial.rimScale, 0.0F, 1.0F),
+        std::clamp(lighting.specularIntensity * safeMaterial.specularScale, 0.0F, 1.0F),
+        std::clamp(lighting.contrast * safeMaterial.contrastScale, 0.5F, 1.8F),
+        std::clamp(lighting.saturation * safeMaterial.saturationScale, 0.0F, 2.0F),
     };
 }
 
@@ -697,6 +726,11 @@ struct VulkanBackend::Impl final {
     std::uint64_t submittedFrameCount = 0;
     std::uint64_t skippedFrameCount = 0;
     std::uint64_t swapchainRecreateCount = 0;
+    std::uint64_t swapchainExtentMismatchCount = 0;
+    std::uint64_t debugObjectNameCount = 0;
+    std::uint64_t debugRegionCount = 0;
+    std::uint32_t requestedSwapchainWidth = 0;
+    std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
@@ -710,12 +744,104 @@ struct VulkanBackend::Impl final {
     bool loggedWorldLineSubmission = false;
     bool loggedWorldMeshSubmission = false;
     bool loggedUiSubmission = false;
+    bool debugUtilsRequested = false;
+    bool debugLabelsAvailable = false;
+    PFN_vkSetDebugUtilsObjectNameEXT setDebugUtilsObjectName = nullptr;
+    PFN_vkCmdBeginDebugUtilsLabelEXT cmdBeginDebugUtilsLabel = nullptr;
+    PFN_vkCmdEndDebugUtilsLabelEXT cmdEndDebugUtilsLabel = nullptr;
 #endif
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     std::string selectedDeviceName = "none";
     bool isReady = false;
 
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    void loadDebugUtils() {
+        if (!debugUtilsRequested || device == VK_NULL_HANDLE) {
+            return;
+        }
+
+        setDebugUtilsObjectName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+            vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
+        cmdBeginDebugUtilsLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(
+            vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
+        cmdEndDebugUtilsLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(
+            vkGetDeviceProcAddr(device, "vkCmdEndDebugUtilsLabelEXT"));
+        debugLabelsAvailable =
+            setDebugUtilsObjectName != nullptr &&
+            cmdBeginDebugUtilsLabel != nullptr &&
+            cmdEndDebugUtilsLabel != nullptr;
+        if (debugLabelsAvailable) {
+            core::logInfo("render", "Vulkan debug labels available");
+        }
+    }
+
+    void setObjectName(std::uint64_t handle, VkObjectType type, std::string_view name) {
+        if (!debugLabelsAvailable || setDebugUtilsObjectName == nullptr || handle == 0 || name.empty()) {
+            return;
+        }
+
+        const std::string ownedName{name};
+        VkDebugUtilsObjectNameInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+        info.objectType = type;
+        info.objectHandle = handle;
+        info.pObjectName = ownedName.c_str();
+        if (setDebugUtilsObjectName(device, &info) == VK_SUCCESS) {
+            ++debugObjectNameCount;
+        }
+    }
+
+    void beginDebugRegion(
+        VkCommandBuffer commandBuffer,
+        std::string_view name,
+        std::array<float, 4> color) {
+        if (!debugLabelsAvailable || cmdBeginDebugUtilsLabel == nullptr || commandBuffer == VK_NULL_HANDLE || name.empty()) {
+            return;
+        }
+
+        const std::string ownedName{name};
+        VkDebugUtilsLabelEXT label{};
+        label.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+        label.pLabelName = ownedName.c_str();
+        label.color[0] = color[0];
+        label.color[1] = color[1];
+        label.color[2] = color[2];
+        label.color[3] = color[3];
+        cmdBeginDebugUtilsLabel(commandBuffer, &label);
+        ++debugRegionCount;
+    }
+
+    void endDebugRegion(VkCommandBuffer commandBuffer) const {
+        if (!debugLabelsAvailable || cmdEndDebugUtilsLabel == nullptr || commandBuffer == VK_NULL_HANDLE) {
+            return;
+        }
+        cmdEndDebugUtilsLabel(commandBuffer);
+    }
+
+    [[nodiscard]] std::optional<VkExtent2D> desiredSwapchainExtentForWindow() const {
+        if (ownerWindow == nullptr || physicalDevice == VK_NULL_HANDLE || surface == VK_NULL_HANDLE) {
+            return std::nullopt;
+        }
+
+        const auto support = querySwapchainSupport(physicalDevice, surface);
+        if (!support.usable()) {
+            return std::nullopt;
+        }
+
+        return chooseExtent(
+            support.capabilities,
+            ownerWindow->width(),
+            ownerWindow->height());
+    }
+
+    [[nodiscard]] bool swapchainExtentMatchesWindow() const {
+        const auto desired = desiredSwapchainExtentForWindow();
+        if (!desired.has_value()) {
+            return true;
+        }
+        return desired->width == swapchainExtent.width && desired->height == swapchainExtent.height;
+    }
+
     [[nodiscard]] bool createInstance() {
         std::uint32_t extensionCount = 0;
         const char* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
@@ -735,8 +861,13 @@ struct VulkanBackend::Impl final {
         VkInstanceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         createInfo.pApplicationInfo = &appInfo;
-        createInfo.enabledExtensionCount = extensionCount;
-        createInfo.ppEnabledExtensionNames = sdlExtensions;
+        std::vector<const char*> extensions(sdlExtensions, sdlExtensions + extensionCount);
+        if (hasInstanceExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+            extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            debugUtilsRequested = true;
+        }
+        createInfo.enabledExtensionCount = static_cast<std::uint32_t>(extensions.size());
+        createInfo.ppEnabledExtensionNames = extensions.data();
 
         return vkOk(vkCreateInstance(&createInfo, nullptr, &instance), "vkCreateInstance");
     }
@@ -848,6 +979,8 @@ struct VulkanBackend::Impl final {
 
         vkGetDeviceQueue(device, graphicsFamily, 0, &graphicsQueue);
         vkGetDeviceQueue(device, presentFamily, 0, &presentQueue);
+        loadDebugUtils();
+        setObjectName(vulkanObjectHandle(device), VK_OBJECT_TYPE_DEVICE, "NovaCore Logical Device");
         return true;
     }
 
@@ -895,6 +1028,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapchain), "vkCreateSwapchainKHR")) {
             return false;
         }
+        setObjectName(vulkanObjectHandle(swapchain), VK_OBJECT_TYPE_SWAPCHAIN_KHR, "NovaCore Swapchain");
 
         vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
         swapchainImages.resize(imageCount);
@@ -902,6 +1036,8 @@ struct VulkanBackend::Impl final {
 
         swapchainFormat = surfaceFormat.format;
         swapchainExtent = extent;
+        requestedSwapchainWidth = extent.width;
+        requestedSwapchainHeight = extent.height;
         imageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
 
         core::logInfo(
@@ -932,6 +1068,10 @@ struct VulkanBackend::Impl final {
             if (!vkOk(vkCreateImageView(device, &createInfo, nullptr, &swapchainImageViews[index]), "vkCreateImageView")) {
                 return false;
             }
+            setObjectName(
+                vulkanObjectHandle(swapchainImageViews[index]),
+                VK_OBJECT_TYPE_IMAGE_VIEW,
+                "NovaCore Swapchain ImageView " + std::to_string(index));
         }
         return true;
     }
@@ -970,6 +1110,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreateImage(device, &imageInfo, nullptr, &depthImage), "vkCreateImage(depth)")) {
             return false;
         }
+        setObjectName(vulkanObjectHandle(depthImage), VK_OBJECT_TYPE_IMAGE, "NovaCore Depth Image");
 
         VkMemoryRequirements memoryRequirements{};
         vkGetImageMemoryRequirements(device, depthImage, &memoryRequirements);
@@ -987,6 +1128,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkAllocateMemory(device, &allocateInfo, nullptr, &depthMemory), "vkAllocateMemory(depth)")) {
             return false;
         }
+        setObjectName(vulkanObjectHandle(depthMemory), VK_OBJECT_TYPE_DEVICE_MEMORY, "NovaCore Depth Memory");
         if (!vkOk(vkBindImageMemory(device, depthImage, depthMemory, 0), "vkBindImageMemory(depth)")) {
             return false;
         }
@@ -1002,7 +1144,11 @@ struct VulkanBackend::Impl final {
         viewInfo.subresourceRange.baseArrayLayer = 0;
         viewInfo.subresourceRange.layerCount = 1;
 
-        return vkOk(vkCreateImageView(device, &viewInfo, nullptr, &depthImageView), "vkCreateImageView(depth)");
+        if (!vkOk(vkCreateImageView(device, &viewInfo, nullptr, &depthImageView), "vkCreateImageView(depth)")) {
+            return false;
+        }
+        setObjectName(vulkanObjectHandle(depthImageView), VK_OBJECT_TYPE_IMAGE_VIEW, "NovaCore Depth ImageView");
+        return true;
     }
 
     [[nodiscard]] bool createRenderPass() {
@@ -1065,7 +1211,11 @@ struct VulkanBackend::Impl final {
         createInfo.dependencyCount = 1;
         createInfo.pDependencies = &dependency;
 
-        return vkOk(vkCreateRenderPass(device, &createInfo, nullptr, &renderPass), "vkCreateRenderPass");
+        if (!vkOk(vkCreateRenderPass(device, &createInfo, nullptr, &renderPass), "vkCreateRenderPass")) {
+            return false;
+        }
+        setObjectName(vulkanObjectHandle(renderPass), VK_OBJECT_TYPE_RENDER_PASS, "NovaCore World RenderPass");
+        return true;
     }
 
     [[nodiscard]] bool createFramebuffers() {
@@ -1085,6 +1235,10 @@ struct VulkanBackend::Impl final {
             if (!vkOk(vkCreateFramebuffer(device, &createInfo, nullptr, &framebuffers[index]), "vkCreateFramebuffer")) {
                 return false;
             }
+            setObjectName(
+                vulkanObjectHandle(framebuffers[index]),
+                VK_OBJECT_TYPE_FRAMEBUFFER,
+                "NovaCore Framebuffer " + std::to_string(index));
         }
         return true;
     }
@@ -1220,6 +1374,7 @@ struct VulkanBackend::Impl final {
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
         }
+        setObjectName(vulkanObjectHandle(skyPipelineLayout), VK_OBJECT_TYPE_PIPELINE_LAYOUT, "NovaCore Sky PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1244,6 +1399,7 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
+            setObjectName(vulkanObjectHandle(skyPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore Sky Pipeline");
             core::logInfo("render", "Vulkan sky graphics pipeline created");
         }
         return success;
@@ -1362,6 +1518,10 @@ struct VulkanBackend::Impl final {
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
         }
+        setObjectName(
+            vulkanObjectHandle(worldBoxPipelineLayout),
+            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            "NovaCore WorldBox PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1386,6 +1546,7 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
+            setObjectName(vulkanObjectHandle(worldBoxPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldBox Pipeline");
             core::logInfo("render", "Vulkan world box graphics pipeline created");
         }
         return success;
@@ -1504,6 +1665,10 @@ struct VulkanBackend::Impl final {
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
         }
+        setObjectName(
+            vulkanObjectHandle(worldLinePipelineLayout),
+            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            "NovaCore WorldLine PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1528,6 +1693,7 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
+            setObjectName(vulkanObjectHandle(worldLinePipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldLine Pipeline");
             core::logInfo("render", "Vulkan world line graphics pipeline created");
         }
         return success;
@@ -1665,6 +1831,10 @@ struct VulkanBackend::Impl final {
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
         }
+        setObjectName(
+            vulkanObjectHandle(worldMeshPipelineLayout),
+            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            "NovaCore WorldMesh PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1689,6 +1859,7 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
+            setObjectName(vulkanObjectHandle(worldMeshPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldMesh Pipeline");
             core::logInfo("render", "Vulkan world mesh graphics pipeline created");
         }
         return success;
@@ -1818,6 +1989,10 @@ struct VulkanBackend::Impl final {
             vkDestroyShaderModule(device, vertexShader, nullptr);
             return false;
         }
+        setObjectName(
+            vulkanObjectHandle(outPipelineLayout),
+            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+            "NovaCore " + std::string(label) + " PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1842,6 +2017,10 @@ struct VulkanBackend::Impl final {
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
+            setObjectName(
+                vulkanObjectHandle(outPipeline),
+                VK_OBJECT_TYPE_PIPELINE,
+                "NovaCore " + std::string(label) + " Pipeline");
             core::logInfo("render", "Vulkan " + std::string(label) + " graphics pipeline created");
         }
         return success;
@@ -1874,6 +2053,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool), "vkCreateCommandPool")) {
             return false;
         }
+        setObjectName(vulkanObjectHandle(commandPool), VK_OBJECT_TYPE_COMMAND_POOL, "NovaCore CommandPool");
 
         VkCommandBufferAllocateInfo allocateInfo{};
         allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1881,7 +2061,16 @@ struct VulkanBackend::Impl final {
         allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocateInfo.commandBufferCount = static_cast<std::uint32_t>(commandBuffers.size());
 
-        return vkOk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()), "vkAllocateCommandBuffers");
+        if (!vkOk(vkAllocateCommandBuffers(device, &allocateInfo, commandBuffers.data()), "vkAllocateCommandBuffers")) {
+            return false;
+        }
+        for (std::size_t index = 0; index < commandBuffers.size(); ++index) {
+            setObjectName(
+                vulkanObjectHandle(commandBuffers[index]),
+                VK_OBJECT_TYPE_COMMAND_BUFFER,
+                "NovaCore CommandBuffer " + std::to_string(index));
+        }
+        return true;
     }
 
     void destroyBuffer(GpuBuffer& buffer) {
@@ -1915,6 +2104,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreateBuffer(device, &bufferInfo, nullptr, &outBuffer.buffer), "vkCreateBuffer")) {
             return false;
         }
+        setObjectName(vulkanObjectHandle(outBuffer.buffer), VK_OBJECT_TYPE_BUFFER, "NovaCore GPU Buffer");
 
         VkMemoryRequirements memoryRequirements{};
         vkGetBufferMemoryRequirements(device, outBuffer.buffer, &memoryRequirements);
@@ -1934,6 +2124,7 @@ struct VulkanBackend::Impl final {
             destroyBuffer(outBuffer);
             return false;
         }
+        setObjectName(vulkanObjectHandle(outBuffer.memory), VK_OBJECT_TYPE_DEVICE_MEMORY, "NovaCore GPU Buffer Memory");
         if (!vkOk(vkBindBufferMemory(device, outBuffer.buffer, outBuffer.memory, 0), "vkBindBufferMemory")) {
             destroyBuffer(outBuffer);
             return false;
@@ -2292,6 +2483,18 @@ struct VulkanBackend::Impl final {
                 !vkOk(vkCreateFence(device, &fenceInfo, nullptr, &inFlight[index]), "vkCreateFence")) {
                 return false;
             }
+            setObjectName(
+                vulkanObjectHandle(imageAvailable[index]),
+                VK_OBJECT_TYPE_SEMAPHORE,
+                "NovaCore ImageAvailable Semaphore " + std::to_string(index));
+            setObjectName(
+                vulkanObjectHandle(renderFinished[index]),
+                VK_OBJECT_TYPE_SEMAPHORE,
+                "NovaCore RenderFinished Semaphore " + std::to_string(index));
+            setObjectName(
+                vulkanObjectHandle(inFlight[index]),
+                VK_OBJECT_TYPE_FENCE,
+                "NovaCore InFlight Fence " + std::to_string(index));
         }
         return true;
     }
@@ -2397,12 +2600,14 @@ struct VulkanBackend::Impl final {
         renderPassInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        beginDebugRegion(commandBuffer, "World Render Pass", {0.18F, 0.42F, 0.75F, 1.0F});
 
         if (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) {
             if (!loggedSkySubmission) {
                 core::logInfo("render", "Vulkan sky draw submission active");
                 loggedSkySubmission = true;
             }
+            beginDebugRegion(commandBuffer, "Sky", {0.08F, 0.32F, 0.92F, 1.0F});
             const auto constants = pushConstantsForSky(frame.sky);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline);
             vkCmdPushConstants(
@@ -2413,6 +2618,7 @@ struct VulkanBackend::Impl final {
                 static_cast<std::uint32_t>(sizeof(SkyPushConstants)),
                 &constants);
             vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+            endDebugRegion(commandBuffer);
         }
 
         if (worldBoxPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldBoxes.empty()) {
@@ -2422,6 +2628,7 @@ struct VulkanBackend::Impl final {
                     "Vulkan world box draw submission active: boxes=" + std::to_string(frame.worldBoxes.size()));
                 loggedWorldDrawSubmission = true;
             }
+            beginDebugRegion(commandBuffer, "World Boxes", {0.24F, 0.72F, 0.42F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldBoxPipeline);
             for (const auto& box : frame.worldBoxes) {
@@ -2435,6 +2642,7 @@ struct VulkanBackend::Impl final {
                     &constants);
                 vkCmdDraw(commandBuffer, 36, 1, 0, 0);
             }
+            endDebugRegion(commandBuffer);
         }
 
         if (worldMeshPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldMeshes.empty()) {
@@ -2445,6 +2653,7 @@ struct VulkanBackend::Impl final {
                 loggedWorldMeshSubmission = true;
             }
 
+            beginDebugRegion(commandBuffer, "World Meshes", {0.94F, 0.62F, 0.20F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
             for (const auto& mesh : frame.worldMeshes) {
@@ -2481,6 +2690,7 @@ struct VulkanBackend::Impl final {
                     vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
                 }
             }
+            endDebugRegion(commandBuffer);
         }
 
         if (worldLinePipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldLines.empty()) {
@@ -2491,6 +2701,7 @@ struct VulkanBackend::Impl final {
                 loggedWorldLineSubmission = true;
             }
 
+            beginDebugRegion(commandBuffer, "World Lines", {0.66F, 0.44F, 0.96F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldLinePipeline);
             for (const auto& line : frame.worldLines) {
@@ -2504,6 +2715,7 @@ struct VulkanBackend::Impl final {
                     &constants);
                 vkCmdDraw(commandBuffer, 2, 1, 0, 0);
             }
+            endDebugRegion(commandBuffer);
         }
 
         if (uiRectPipeline != VK_NULL_HANDLE && (!frame.debugRects.empty() || !frame.debugTexts.empty())) {
@@ -2516,6 +2728,7 @@ struct VulkanBackend::Impl final {
                 loggedUiSubmission = true;
             }
 
+            beginDebugRegion(commandBuffer, "UI Rects Text", {0.84F, 0.84F, 0.18F, 1.0F});
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, uiRectPipeline);
             for (const auto& rect : frame.debugRects) {
                 drawUiRect(commandBuffer, rect);
@@ -2523,15 +2736,19 @@ struct VulkanBackend::Impl final {
             for (const auto& text : frame.debugTexts) {
                 drawUiText(commandBuffer, text);
             }
+            endDebugRegion(commandBuffer);
         }
 
         if (uiLinePipeline != VK_NULL_HANDLE && !frame.debugLines.empty()) {
+            beginDebugRegion(commandBuffer, "UI Lines", {0.90F, 0.46F, 0.28F, 1.0F});
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, uiLinePipeline);
             for (const auto& line : frame.debugLines) {
                 drawUiLine(commandBuffer, line);
             }
+            endDebugRegion(commandBuffer);
         }
 
+        endDebugRegion(commandBuffer);
         vkCmdEndRenderPass(commandBuffer);
 
         imageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -2750,6 +2967,26 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
         return;
     }
 
+    if (!impl_->swapchainExtentMatchesWindow()) {
+        const auto desired = impl_->desiredSwapchainExtentForWindow();
+        if (desired.has_value()) {
+            impl_->requestedSwapchainWidth = desired->width;
+            impl_->requestedSwapchainHeight = desired->height;
+        }
+        ++impl_->swapchainExtentMismatchCount;
+        ++impl_->skippedFrameCount;
+        core::logWarning(
+            "render",
+            "Vulkan swapchain extent mismatch: current=" +
+                std::to_string(impl_->swapchainExtent.width) + "x" +
+                std::to_string(impl_->swapchainExtent.height) + " requested=" +
+                std::to_string(impl_->requestedSwapchainWidth) + "x" +
+                std::to_string(impl_->requestedSwapchainHeight));
+        (void)impl_->recreateSwapchain();
+        impl_->frameActive = false;
+        return;
+    }
+
     vkWaitForFences(impl_->device, 1, &impl_->inFlight[impl_->currentFrame], VK_TRUE, UINT64_MAX);
     impl_->processDeferredMeshDestroys();
     impl_->processMeshUploadQueue(32);
@@ -2878,8 +3115,13 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.submittedFrames = impl_->submittedFrameCount;
     stats.skippedFrames = impl_->skippedFrameCount;
     stats.swapchainRecreateCount = impl_->swapchainRecreateCount;
+    stats.swapchainExtentMismatchCount = impl_->swapchainExtentMismatchCount;
+    stats.debugObjectNameCount = impl_->debugObjectNameCount;
+    stats.debugRegionCount = impl_->debugRegionCount;
     stats.swapchainWidth = impl_->swapchainExtent.width;
     stats.swapchainHeight = impl_->swapchainExtent.height;
+    stats.requestedSwapchainWidth = impl_->requestedSwapchainWidth;
+    stats.requestedSwapchainHeight = impl_->requestedSwapchainHeight;
     stats.lastSkyDrawCount = impl_->lastSkyDrawCount;
     stats.lastWorldBoxCount = impl_->lastWorldBoxCount;
     stats.lastWorldMeshCount = impl_->lastWorldMeshCount;
@@ -2888,6 +3130,7 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.lastUiLineCount = impl_->lastUiLineCount;
     stats.lastUiTextCount = impl_->lastUiTextCount;
     stats.swapchainReady = impl_->isReady && impl_->swapchain != VK_NULL_HANDLE;
+    stats.debugLabelsAvailable = impl_->debugLabelsAvailable;
     return stats;
 #else
     return {};
@@ -2949,6 +3192,11 @@ void VulkanBackend::shutdown() {
     impl_->submittedFrameCount = 0;
     impl_->skippedFrameCount = 0;
     impl_->swapchainRecreateCount = 0;
+    impl_->swapchainExtentMismatchCount = 0;
+    impl_->debugObjectNameCount = 0;
+    impl_->debugRegionCount = 0;
+    impl_->requestedSwapchainWidth = 0;
+    impl_->requestedSwapchainHeight = 0;
     impl_->lastSkyDrawCount = 0;
     impl_->lastWorldBoxCount = 0;
     impl_->lastWorldMeshCount = 0;
@@ -2962,6 +3210,11 @@ void VulkanBackend::shutdown() {
     impl_->loggedWorldLineSubmission = false;
     impl_->loggedWorldMeshSubmission = false;
     impl_->loggedUiSubmission = false;
+    impl_->debugUtilsRequested = false;
+    impl_->debugLabelsAvailable = false;
+    impl_->setDebugUtilsObjectName = nullptr;
+    impl_->cmdBeginDebugUtilsLabel = nullptr;
+    impl_->cmdEndDebugUtilsLabel = nullptr;
 #endif
 
     impl_->isReady = false;

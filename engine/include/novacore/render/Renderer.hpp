@@ -53,8 +53,13 @@ struct RenderBackendFrameStats final {
     std::uint64_t submittedFrames = 0;
     std::uint64_t skippedFrames = 0;
     std::uint64_t swapchainRecreateCount = 0;
+    std::uint64_t swapchainExtentMismatchCount = 0;
+    std::uint64_t debugObjectNameCount = 0;
+    std::uint64_t debugRegionCount = 0;
     std::uint32_t swapchainWidth = 0;
     std::uint32_t swapchainHeight = 0;
+    std::uint32_t requestedSwapchainWidth = 0;
+    std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
@@ -63,6 +68,7 @@ struct RenderBackendFrameStats final {
     std::size_t lastUiLineCount = 0;
     std::size_t lastUiTextCount = 0;
     bool swapchainReady = false;
+    bool debugLabelsAvailable = false;
 };
 
 struct MeshResourceView final {
@@ -128,6 +134,21 @@ struct RenderMaterialFallback final {
     float contrastScale = 1.0F;
     float saturationScale = 1.0F;
 };
+
+struct RenderMaterialFallbackValidation final {
+    RenderMaterialFallback sanitized{};
+    bool rimScaleClamped = false;
+    bool specularScaleClamped = false;
+    bool contrastScaleClamped = false;
+    bool saturationScaleClamped = false;
+
+    [[nodiscard]] bool valid() const {
+        return !rimScaleClamped && !specularScaleClamped && !contrastScaleClamped && !saturationScaleClamped;
+    }
+};
+
+[[nodiscard]] RenderMaterialFallbackValidation validateRenderMaterialFallback(RenderMaterialFallback material);
+[[nodiscard]] RenderMaterialFallback sanitizeRenderMaterialFallback(RenderMaterialFallback material);
 
 struct RenderSky final {
     bool enabled = false;
@@ -215,7 +236,6 @@ private:
 };
 
 } // namespace novacore::render
-
 
 
 

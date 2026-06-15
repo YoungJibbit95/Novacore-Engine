@@ -248,6 +248,32 @@ private:
     std::unordered_map<std::string, MeshResourceHandle> handlesByAssetId;
 };
 
+RenderMaterialFallbackValidation validateRenderMaterialFallback(RenderMaterialFallback material) {
+    constexpr float kMinRimScale = 0.0F;
+    constexpr float kMaxRimScale = 3.0F;
+    constexpr float kMinSpecularScale = 0.0F;
+    constexpr float kMaxSpecularScale = 3.0F;
+    constexpr float kMinContrastScale = 0.25F;
+    constexpr float kMaxContrastScale = 2.5F;
+    constexpr float kMinSaturationScale = 0.0F;
+    constexpr float kMaxSaturationScale = 2.5F;
+
+    RenderMaterialFallbackValidation result{};
+    result.sanitized.rimScale = std::clamp(material.rimScale, kMinRimScale, kMaxRimScale);
+    result.sanitized.specularScale = std::clamp(material.specularScale, kMinSpecularScale, kMaxSpecularScale);
+    result.sanitized.contrastScale = std::clamp(material.contrastScale, kMinContrastScale, kMaxContrastScale);
+    result.sanitized.saturationScale = std::clamp(material.saturationScale, kMinSaturationScale, kMaxSaturationScale);
+    result.rimScaleClamped = result.sanitized.rimScale != material.rimScale;
+    result.specularScaleClamped = result.sanitized.specularScale != material.specularScale;
+    result.contrastScaleClamped = result.sanitized.contrastScale != material.contrastScale;
+    result.saturationScaleClamped = result.sanitized.saturationScale != material.saturationScale;
+    return result;
+}
+
+RenderMaterialFallback sanitizeRenderMaterialFallback(RenderMaterialFallback material) {
+    return validateRenderMaterialFallback(material).sanitized;
+}
+
 Renderer::Renderer()
     : meshResources_(std::make_unique<MeshResourceRegistry>()) {}
 
@@ -464,7 +490,6 @@ bool Renderer::isReady() const {
 }
 
 } // namespace novacore::render
-
 
 
 

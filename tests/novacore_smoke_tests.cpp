@@ -176,10 +176,33 @@ void testRenderMaterialFallbackFrameData() {
         0.75F,
     };
 
+    const auto valid = novacore::render::validateRenderMaterialFallback(mesh.material);
+    expect(valid.valid(), "render material fallback accepts tuned values inside runtime limits");
+    expect(valid.sanitized.rimScale == mesh.material.rimScale, "render material validation preserves legal rim scale");
+    expect(valid.sanitized.specularScale == mesh.material.specularScale, "render material validation preserves legal specular scale");
+    expect(valid.sanitized.contrastScale == mesh.material.contrastScale, "render material validation preserves legal contrast scale");
+    expect(valid.sanitized.saturationScale == mesh.material.saturationScale, "render material validation preserves legal saturation scale");
+
     expect(mesh.material.rimScale > 1.0F, "render mesh material fallback can boost rim response");
     expect(mesh.material.specularScale > 1.0F, "render mesh material fallback can boost specular response");
     expect(mesh.material.contrastScale > 1.0F, "render mesh material fallback can shape contrast");
     expect(mesh.material.saturationScale < 1.0F, "render mesh material fallback can desaturate neutral blockouts");
+
+    const auto invalid = novacore::render::validateRenderMaterialFallback({
+        -2.0F,
+        9.0F,
+        0.01F,
+        12.0F,
+    });
+    expect(!invalid.valid(), "render material fallback reports out-of-range values");
+    expect(invalid.rimScaleClamped, "render material fallback clamps low rim scale");
+    expect(invalid.specularScaleClamped, "render material fallback clamps high specular scale");
+    expect(invalid.contrastScaleClamped, "render material fallback clamps low contrast scale");
+    expect(invalid.saturationScaleClamped, "render material fallback clamps high saturation scale");
+    expect(invalid.sanitized.rimScale == 0.0F, "render material fallback clamps rim to minimum");
+    expect(invalid.sanitized.specularScale == 3.0F, "render material fallback clamps specular to maximum");
+    expect(invalid.sanitized.contrastScale == 0.25F, "render material fallback clamps contrast to minimum");
+    expect(invalid.sanitized.saturationScale == 2.5F, "render material fallback clamps saturation to maximum");
 }
 
 void testPacketBitStream() {
@@ -675,9 +698,15 @@ void testRendererMeshResourceRegistry() {
     expect(!initialFrameStats.swapchainReady, "renderer backend frame stats start with no swapchain");
     expect(initialFrameStats.submittedFrames == 0, "renderer backend frame stats start with zero submitted frames");
     expect(initialFrameStats.swapchainRecreateCount == 0, "renderer backend frame stats start with zero recreates");
+    expect(initialFrameStats.swapchainExtentMismatchCount == 0, "renderer backend frame stats start with zero extent mismatches");
+    expect(initialFrameStats.debugObjectNameCount == 0, "renderer backend frame stats start with zero debug object names");
+    expect(initialFrameStats.debugRegionCount == 0, "renderer backend frame stats start with zero debug regions");
+    expect(initialFrameStats.requestedSwapchainWidth == 0, "renderer backend frame stats start with no requested swapchain width");
+    expect(initialFrameStats.requestedSwapchainHeight == 0, "renderer backend frame stats start with no requested swapchain height");
     expect(initialFrameStats.lastUiRectCount == 0, "renderer backend frame stats start with zero UI rects");
     expect(initialFrameStats.lastUiLineCount == 0, "renderer backend frame stats start with zero UI lines");
     expect(initialFrameStats.lastUiTextCount == 0, "renderer backend frame stats start with zero UI text");
+    expect(!initialFrameStats.debugLabelsAvailable, "renderer backend frame stats start with debug labels unavailable");
 
     auto triangle = makeSmokeMeshData("triangle.glb");
     const auto invalid = renderer.registerMeshResource("bad_empty_mesh", novacore::assets::GltfMeshData{});
