@@ -149,6 +149,8 @@ if(NOVACORE_ENABLE_VULKAN)
             foreach(shader_source IN ITEMS
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/sky.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/sky.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.vert"

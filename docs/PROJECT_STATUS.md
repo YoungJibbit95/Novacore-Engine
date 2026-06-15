@@ -10,6 +10,23 @@ The project emphasizes deterministic simulation, explicit resource ownership, an
 
 ---
 
+## Added In Latest Block - Renderer Sky Pass
+
+Implemented:
+
+* Added `RenderSky` frame data with zenith, horizon, ground, horizon-height, gradient-power, and exposure controls.
+* Added a Vulkan sky pipeline that draws a full-screen triangle before depth-tested world geometry and reports sky draw submissions through backend frame stats.
+* Added `sky.vert` and `sky.frag` GLSL shaders to the CMake shader compile list.
+* Added per-mesh `RenderMaterialFallback` scales for rim, specular, contrast, and saturation so game code can shape descriptor-free imported GLB presentation per asset family.
+* Kept the pass descriptor-free and push-constant driven so it works with the current renderer bootstrap while leaving room for later cubemap/atmosphere inputs.
+
+Validation:
+
+* Added smoke coverage for render sky frame data defaults and runtime tuning fields.
+* Verified through Nemisis render-scene coverage that the legacy GLB skybox can now stay disabled except as an explicit fallback.
+
+---
+
 ## Added In Latest Block - Mesh Lighting Response
 
 Implemented:

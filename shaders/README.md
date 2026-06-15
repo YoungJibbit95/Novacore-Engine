@@ -8,6 +8,7 @@ Current shader paths:
 - `world_box.*`: depth-tested 3D greybox primitive shader.
 - `world_line.*`: depth-tested 3D debug line shader for aim rays, normals, and probes.
 - `world_mesh.*`: vertex/index GLB mesh shader with simple normal-based shading.
+- `sky.*`: renderer-owned full-screen sky gradient pass submitted before depth-tested world geometry.
 
 The long-term production path can move to HLSL plus DXC once descriptor reflection and cooked shader assets exist.
 

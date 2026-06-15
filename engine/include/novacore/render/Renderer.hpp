@@ -55,6 +55,7 @@ struct RenderBackendFrameStats final {
     std::uint64_t swapchainRecreateCount = 0;
     std::uint32_t swapchainWidth = 0;
     std::uint32_t swapchainHeight = 0;
+    std::size_t lastSkyDrawCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
@@ -121,6 +122,23 @@ struct RenderWorldLighting final {
     float saturation = 1.04F;
 };
 
+struct RenderMaterialFallback final {
+    float rimScale = 1.0F;
+    float specularScale = 1.0F;
+    float contrastScale = 1.0F;
+    float saturationScale = 1.0F;
+};
+
+struct RenderSky final {
+    bool enabled = false;
+    std::array<float, 4> zenithColor{0.08F, 0.20F, 0.38F, 1.0F};
+    std::array<float, 4> horizonColor{0.46F, 0.60F, 0.72F, 1.0F};
+    std::array<float, 4> groundColor{0.03F, 0.04F, 0.05F, 1.0F};
+    float horizonHeight = 0.48F;
+    float gradientPower = 1.35F;
+    float exposure = 1.0F;
+};
+
 struct RenderBox3D final {
     math::Vec3 center{};
     math::Vec3 halfExtents{0.5F, 0.5F, 0.5F};
@@ -142,10 +160,12 @@ struct RenderMesh3D final {
     float pitchDegrees = 0.0F;
     float rollDegrees = 0.0F;
     std::array<float, 4> color{0.70F, 0.78F, 0.80F, 1.0F};
+    RenderMaterialFallback material{};
 };
 
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
+    RenderSky sky{};
     RenderCamera3D camera3D{};
     RenderWorldLighting lighting{};
     std::vector<RenderBox3D> worldBoxes;
@@ -195,8 +215,6 @@ private:
 };
 
 } // namespace novacore::render
-
-
 
 
 

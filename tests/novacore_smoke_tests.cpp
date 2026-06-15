@@ -144,6 +144,44 @@ void testInterpolationBufferSamplesSnapshots() {
     expect(buffer.empty(), "interpolation buffer is empty after prune and rollback");
 }
 
+void testRenderSkyFrameData() {
+    novacore::render::RenderFrameInfo frame{};
+
+    expect(!frame.sky.enabled, "render sky is disabled by default");
+    frame.sky.enabled = true;
+    frame.sky.zenithColor = {0.02F, 0.12F, 0.30F, 1.0F};
+    frame.sky.horizonColor = {0.55F, 0.70F, 0.82F, 1.0F};
+    frame.sky.groundColor = {0.03F, 0.04F, 0.05F, 1.0F};
+    frame.sky.horizonHeight = 0.42F;
+    frame.sky.gradientPower = 1.6F;
+    frame.sky.exposure = 1.15F;
+
+    expect(frame.sky.enabled, "render sky can be enabled for a frame");
+    expect(frame.sky.horizonColor[2] > frame.sky.zenithColor[2], "render sky keeps distinct gradient bands");
+    expect(frame.sky.horizonHeight > 0.0F && frame.sky.horizonHeight < 1.0F, "render sky horizon is normalized");
+}
+
+void testRenderMaterialFallbackFrameData() {
+    novacore::render::RenderMesh3D mesh{};
+
+    expect(mesh.material.rimScale == 1.0F, "render mesh material fallback starts neutral for rim");
+    expect(mesh.material.specularScale == 1.0F, "render mesh material fallback starts neutral for specular");
+    expect(mesh.material.contrastScale == 1.0F, "render mesh material fallback starts neutral for contrast");
+    expect(mesh.material.saturationScale == 1.0F, "render mesh material fallback starts neutral for saturation");
+
+    mesh.material = novacore::render::RenderMaterialFallback{
+        1.35F,
+        1.80F,
+        1.10F,
+        0.75F,
+    };
+
+    expect(mesh.material.rimScale > 1.0F, "render mesh material fallback can boost rim response");
+    expect(mesh.material.specularScale > 1.0F, "render mesh material fallback can boost specular response");
+    expect(mesh.material.contrastScale > 1.0F, "render mesh material fallback can shape contrast");
+    expect(mesh.material.saturationScale < 1.0F, "render mesh material fallback can desaturate neutral blockouts");
+}
+
 void testPacketBitStream() {
     novacore::net::PacketWriter writer;
     writer.writeU8(7);
@@ -934,6 +972,8 @@ int main() {
     testLoopbackChannel();
     testSequenceBufferStoresWrapsAndPrunes();
     testInterpolationBufferSamplesSnapshots();
+    testRenderSkyFrameData();
+    testRenderMaterialFallbackFrameData();
     testPacketBitStream();
     testHeadlessRelativeMouseFallback();
     testInputActions();

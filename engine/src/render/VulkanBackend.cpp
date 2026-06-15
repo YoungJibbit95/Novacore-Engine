@@ -120,6 +120,13 @@ struct Mat4 final {
     }
 };
 
+struct SkyPushConstants final {
+    std::array<float, 4> zenithColor{};
+    std::array<float, 4> horizonColor{};
+    std::array<float, 4> groundColor{};
+    std::array<float, 4> parameters{};
+};
+
 struct WorldBoxPushConstants final {
     std::array<float, 16> viewProjection{};
     std::array<float, 4> center{};
@@ -154,6 +161,7 @@ struct VulkanMeshVertex final {
     float normal[3]{0.0F, 1.0F, 0.0F};
 };
 
+static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldBoxPushConstants) <= 128, "World box push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldMeshPushConstants) <= 128, "World mesh push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
@@ -245,12 +253,14 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     };
 }
 
-[[nodiscard]] std::array<float, 4> packedMaterialResponse(const RenderWorldLighting& lighting) {
+[[nodiscard]] std::array<float, 4> packedMaterialResponse(
+    const RenderWorldLighting& lighting,
+    const RenderMaterialFallback& material) {
     return {
-        std::clamp(lighting.rimIntensity, 0.0F, 1.0F),
-        std::clamp(lighting.specularIntensity, 0.0F, 1.0F),
-        std::clamp(lighting.contrast, 0.5F, 1.8F),
-        std::clamp(lighting.saturation, 0.0F, 2.0F),
+        std::clamp(lighting.rimIntensity * std::clamp(material.rimScale, 0.0F, 3.0F), 0.0F, 1.0F),
+        std::clamp(lighting.specularIntensity * std::clamp(material.specularScale, 0.0F, 3.0F), 0.0F, 1.0F),
+        std::clamp(lighting.contrast * std::clamp(material.contrastScale, 0.25F, 2.5F), 0.5F, 1.8F),
+        std::clamp(lighting.saturation * std::clamp(material.saturationScale, 0.0F, 2.5F), 0.0F, 2.0F),
     };
 }
 
@@ -434,6 +444,20 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     };
 }
 
+[[nodiscard]] SkyPushConstants pushConstantsForSky(const RenderSky& sky) {
+    return SkyPushConstants{
+        sky.zenithColor,
+        sky.horizonColor,
+        sky.groundColor,
+        {
+            std::clamp(sky.horizonHeight, 0.05F, 0.95F),
+            std::clamp(sky.gradientPower, 0.20F, 5.0F),
+            std::clamp(sky.exposure, 0.0F, 4.0F),
+            0.0F,
+        },
+    };
+}
+
 [[nodiscard]] WorldMeshPushConstants pushConstantsForMesh(
     const Mat4& viewProjection,
     const RenderMesh3D& mesh,
@@ -444,7 +468,7 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
         mesh.color,
         packedLighting(lighting),
         packedFillLighting(lighting),
-        packedMaterialResponse(lighting),
+        packedMaterialResponse(lighting, mesh.material),
     };
 }
 
@@ -647,6 +671,8 @@ struct VulkanBackend::Impl final {
     VkDeviceMemory depthMemory = VK_NULL_HANDLE;
     VkImageView depthImageView = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers;
+    VkPipelineLayout skyPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline skyPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldBoxPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldBoxPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldLinePipelineLayout = VK_NULL_HANDLE;
@@ -671,6 +697,7 @@ struct VulkanBackend::Impl final {
     std::uint64_t submittedFrameCount = 0;
     std::uint64_t skippedFrameCount = 0;
     std::uint64_t swapchainRecreateCount = 0;
+    std::size_t lastSkyDrawCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
@@ -678,6 +705,7 @@ struct VulkanBackend::Impl final {
     std::size_t lastUiLineCount = 0;
     std::size_t lastUiTextCount = 0;
     bool frameActive = false;
+    bool loggedSkySubmission = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
     bool loggedWorldMeshSubmission = false;
@@ -1077,6 +1105,148 @@ struct VulkanBackend::Impl final {
             return VK_NULL_HANDLE;
         }
         return module;
+    }
+
+    [[nodiscard]] bool createSkyPipeline() {
+        const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "sky.vert.spv");
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "sky.frag.spv");
+        if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            core::logWarning("render", "Vulkan sky pipeline skipped because shader binaries are missing");
+            return false;
+        }
+
+        const VkShaderModule vertexShader = createShaderModule(vertexShaderBytes);
+        const VkShaderModule fragmentShader = createShaderModule(fragmentShaderBytes);
+        if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
+            if (vertexShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, vertexShader, nullptr);
+            }
+            if (fragmentShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, fragmentShader, nullptr);
+            }
+            return false;
+        }
+
+        VkPipelineShaderStageCreateInfo vertexStage{};
+        vertexStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vertexStage.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vertexStage.module = vertexShader;
+        vertexStage.pName = "main";
+
+        VkPipelineShaderStageCreateInfo fragmentStage{};
+        fragmentStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fragmentStage.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        fragmentStage.module = fragmentShader;
+        fragmentStage.pName = "main";
+
+        const VkPipelineShaderStageCreateInfo shaderStages[] = {vertexStage, fragmentStage};
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.primitiveRestartEnable = VK_FALSE;
+
+        VkViewport viewport{};
+        viewport.x = 0.0F;
+        viewport.y = 0.0F;
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.minDepth = 0.0F;
+        viewport.maxDepth = 1.0F;
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchainExtent;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = &viewport;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.depthClampEnable = VK_FALSE;
+        rasterizer.rasterizerDiscardEnable = VK_FALSE;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0F;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.depthBiasEnable = VK_FALSE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.sampleShadingEnable = VK_FALSE;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT |
+            VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT |
+            VK_COLOR_COMPONENT_A_BIT;
+        colorBlendAttachment.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_FALSE;
+        depthStencil.depthWriteEnable = VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = static_cast<std::uint32_t>(sizeof(SkyPushConstants));
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &skyPipelineLayout), "vkCreatePipelineLayout(sky)")) {
+            vkDestroyShaderModule(device, fragmentShader, nullptr);
+            vkDestroyShaderModule(device, vertexShader, nullptr);
+            return false;
+        }
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = 2;
+        pipelineInfo.pStages = shaderStages;
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.layout = skyPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        pipelineInfo.subpass = 0;
+
+        const bool success = vkOk(
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &skyPipeline),
+            "vkCreateGraphicsPipelines(sky)");
+
+        vkDestroyShaderModule(device, fragmentShader, nullptr);
+        vkDestroyShaderModule(device, vertexShader, nullptr);
+
+        if (success) {
+            core::logInfo("render", "Vulkan sky graphics pipeline created");
+        }
+        return success;
     }
 
     [[nodiscard]] bool createWorldBoxPipeline() {
@@ -2200,6 +2370,7 @@ struct VulkanBackend::Impl final {
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
+        lastSkyDrawCount = (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) ? 1U : 0U;
         lastWorldBoxCount = frame.worldBoxes.size();
         lastWorldMeshCount = frame.worldMeshes.size();
         lastWorldLineCount = frame.worldLines.size();
@@ -2226,6 +2397,23 @@ struct VulkanBackend::Impl final {
         renderPassInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        if (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) {
+            if (!loggedSkySubmission) {
+                core::logInfo("render", "Vulkan sky draw submission active");
+                loggedSkySubmission = true;
+            }
+            const auto constants = pushConstantsForSky(frame.sky);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline);
+            vkCmdPushConstants(
+                commandBuffer,
+                skyPipelineLayout,
+                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                0,
+                static_cast<std::uint32_t>(sizeof(SkyPushConstants)),
+                &constants);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        }
 
         if (worldBoxPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldBoxes.empty()) {
             if (!loggedWorldDrawSubmission) {
@@ -2405,6 +2593,16 @@ struct VulkanBackend::Impl final {
             worldBoxPipelineLayout = VK_NULL_HANDLE;
         }
 
+        if (skyPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, skyPipeline, nullptr);
+            skyPipeline = VK_NULL_HANDLE;
+        }
+
+        if (skyPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, skyPipelineLayout, nullptr);
+            skyPipelineLayout = VK_NULL_HANDLE;
+        }
+
         for (auto framebuffer : framebuffers) {
             if (framebuffer != VK_NULL_HANDLE) {
                 vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -2457,6 +2655,7 @@ struct VulkanBackend::Impl final {
             return false;
         }
 
+        (void)createSkyPipeline();
         (void)createWorldBoxPipeline();
         (void)createWorldLinePipeline();
         (void)createWorldMeshPipeline();
@@ -2473,10 +2672,12 @@ struct VulkanBackend::Impl final {
         frameActive = false;
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
+        loggedSkySubmission = false;
         loggedWorldDrawSubmission = false;
         loggedWorldLineSubmission = false;
         loggedWorldMeshSubmission = false;
         loggedUiSubmission = false;
+        lastSkyDrawCount = 0;
         lastWorldBoxCount = 0;
         lastWorldMeshCount = 0;
         lastWorldLineCount = 0;
@@ -2679,6 +2880,7 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.swapchainRecreateCount = impl_->swapchainRecreateCount;
     stats.swapchainWidth = impl_->swapchainExtent.width;
     stats.swapchainHeight = impl_->swapchainExtent.height;
+    stats.lastSkyDrawCount = impl_->lastSkyDrawCount;
     stats.lastWorldBoxCount = impl_->lastWorldBoxCount;
     stats.lastWorldMeshCount = impl_->lastWorldMeshCount;
     stats.lastWorldLineCount = impl_->lastWorldLineCount;
@@ -2747,6 +2949,7 @@ void VulkanBackend::shutdown() {
     impl_->submittedFrameCount = 0;
     impl_->skippedFrameCount = 0;
     impl_->swapchainRecreateCount = 0;
+    impl_->lastSkyDrawCount = 0;
     impl_->lastWorldBoxCount = 0;
     impl_->lastWorldMeshCount = 0;
     impl_->lastWorldLineCount = 0;
@@ -2754,6 +2957,7 @@ void VulkanBackend::shutdown() {
     impl_->lastUiLineCount = 0;
     impl_->lastUiTextCount = 0;
     impl_->frameActive = false;
+    impl_->loggedSkySubmission = false;
     impl_->loggedWorldDrawSubmission = false;
     impl_->loggedWorldLineSubmission = false;
     impl_->loggedWorldMeshSubmission = false;
