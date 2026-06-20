@@ -20,6 +20,7 @@ option(NOVACORE_ENABLE_SDL3 "Enable SDL3 platform window/input backend when avai
 option(NOVACORE_FETCH_SDL3 "Fetch and build SDL3 when no installed SDL3 package is found" ON)
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
 option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
+option(NOVACORE_BUILD_SANDBOX "Build the standalone NovaCore engine sandbox executable" ON)
 option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
@@ -70,6 +71,7 @@ add_library(novacore_engine
     engine/src/net/Loopback.cpp
     engine/src/net/Server.cpp
     engine/src/physics/CharacterController.cpp
+    engine/src/physics/PhysicsSystem.cpp
     engine/src/platform/InputAction.cpp
     engine/src/platform/Input.cpp
     engine/src/platform/Window.cpp
@@ -77,6 +79,7 @@ add_library(novacore_engine
     engine/src/render/Renderer.cpp
     engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
+    engine/src/sandbox/EngineSandbox.cpp
 )
 
 target_include_directories(novacore_engine
@@ -196,6 +199,12 @@ if(NOVACORE_BUILD_SERVER)
     add_executable(novacore_server server/src/main.cpp)
     target_link_libraries(novacore_server PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_server)
+endif()
+
+if(NOVACORE_BUILD_SANDBOX)
+    add_executable(novacore_engine_sandbox sandbox/src/main.cpp)
+    target_link_libraries(novacore_engine_sandbox PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_engine_sandbox)
 endif()
 
 enable_testing()

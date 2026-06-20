@@ -274,6 +274,25 @@ RenderMaterialFallback sanitizeRenderMaterialFallback(RenderMaterialFallback mat
     return validateRenderMaterialFallback(material).sanitized;
 }
 
+RenderSwapchainExtentStressResult evaluateRenderSwapchainExtentStress(
+    std::uint32_t currentWidth,
+    std::uint32_t currentHeight,
+    std::uint32_t requestedWidth,
+    std::uint32_t requestedHeight) {
+    RenderSwapchainExtentStressResult result{};
+    result.currentWidth = currentWidth;
+    result.currentHeight = currentHeight;
+    result.requestedWidth = requestedWidth;
+    result.requestedHeight = requestedHeight;
+    result.currentValid = currentWidth > 0U && currentHeight > 0U;
+    result.requestedValid = requestedWidth > 0U && requestedHeight > 0U;
+    result.extentMismatch = result.currentValid &&
+        result.requestedValid &&
+        (currentWidth != requestedWidth || currentHeight != requestedHeight);
+    result.shouldRecreate = result.extentMismatch;
+    return result;
+}
+
 Renderer::Renderer()
     : meshResources_(std::make_unique<MeshResourceRegistry>()) {}
 
@@ -388,6 +407,12 @@ MeshResourceStats Renderer::meshResourceStats() const {
         stats.failedResources = gpuStats.failedResources;
         stats.uploadQueueLength = gpuStats.uploadQueueLength;
         stats.deferredDestroyCount = gpuStats.deferredDestroyCount;
+        stats.gpuUploadAttemptCount = gpuStats.gpuUploadAttemptCount;
+        stats.gpuUploadSuccessCount = gpuStats.gpuUploadSuccessCount;
+        stats.gpuUploadFailureCount = gpuStats.gpuUploadFailureCount;
+        stats.gpuUploadQueueProcessedCount = gpuStats.gpuUploadQueueProcessedCount;
+        stats.gpuUploadRetireCount = gpuStats.gpuUploadRetireCount;
+        stats.gpuUploadDestroyedCount = gpuStats.gpuUploadDestroyedCount;
     }
     return stats;
 }
@@ -490,8 +515,6 @@ bool Renderer::isReady() const {
 }
 
 } // namespace novacore::render
-
-
 
 
 

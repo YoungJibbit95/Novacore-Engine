@@ -729,6 +729,16 @@ struct VulkanBackend::Impl final {
     std::uint64_t swapchainExtentMismatchCount = 0;
     std::uint64_t debugObjectNameCount = 0;
     std::uint64_t debugRegionCount = 0;
+    std::uint64_t pipelineCreateAttemptCount = 0;
+    std::uint64_t pipelineCreateSuccessCount = 0;
+    std::uint64_t pipelineCreateFailureCount = 0;
+    std::uint64_t pipelineCreateSkippedCount = 0;
+    std::uint64_t gpuUploadAttemptCount = 0;
+    std::uint64_t gpuUploadSuccessCount = 0;
+    std::uint64_t gpuUploadFailureCount = 0;
+    std::uint64_t gpuUploadQueueProcessedCount = 0;
+    std::uint64_t gpuUploadRetireCount = 0;
+    std::uint64_t gpuUploadDestroyedCount = 0;
     std::uint32_t requestedSwapchainWidth = 0;
     std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
@@ -840,6 +850,22 @@ struct VulkanBackend::Impl final {
             return true;
         }
         return desired->width == swapchainExtent.width && desired->height == swapchainExtent.height;
+    }
+
+    void beginPipelineCreate() {
+        ++pipelineCreateAttemptCount;
+    }
+
+    void skipPipelineCreate() {
+        ++pipelineCreateSkippedCount;
+    }
+
+    void finishPipelineCreate(bool success) {
+        if (success) {
+            ++pipelineCreateSuccessCount;
+        } else {
+            ++pipelineCreateFailureCount;
+        }
     }
 
     [[nodiscard]] bool createInstance() {
@@ -1262,10 +1288,12 @@ struct VulkanBackend::Impl final {
     }
 
     [[nodiscard]] bool createSkyPipeline() {
+        beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "sky.vert.spv");
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "sky.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
             core::logWarning("render", "Vulkan sky pipeline skipped because shader binaries are missing");
             return false;
         }
@@ -1279,6 +1307,7 @@ struct VulkanBackend::Impl final {
             if (fragmentShader != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, fragmentShader, nullptr);
             }
+            finishPipelineCreate(false);
             return false;
         }
 
@@ -1372,6 +1401,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &skyPipelineLayout), "vkCreatePipelineLayout(sky)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
             return false;
         }
         setObjectName(vulkanObjectHandle(skyPipelineLayout), VK_OBJECT_TYPE_PIPELINE_LAYOUT, "NovaCore Sky PipelineLayout");
@@ -1402,14 +1432,17 @@ struct VulkanBackend::Impl final {
             setObjectName(vulkanObjectHandle(skyPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore Sky Pipeline");
             core::logInfo("render", "Vulkan sky graphics pipeline created");
         }
+        finishPipelineCreate(success);
         return success;
     }
 
     [[nodiscard]] bool createWorldBoxPipeline() {
+        beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_box.vert.spv");
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_box.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
             core::logWarning("render", "Vulkan world box pipeline skipped because shader binaries are missing");
             return false;
         }
@@ -1423,6 +1456,7 @@ struct VulkanBackend::Impl final {
             if (fragmentShader != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, fragmentShader, nullptr);
             }
+            finishPipelineCreate(false);
             return false;
         }
 
@@ -1516,6 +1550,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldBoxPipelineLayout), "vkCreatePipelineLayout(worldBox)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
             return false;
         }
         setObjectName(
@@ -1549,14 +1584,17 @@ struct VulkanBackend::Impl final {
             setObjectName(vulkanObjectHandle(worldBoxPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldBox Pipeline");
             core::logInfo("render", "Vulkan world box graphics pipeline created");
         }
+        finishPipelineCreate(success);
         return success;
     }
 
     [[nodiscard]] bool createWorldLinePipeline() {
+        beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_line.vert.spv");
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_line.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
             core::logWarning("render", "Vulkan world line pipeline skipped because shader binaries are missing");
             return false;
         }
@@ -1570,6 +1608,7 @@ struct VulkanBackend::Impl final {
             if (fragmentShader != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, fragmentShader, nullptr);
             }
+            finishPipelineCreate(false);
             return false;
         }
 
@@ -1663,6 +1702,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldLinePipelineLayout), "vkCreatePipelineLayout(worldLine)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
             return false;
         }
         setObjectName(
@@ -1696,14 +1736,17 @@ struct VulkanBackend::Impl final {
             setObjectName(vulkanObjectHandle(worldLinePipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldLine Pipeline");
             core::logInfo("render", "Vulkan world line graphics pipeline created");
         }
+        finishPipelineCreate(success);
         return success;
     }
 
     [[nodiscard]] bool createWorldMeshPipeline() {
+        beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.vert.spv");
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
             core::logWarning("render", "Vulkan world mesh pipeline skipped because shader binaries are missing");
             return false;
         }
@@ -1717,6 +1760,7 @@ struct VulkanBackend::Impl final {
             if (fragmentShader != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, fragmentShader, nullptr);
             }
+            finishPipelineCreate(false);
             return false;
         }
 
@@ -1829,6 +1873,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldMeshPipelineLayout), "vkCreatePipelineLayout(worldMesh)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
             return false;
         }
         setObjectName(
@@ -1862,6 +1907,7 @@ struct VulkanBackend::Impl final {
             setObjectName(vulkanObjectHandle(worldMeshPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldMesh Pipeline");
             core::logInfo("render", "Vulkan world mesh graphics pipeline created");
         }
+        finishPipelineCreate(success);
         return success;
     }
 
@@ -1871,10 +1917,12 @@ struct VulkanBackend::Impl final {
         VkPipelineLayout& outPipelineLayout,
         VkPipeline& outPipeline,
         std::string_view label) {
+        beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
         const auto vertexShaderBytes = readBinaryFile(shaderDirectory / std::string(vertexShaderName));
         const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "ui_flat.frag.spv");
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
             core::logWarning("render", "Vulkan " + std::string(label) + " pipeline skipped because shader binaries are missing");
             return false;
         }
@@ -1888,6 +1936,7 @@ struct VulkanBackend::Impl final {
             if (fragmentShader != VK_NULL_HANDLE) {
                 vkDestroyShaderModule(device, fragmentShader, nullptr);
             }
+            finishPipelineCreate(false);
             return false;
         }
 
@@ -1987,6 +2036,7 @@ struct VulkanBackend::Impl final {
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outPipelineLayout), "vkCreatePipelineLayout(" + std::string(label) + ")")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
             return false;
         }
         setObjectName(
@@ -2023,6 +2073,7 @@ struct VulkanBackend::Impl final {
                 "NovaCore " + std::string(label) + " Pipeline");
             core::logInfo("render", "Vulkan " + std::string(label) + " graphics pipeline created");
         }
+        finishPipelineCreate(success);
         return success;
     }
 
@@ -2363,6 +2414,7 @@ struct VulkanBackend::Impl final {
                 std::move(it->second),
                 frameSerial + kMaxFramesInFlight + 1U,
             });
+            ++gpuUploadRetireCount;
         } else {
             destroyGpuMeshAsset(it->second);
         }
@@ -2370,13 +2422,16 @@ struct VulkanBackend::Impl final {
     }
 
     [[nodiscard]] bool uploadMeshResource(const PendingMeshUpload& upload) {
+        ++gpuUploadAttemptCount;
         const auto key = resourceKey(upload.resource.handle);
         auto assetIt = gpuMeshes.find(key);
         if (assetIt == gpuMeshes.end()) {
+            ++gpuUploadFailureCount;
             return false;
         }
         if (upload.resource.meshData == nullptr || upload.resource.meshData->primitives.empty()) {
             assetIt->second.state = GpuMeshState::Failed;
+            ++gpuUploadFailureCount;
             return false;
         }
 
@@ -2392,6 +2447,7 @@ struct VulkanBackend::Impl final {
             if (!uploadMeshPrimitive(primitiveData, gpuPrimitive)) {
                 destroyGpuMeshAsset(asset);
                 assetIt->second.state = GpuMeshState::Failed;
+                ++gpuUploadFailureCount;
                 return false;
             }
             asset.vertexCount += primitiveData.positions.size();
@@ -2401,6 +2457,7 @@ struct VulkanBackend::Impl final {
 
         if (asset.primitives.empty()) {
             assetIt->second.state = GpuMeshState::Failed;
+            ++gpuUploadFailureCount;
             return false;
         }
         asset.state = GpuMeshState::Resident;
@@ -2412,6 +2469,7 @@ struct VulkanBackend::Impl final {
                 " vertices=" + std::to_string(asset.vertexCount) +
                 " indices=" + std::to_string(asset.indexCount));
         assetIt->second = std::move(asset);
+        ++gpuUploadSuccessCount;
         return true;
     }
 
@@ -2425,6 +2483,7 @@ struct VulkanBackend::Impl final {
             auto upload = pendingMeshUploads.front();
             pendingMeshUploads.erase(pendingMeshUploads.begin());
             (void)uploadMeshResource(upload);
+            ++gpuUploadQueueProcessedCount;
             ++processed;
         }
     }
@@ -2441,6 +2500,7 @@ struct VulkanBackend::Impl final {
                     return false;
                 }
                 destroyGpuMeshAsset(item.asset);
+                ++gpuUploadDestroyedCount;
                 return true;
             });
     }
@@ -2449,6 +2509,12 @@ struct VulkanBackend::Impl final {
         MeshResourceStats stats{};
         stats.uploadQueueLength = pendingMeshUploads.size();
         stats.deferredDestroyCount = deferredMeshDestroys.size();
+        stats.gpuUploadAttemptCount = gpuUploadAttemptCount;
+        stats.gpuUploadSuccessCount = gpuUploadSuccessCount;
+        stats.gpuUploadFailureCount = gpuUploadFailureCount;
+        stats.gpuUploadQueueProcessedCount = gpuUploadQueueProcessedCount;
+        stats.gpuUploadRetireCount = gpuUploadRetireCount;
+        stats.gpuUploadDestroyedCount = gpuUploadDestroyedCount;
 
         for (const auto& [_, asset] : gpuMeshes) {
             switch (asset.state) {
@@ -2969,10 +3035,15 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
 
     if (!impl_->swapchainExtentMatchesWindow()) {
         const auto desired = impl_->desiredSwapchainExtentForWindow();
-        if (desired.has_value()) {
-            impl_->requestedSwapchainWidth = desired->width;
-            impl_->requestedSwapchainHeight = desired->height;
-        }
+        const auto stress = desired.has_value()
+            ? evaluateRenderSwapchainExtentStress(
+                impl_->swapchainExtent.width,
+                impl_->swapchainExtent.height,
+                desired->width,
+                desired->height)
+            : RenderSwapchainExtentStressResult{};
+        impl_->requestedSwapchainWidth = stress.requestedWidth;
+        impl_->requestedSwapchainHeight = stress.requestedHeight;
         ++impl_->swapchainExtentMismatchCount;
         ++impl_->skippedFrameCount;
         core::logWarning(
@@ -2982,7 +3053,9 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
                 std::to_string(impl_->swapchainExtent.height) + " requested=" +
                 std::to_string(impl_->requestedSwapchainWidth) + "x" +
                 std::to_string(impl_->requestedSwapchainHeight));
-        (void)impl_->recreateSwapchain();
+        if (stress.shouldRecreate || desired.has_value()) {
+            (void)impl_->recreateSwapchain();
+        }
         impl_->frameActive = false;
         return;
     }
@@ -3118,6 +3191,10 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.swapchainExtentMismatchCount = impl_->swapchainExtentMismatchCount;
     stats.debugObjectNameCount = impl_->debugObjectNameCount;
     stats.debugRegionCount = impl_->debugRegionCount;
+    stats.pipelineCreateAttemptCount = impl_->pipelineCreateAttemptCount;
+    stats.pipelineCreateSuccessCount = impl_->pipelineCreateSuccessCount;
+    stats.pipelineCreateFailureCount = impl_->pipelineCreateFailureCount;
+    stats.pipelineCreateSkippedCount = impl_->pipelineCreateSkippedCount;
     stats.swapchainWidth = impl_->swapchainExtent.width;
     stats.swapchainHeight = impl_->swapchainExtent.height;
     stats.requestedSwapchainWidth = impl_->requestedSwapchainWidth;
@@ -3195,6 +3272,16 @@ void VulkanBackend::shutdown() {
     impl_->swapchainExtentMismatchCount = 0;
     impl_->debugObjectNameCount = 0;
     impl_->debugRegionCount = 0;
+    impl_->pipelineCreateAttemptCount = 0;
+    impl_->pipelineCreateSuccessCount = 0;
+    impl_->pipelineCreateFailureCount = 0;
+    impl_->pipelineCreateSkippedCount = 0;
+    impl_->gpuUploadAttemptCount = 0;
+    impl_->gpuUploadSuccessCount = 0;
+    impl_->gpuUploadFailureCount = 0;
+    impl_->gpuUploadQueueProcessedCount = 0;
+    impl_->gpuUploadRetireCount = 0;
+    impl_->gpuUploadDestroyedCount = 0;
     impl_->requestedSwapchainWidth = 0;
     impl_->requestedSwapchainHeight = 0;
     impl_->lastSkyDrawCount = 0;

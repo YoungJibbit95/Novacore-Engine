@@ -168,6 +168,10 @@ void testRenderMaterialFallbackFrameData() {
     expect(mesh.material.specularScale == 1.0F, "render mesh material fallback starts neutral for specular");
     expect(mesh.material.contrastScale == 1.0F, "render mesh material fallback starts neutral for contrast");
     expect(mesh.material.saturationScale == 1.0F, "render mesh material fallback starts neutral for saturation");
+    expect(mesh.materialBinding.materialIndex == 0U, "render mesh material binding starts on material slot zero");
+    expect(!mesh.materialBinding.descriptorReady, "render mesh material binding starts without a descriptor");
+    expect(!mesh.materialBinding.textureBound, "render mesh material binding starts without a texture");
+    expect(mesh.materialBinding.fallbackOnly, "render mesh material binding starts in fallback-only mode");
 
     mesh.material = novacore::render::RenderMaterialFallback{
         1.35F,
@@ -203,6 +207,23 @@ void testRenderMaterialFallbackFrameData() {
     expect(invalid.sanitized.specularScale == 3.0F, "render material fallback clamps specular to maximum");
     expect(invalid.sanitized.contrastScale == 0.25F, "render material fallback clamps contrast to minimum");
     expect(invalid.sanitized.saturationScale == 2.5F, "render material fallback clamps saturation to maximum");
+}
+
+void testRenderSwapchainExtentStressValidation() {
+    const auto stable = novacore::render::evaluateRenderSwapchainExtentStress(1280, 720, 1280, 720);
+    expect(stable.currentValid, "swapchain extent stress accepts valid current extent");
+    expect(stable.requestedValid, "swapchain extent stress accepts valid requested extent");
+    expect(!stable.extentMismatch, "swapchain extent stress leaves matching extents stable");
+    expect(!stable.shouldRecreate, "swapchain extent stress does not recreate matching extents");
+
+    const auto resized = novacore::render::evaluateRenderSwapchainExtentStress(1280, 720, 1920, 1080);
+    expect(resized.extentMismatch, "swapchain extent stress detects resized window extent");
+    expect(resized.shouldRecreate, "swapchain extent stress requests recreate for mismatched extents");
+    expect(resized.requestedWidth == 1920 && resized.requestedHeight == 1080, "swapchain extent stress preserves requested extent");
+
+    const auto invalid = novacore::render::evaluateRenderSwapchainExtentStress(1280, 720, 0, 1080);
+    expect(!invalid.requestedValid, "swapchain extent stress rejects zero requested dimensions");
+    expect(!invalid.shouldRecreate, "swapchain extent stress ignores invalid requested extent");
 }
 
 void testPacketBitStream() {
@@ -701,6 +722,10 @@ void testRendererMeshResourceRegistry() {
     expect(initialFrameStats.swapchainExtentMismatchCount == 0, "renderer backend frame stats start with zero extent mismatches");
     expect(initialFrameStats.debugObjectNameCount == 0, "renderer backend frame stats start with zero debug object names");
     expect(initialFrameStats.debugRegionCount == 0, "renderer backend frame stats start with zero debug regions");
+    expect(initialFrameStats.pipelineCreateAttemptCount == 0, "renderer backend frame stats start with zero pipeline attempts");
+    expect(initialFrameStats.pipelineCreateSuccessCount == 0, "renderer backend frame stats start with zero pipeline successes");
+    expect(initialFrameStats.pipelineCreateFailureCount == 0, "renderer backend frame stats start with zero pipeline failures");
+    expect(initialFrameStats.pipelineCreateSkippedCount == 0, "renderer backend frame stats start with zero skipped pipelines");
     expect(initialFrameStats.requestedSwapchainWidth == 0, "renderer backend frame stats start with no requested swapchain width");
     expect(initialFrameStats.requestedSwapchainHeight == 0, "renderer backend frame stats start with no requested swapchain height");
     expect(initialFrameStats.lastUiRectCount == 0, "renderer backend frame stats start with zero UI rects");
@@ -721,6 +746,12 @@ void testRendererMeshResourceRegistry() {
     expect(stats.totalPrimitives == 1, "mesh resource stats count primitives");
     expect(stats.totalVertices == 3, "mesh resource stats count vertices");
     expect(stats.totalIndices == 3, "mesh resource stats count indices");
+    expect(stats.gpuUploadAttemptCount == 0, "mesh resource stats start with zero GPU upload attempts");
+    expect(stats.gpuUploadSuccessCount == 0, "mesh resource stats start with zero GPU upload successes");
+    expect(stats.gpuUploadFailureCount == 0, "mesh resource stats start with zero GPU upload failures");
+    expect(stats.gpuUploadQueueProcessedCount == 0, "mesh resource stats start with zero processed GPU uploads");
+    expect(stats.gpuUploadRetireCount == 0, "mesh resource stats start with zero retired GPU uploads");
+    expect(stats.gpuUploadDestroyedCount == 0, "mesh resource stats start with zero destroyed GPU uploads");
     expect(stats.pendingUploadResources == 0, "mesh resource stats are CPU-only before renderer create");
     expect(stats.residentResources == 0, "mesh resource stats have no resident GPU resources before renderer create");
 
@@ -983,6 +1014,59 @@ void testPhysicsCharacterControllerSurfaces() {
     expect(mantled.groundColliderId == "mid_ledge", "physics mantle target grounds on the ledge");
 }
 
+void testPhysicsSystemCharacterMotor() {
+    novacore::physics::PhysicsWorld world;
+    world.setBounds({14.0F, 8.0F, 14.0F});
+    for (auto collider : novacore::physics::makeDefaultPhysicsSandboxColliders()) {
+        world.addStaticCollider(std::move(collider));
+    }
+
+    const auto stats = novacore::physics::summarizePhysicsWorld(world);
+    expect(stats.staticColliderCount == 5U, "physics system sandbox fixture creates five colliders");
+    expect(stats.blockingColliderCount == 4U, "physics system separates blocking and trigger colliders");
+    expect(stats.wallRunColliderCount == 1U, "physics system counts wall-run surfaces");
+    expect(stats.slideColliderCount == 1U, "physics system counts slide surfaces");
+
+    novacore::physics::CharacterMotorConfig config{};
+    novacore::physics::CharacterMotorState state{};
+    state.position = {0.0F, 0.0F, -3.0F};
+    state.capsuleHeight = config.standingHeight;
+
+    std::uint32_t groundedTicks = 0;
+    std::uint32_t sweptTicks = 0;
+    for (std::uint32_t tick = 0; tick < 90U; ++tick) {
+        novacore::physics::CharacterMotorInput input{};
+        input.move = {0.0F, 0.0F, 1.0F};
+        input.forward = {0.0F, 0.0F, 1.0F};
+        input.sprintHeld = tick < 45U;
+        input.jumpPressed = tick == 20U;
+        const auto step = novacore::physics::stepCharacterMotor(world, state, input, config, 1.0F / 60.0F);
+        state = step.state;
+        if (step.state.grounded) {
+            ++groundedTicks;
+        }
+        if (step.swept) {
+            ++sweptTicks;
+        }
+    }
+
+    expect(state.tick == 90U, "physics character motor advances deterministic ticks");
+    expect(state.position.z > -0.50F, "physics character motor moves forward through the sandbox");
+    expect(sweptTicks > 40U, "physics character motor uses sweeps for movement");
+    expect(groundedTicks > 20U, "physics character motor preserves grounded telemetry across steps and jumps");
+}
+
+void testEngineSandboxRunsStandalone() {
+    const auto result = novacore::sandbox::runEngineSandbox(novacore::sandbox::EngineSandboxOptions{96U});
+
+    expect(result.stable, "engine sandbox run completes with stable physics state");
+    expect(result.simulatedTicks == 96U, "engine sandbox honors requested tick count");
+    expect(result.physicsStats.staticColliderCount >= 5U, "engine sandbox owns an engine-side physics fixture");
+    expect(result.previewFrame.worldBoxes.size() >= result.physicsStats.staticColliderCount + 1U, "engine sandbox emits renderer preview boxes");
+    expect(!result.previewFrame.worldLines.empty(), "engine sandbox emits trajectory preview lines");
+    expect(result.summary.find("NovaCore Engine Sandbox") != std::string::npos, "engine sandbox exposes concise summary text");
+}
+
 void testVulkanRuntimeProbeIsStable() {
     const auto info = novacore::render::probeVulkanRuntime();
     const auto summary = novacore::render::vulkanRuntimeSummary(info);
@@ -1003,6 +1087,7 @@ int main() {
     testInterpolationBufferSamplesSnapshots();
     testRenderSkyFrameData();
     testRenderMaterialFallbackFrameData();
+    testRenderSwapchainExtentStressValidation();
     testPacketBitStream();
     testHeadlessRelativeMouseFallback();
     testInputActions();
@@ -1018,6 +1103,8 @@ int main() {
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
     testPhysicsCharacterControllerSurfaces();
+    testPhysicsSystemCharacterMotor();
+    testEngineSandboxRunsStandalone();
     testVulkanRuntimeProbeIsStable();
 
     if (failures > 0) {

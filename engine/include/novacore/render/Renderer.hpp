@@ -47,6 +47,12 @@ struct MeshResourceStats final {
     std::size_t totalPrimitives = 0;
     std::size_t totalVertices = 0;
     std::size_t totalIndices = 0;
+    std::uint64_t gpuUploadAttemptCount = 0;
+    std::uint64_t gpuUploadSuccessCount = 0;
+    std::uint64_t gpuUploadFailureCount = 0;
+    std::uint64_t gpuUploadQueueProcessedCount = 0;
+    std::uint64_t gpuUploadRetireCount = 0;
+    std::uint64_t gpuUploadDestroyedCount = 0;
 };
 
 struct RenderBackendFrameStats final {
@@ -56,6 +62,10 @@ struct RenderBackendFrameStats final {
     std::uint64_t swapchainExtentMismatchCount = 0;
     std::uint64_t debugObjectNameCount = 0;
     std::uint64_t debugRegionCount = 0;
+    std::uint64_t pipelineCreateAttemptCount = 0;
+    std::uint64_t pipelineCreateSuccessCount = 0;
+    std::uint64_t pipelineCreateFailureCount = 0;
+    std::uint64_t pipelineCreateSkippedCount = 0;
     std::uint32_t swapchainWidth = 0;
     std::uint32_t swapchainHeight = 0;
     std::uint32_t requestedSwapchainWidth = 0;
@@ -135,6 +145,13 @@ struct RenderMaterialFallback final {
     float saturationScale = 1.0F;
 };
 
+struct RenderMaterialBinding final {
+    std::uint32_t materialIndex = 0;
+    bool descriptorReady = false;
+    bool textureBound = false;
+    bool fallbackOnly = true;
+};
+
 struct RenderMaterialFallbackValidation final {
     RenderMaterialFallback sanitized{};
     bool rimScaleClamped = false;
@@ -149,6 +166,23 @@ struct RenderMaterialFallbackValidation final {
 
 [[nodiscard]] RenderMaterialFallbackValidation validateRenderMaterialFallback(RenderMaterialFallback material);
 [[nodiscard]] RenderMaterialFallback sanitizeRenderMaterialFallback(RenderMaterialFallback material);
+
+struct RenderSwapchainExtentStressResult final {
+    std::uint32_t currentWidth = 0;
+    std::uint32_t currentHeight = 0;
+    std::uint32_t requestedWidth = 0;
+    std::uint32_t requestedHeight = 0;
+    bool currentValid = false;
+    bool requestedValid = false;
+    bool extentMismatch = false;
+    bool shouldRecreate = false;
+};
+
+[[nodiscard]] RenderSwapchainExtentStressResult evaluateRenderSwapchainExtentStress(
+    std::uint32_t currentWidth,
+    std::uint32_t currentHeight,
+    std::uint32_t requestedWidth,
+    std::uint32_t requestedHeight);
 
 struct RenderSky final {
     bool enabled = false;
@@ -182,6 +216,7 @@ struct RenderMesh3D final {
     float rollDegrees = 0.0F;
     std::array<float, 4> color{0.70F, 0.78F, 0.80F, 1.0F};
     RenderMaterialFallback material{};
+    RenderMaterialBinding materialBinding{};
 };
 
 struct RenderFrameInfo final {
@@ -236,7 +271,6 @@ private:
 };
 
 } // namespace novacore::render
-
 
 
 
