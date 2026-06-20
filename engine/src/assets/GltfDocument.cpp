@@ -72,6 +72,7 @@ struct GltfMat4 final {
 };
 
 struct GltfNodeDesc final {
+    std::string name;
     std::optional<std::size_t> meshIndex;
     std::vector<std::size_t> children;
     GltfMat4 localTransform{};
@@ -451,6 +452,7 @@ struct GltfNodeDesc final {
 
     for (const auto nodeIndex : nodeIndices) {
         const std::string prefix = "nodes." + std::to_string(nodeIndex);
+        nodes[nodeIndex].name = document.stringOr(prefix + ".name", "");
         if (const auto meshIndex = sizeValue(document, prefix + ".mesh"); meshIndex.has_value()) {
             nodes[nodeIndex].meshIndex = *meshIndex;
         }
@@ -505,6 +507,7 @@ void collectMeshNodeTransforms(
     GltfMat4 parentTransform,
     std::vector<bool>& activeStack,
     std::unordered_map<std::size_t, std::vector<GltfMat4>>& meshTransforms,
+    std::vector<GltfNodeMarker>& nodeMarkers,
     std::vector<std::string>& errors) {
     if (nodeIndex >= nodes.size()) {
         errors.push_back("node hierarchy references missing node " + std::to_string(nodeIndex));
@@ -518,18 +521,28 @@ void collectMeshNodeTransforms(
     activeStack[nodeIndex] = true;
     const auto& node = nodes[nodeIndex];
     const auto worldTransform = multiply(parentTransform, node.localTransform);
+    if (!node.name.empty()) {
+        nodeMarkers.push_back(GltfNodeMarker{
+            node.name,
+            transformPoint(worldTransform, {}),
+            normalizedOrFallback(transformVector(worldTransform, {0.0F, 0.0F, 1.0F}), {0.0F, 0.0F, 1.0F}),
+            normalizedOrFallback(transformVector(worldTransform, {0.0F, 1.0F, 0.0F}), {0.0F, 1.0F, 0.0F}),
+            node.meshIndex.has_value() ? static_cast<int>(*node.meshIndex) : -1,
+        });
+    }
     if (node.meshIndex.has_value()) {
         meshTransforms[*node.meshIndex].push_back(worldTransform);
     }
 
     for (const auto childIndex : node.children) {
-        collectMeshNodeTransforms(nodes, childIndex, worldTransform, activeStack, meshTransforms, errors);
+        collectMeshNodeTransforms(nodes, childIndex, worldTransform, activeStack, meshTransforms, nodeMarkers, errors);
     }
     activeStack[nodeIndex] = false;
 }
 
 [[nodiscard]] std::unordered_map<std::size_t, std::vector<GltfMat4>> meshNodeTransforms(
     const core::ConfigDocument& document,
+    std::vector<GltfNodeMarker>& nodeMarkers,
     std::vector<std::string>& errors) {
     std::unordered_map<std::size_t, std::vector<GltfMat4>> transforms;
     const auto nodes = readNodes(document);
@@ -539,7 +552,7 @@ void collectMeshNodeTransforms(
 
     std::vector<bool> activeStack(nodes.size(), false);
     for (const auto rootIndex : sceneRootNodes(document, nodes)) {
-        collectMeshNodeTransforms(nodes, rootIndex, identityMatrix(), activeStack, transforms, errors);
+        collectMeshNodeTransforms(nodes, rootIndex, identityMatrix(), activeStack, transforms, nodeMarkers, errors);
     }
     return transforms;
 }
@@ -916,7 +929,7 @@ GltfMeshDataLoadResult loadGltfMeshData(
     meshData.path = path;
     meshData.sceneInfo = std::move(sceneInfo);
     std::vector<std::string> errors;
-    const auto transformsByMesh = meshNodeTransforms(document, errors);
+    const auto transformsByMesh = meshNodeTransforms(document, meshData.nodeMarkers, errors);
 
     for (const auto meshIndex : collectArrayIndices(document, "meshes")) {
         const std::string primitivePrefix = "meshes." + std::to_string(meshIndex) + ".primitives";

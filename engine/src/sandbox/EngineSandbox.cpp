@@ -1,5 +1,7 @@
 #include "novacore/sandbox/EngineSandbox.hpp"
 
+#include "novacore/physics/MovementSimulation.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -104,39 +106,34 @@ EngineSandboxRunResult runEngineSandbox(const EngineSandboxOptions& options) {
     result.physicsStats = physics::summarizePhysicsWorld(world);
     const std::uint32_t ticks = std::clamp(options.tickCount, 1U, 720U);
     const float dt = std::clamp(options.fixedDeltaSeconds, 1.0F / 240.0F, 1.0F / 20.0F);
+    auto script = physics::makeSandboxMovementScript(ticks);
+    if (!options.sprint) {
+        for (auto& command : script) {
+            command.input.sprintHeld = false;
+        }
+    }
+    physics::CharacterMotorReplayDesc replayDesc{};
+    replayDesc.motor = motorConfig;
+    replayDesc.step.fixedDeltaSeconds = dt;
+    replayDesc.keepFrames = true;
+    const auto replay = physics::runCharacterMotorReplay(world, motor, script, replayDesc);
+
     result.trajectory.reserve((ticks / 6U) + 2U);
     result.trajectory.push_back(motor.position);
-
-    for (std::uint32_t tick = 0; tick < ticks; ++tick) {
-        physics::CharacterMotorInput input{};
-        input.forward = tick < (ticks * 2U / 3U)
-            ? novacore::math::Vec3{0.0F, 0.0F, 1.0F}
-            : novacore::math::Vec3{-1.0F, 0.0F, 0.35F};
-        input.move = {0.0F, 0.0F, 1.0F};
-        input.sprintHeld = options.sprint && tick < (ticks / 2U);
-        input.crouchHeld = tick > (ticks / 2U) && tick < ((ticks * 2U) / 3U);
-        input.jumpPressed = tick == 42U;
-
-        const auto step = physics::stepCharacterMotor(world, motor, input, motorConfig, dt);
-        motor = step.state;
-        ++result.simulatedTicks;
-        if (step.state.grounded) {
-            ++result.groundedTicks;
-        }
-        if (step.swept) {
-            ++result.sweptTicks;
-        }
-        if (step.state.nearWallRunSurface) {
-            ++result.wallProbeTicks;
-        }
-        if ((tick % 6U) == 0U) {
-            result.trajectory.push_back(step.state.position);
+    for (std::size_t index = 0; index < replay.frames.size(); ++index) {
+        if ((index % 6U) == 0U) {
+            result.trajectory.push_back(replay.frames[index].step.state.position);
         }
     }
 
-    result.finalCharacter = motor;
-    result.stable = finite(motor.position) &&
-        finite(motor.velocity) &&
+    result.simulatedTicks = replay.simulatedTicks;
+    result.groundedTicks = replay.groundedTicks;
+    result.sweptTicks = replay.sweptTicks;
+    result.wallProbeTicks = replay.wallProbeTicks;
+    result.finalCharacter = replay.finalState;
+    result.stable = replay.stable &&
+        finite(result.finalCharacter.position) &&
+        finite(result.finalCharacter.velocity) &&
         result.simulatedTicks == ticks &&
         result.groundedTicks > 0U &&
         result.physicsStats.blockingColliderCount >= 4U;
@@ -156,8 +153,8 @@ EngineSandboxRunResult runEngineSandbox(const EngineSandboxOptions& options) {
             appendColliderPreview(result.previewFrame, collider);
         }
         result.previewFrame.worldBoxes.push_back(novacore::render::RenderBox3D{
-            motor.position + novacore::math::Vec3{0.0F, motor.capsuleHeight * 0.50F, 0.0F},
-            {motorConfig.radius, motor.capsuleHeight * 0.50F, motorConfig.radius},
+            result.finalCharacter.position + novacore::math::Vec3{0.0F, result.finalCharacter.capsuleHeight * 0.50F, 0.0F},
+            {motorConfig.radius, result.finalCharacter.capsuleHeight * 0.50F, motorConfig.radius},
             {0.96F, 0.82F, 0.20F, 0.96F},
         });
         appendTrajectoryPreview(result.previewFrame, result.trajectory);

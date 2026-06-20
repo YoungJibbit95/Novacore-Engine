@@ -22,6 +22,16 @@ struct PhysicsStepConfig final {
     std::uint32_t maxSubsteps = 4;
 };
 
+struct SurfaceResponse final {
+    float speedScale = 1.0F;
+    float accelerationScale = 1.0F;
+    float frictionScale = 1.0F;
+    float traction01 = 1.0F;
+    bool walkable = true;
+    bool slideAssist = false;
+    bool wallRunAssist = false;
+};
+
 struct CharacterMotorConfig final {
     float radius = 0.42F;
     float standingHeight = 1.80F;
@@ -65,11 +75,15 @@ struct CharacterMotorStepResult final {
     CharacterResolveResult resolve{};
     CharacterSweepResult sweep{};
     math::Vec3 desiredDisplacement{};
+    SurfaceResponse groundSurface{};
     bool jumped = false;
     bool swept = false;
+    bool touchedSlideSurface = false;
+    bool touchedWallRunSurface = false;
 };
 
 [[nodiscard]] PhysicsWorldStats summarizePhysicsWorld(const PhysicsWorld& world);
+[[nodiscard]] SurfaceResponse surfaceResponseFor(SurfaceKind kind);
 [[nodiscard]] math::Vec3 normalizeHorizontal(math::Vec3 value);
 [[nodiscard]] math::Vec3 projectVelocityOnPlane(math::Vec3 velocity, math::Vec3 normal);
 [[nodiscard]] CharacterMotorStepResult stepCharacterMotor(

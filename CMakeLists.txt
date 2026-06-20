@@ -71,6 +71,7 @@ add_library(novacore_engine
     engine/src/net/Loopback.cpp
     engine/src/net/Server.cpp
     engine/src/physics/CharacterController.cpp
+    engine/src/physics/MovementSimulation.cpp
     engine/src/physics/PhysicsSystem.cpp
     engine/src/platform/InputAction.cpp
     engine/src/platform/Input.cpp

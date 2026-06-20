@@ -25,6 +25,7 @@
 #include "novacore/net/Server.hpp"
 #include "novacore/net/Types.hpp"
 #include "novacore/physics/CharacterController.hpp"
+#include "novacore/physics/MovementSimulation.hpp"
 #include "novacore/physics/PhysicsSystem.hpp"
 #include "novacore/platform/InputAction.hpp"
 #include "novacore/platform/Input.hpp"

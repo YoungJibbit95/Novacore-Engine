@@ -127,6 +127,27 @@ PhysicsWorldStats summarizePhysicsWorld(const PhysicsWorld& world) {
     return stats;
 }
 
+SurfaceResponse surfaceResponseFor(SurfaceKind kind) {
+    switch (kind) {
+    case SurfaceKind::Floor:
+        return {};
+    case SurfaceKind::Ramp:
+        return {0.96F, 0.92F, 1.08F, 0.92F, true, false, false};
+    case SurfaceKind::Cover:
+    case SurfaceKind::Ledge:
+        return {0.90F, 0.86F, 1.20F, 0.86F, true, false, false};
+    case SurfaceKind::Slide:
+        return {1.18F, 0.72F, 0.34F, 0.38F, true, true, false};
+    case SurfaceKind::WallRun:
+        return {1.05F, 0.88F, 0.80F, 0.64F, false, false, true};
+    case SurfaceKind::Wall:
+        return {0.0F, 0.0F, 1.0F, 0.0F, false, false, false};
+    case SurfaceKind::Trigger:
+        return {1.0F, 1.0F, 1.0F, 1.0F, false, false, false};
+    }
+    return {};
+}
+
 math::Vec3 normalizeHorizontal(math::Vec3 value) {
     value.y = 0.0F;
     const float length = lengthHorizontal(value);
@@ -162,6 +183,9 @@ CharacterMotorStepResult stepCharacterMotor(
     state.position = preResolve.position;
     state.grounded = preResolve.grounded;
     state.nearWallRunSurface = preResolve.nearWallRunSurface;
+    result.groundSurface = state.grounded ? surfaceResponseFor(preResolve.groundKind) : SurfaceResponse{};
+    result.touchedSlideSurface = preResolve.nearSlideSurface || result.groundSurface.slideAssist;
+    result.touchedWallRunSurface = preResolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
 
     if (state.grounded && state.velocity.y < 0.0F) {
         state.velocity.y = 0.0F;
@@ -179,14 +203,25 @@ CharacterMotorStepResult stepCharacterMotor(
     const float targetSpeed = input.crouchHeld
         ? config.crouchSpeed
         : input.sprintHeld ? config.sprintSpeed : config.groundSpeed;
-    const auto desiredHorizontal = move * (targetSpeed * inputStrength);
+    const float surfaceSpeedScale = state.grounded ? result.groundSurface.speedScale : 1.0F;
+    const auto desiredHorizontal = move * (targetSpeed * surfaceSpeedScale * inputStrength);
     const auto currentHorizontal = math::Vec3{state.velocity.x, 0.0F, state.velocity.z};
-    const float acceleration = state.grounded ? config.groundAcceleration : config.airAcceleration;
+    const float acceleration = state.grounded
+        ? config.groundAcceleration * result.groundSurface.accelerationScale
+        : config.airAcceleration;
+    const float braking = state.grounded
+        ? config.brakingDeceleration * result.groundSurface.frictionScale
+        : config.groundFriction;
     const auto nextHorizontal = inputStrength > 0.001F
         ? approachVec3(currentHorizontal, desiredHorizontal, acceleration * dt)
-        : applyFriction(currentHorizontal, state.grounded ? config.brakingDeceleration : config.groundFriction, dt);
+        : applyFriction(currentHorizontal, braking, dt);
     state.velocity.x = nextHorizontal.x;
     state.velocity.z = nextHorizontal.z;
+
+    if (state.grounded && result.groundSurface.slideAssist && preResolve.groundNormal.y < 0.99F) {
+        const auto downhill = normalizeHorizontal(projectVelocityOnPlane({0.0F, -1.0F, 0.0F}, preResolve.groundNormal));
+        state.velocity = state.velocity + (downhill * (config.gravity * dt * (1.0F - result.groundSurface.traction01)));
+    }
 
     if (!state.grounded) {
         state.velocity.y = std::max(
@@ -211,7 +246,10 @@ CharacterMotorStepResult stepCharacterMotor(
     state.position = result.resolve.position;
     state.grounded = result.resolve.grounded;
     state.nearWallRunSurface = result.resolve.nearWallRunSurface;
-    if (state.grounded && state.velocity.y < 0.0F) {
+    result.groundSurface = state.grounded ? surfaceResponseFor(result.resolve.groundKind) : result.groundSurface;
+    result.touchedSlideSurface = result.touchedSlideSurface || result.resolve.nearSlideSurface || result.groundSurface.slideAssist;
+    result.touchedWallRunSurface = result.touchedWallRunSurface || result.resolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
+    if (state.grounded && !result.jumped) {
         state.velocity.y = 0.0F;
     }
     ++state.tick;

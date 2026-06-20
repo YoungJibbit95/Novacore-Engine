@@ -52,9 +52,18 @@ struct GltfPrimitiveData final {
     std::vector<std::uint32_t> indices;
 };
 
+struct GltfNodeMarker final {
+    std::string name;
+    math::Vec3 worldPosition{};
+    math::Vec3 worldForward{0.0F, 0.0F, 1.0F};
+    math::Vec3 worldUp{0.0F, 1.0F, 0.0F};
+    int meshIndex = -1;
+};
+
 struct GltfMeshData final {
     std::filesystem::path path;
     GltfSceneInfo sceneInfo;
+    std::vector<GltfNodeMarker> nodeMarkers;
     std::vector<GltfPrimitiveData> primitives;
 
     [[nodiscard]] std::size_t primitiveCount() const {

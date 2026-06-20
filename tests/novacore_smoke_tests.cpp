@@ -563,14 +563,20 @@ void testGltfMeshDataAppliesNodeTransforms() {
     writeTinyGlb(
         glbPath,
         R"([
-            { "translation": [2.0, 0.0, 0.0], "children": [1] },
-            { "mesh": 0, "translation": [0.0, 3.0, 4.0], "scale": [2.0, 1.0, 1.0] }
+            { "name": "socket_root", "translation": [2.0, 0.0, 0.0], "children": [1] },
+            { "name": "socket_muzzle", "mesh": 0, "translation": [0.0, 3.0, 4.0], "scale": [2.0, 1.0, 1.0] }
         ])");
 
     novacore::assets::GltfMeshData meshData;
     const auto meshDataResult = novacore::assets::loadGltfMeshData(glbPath, meshData);
     expect(meshDataResult.ok(), "glb mesh data imports transformed node hierarchy");
     expect(meshData.primitiveCount() == 1, "transformed glb keeps one mesh primitive instance");
+    expect(meshData.nodeMarkers.size() == 2U, "transformed glb exposes named node markers for runtime sockets");
+    if (meshData.nodeMarkers.size() == 2U) {
+        expect(meshData.nodeMarkers[0].worldPosition.x == 2.0F, "parent node marker keeps world translation");
+        expect(meshData.nodeMarkers[1].name == "socket_muzzle", "child node marker keeps socket name");
+        expect(meshData.nodeMarkers[1].meshIndex == 0, "mesh node marker records source mesh index");
+    }
     expect(!meshData.primitives.empty() && meshData.primitives[0].positions.size() == 3, "transformed glb keeps positions");
     if (!meshData.primitives.empty() && meshData.primitives[0].positions.size() == 3) {
         const auto& positions = meshData.primitives[0].positions;
@@ -1026,6 +1032,10 @@ void testPhysicsSystemCharacterMotor() {
     expect(stats.blockingColliderCount == 4U, "physics system separates blocking and trigger colliders");
     expect(stats.wallRunColliderCount == 1U, "physics system counts wall-run surfaces");
     expect(stats.slideColliderCount == 1U, "physics system counts slide surfaces");
+    const auto slideResponse = novacore::physics::surfaceResponseFor(novacore::physics::SurfaceKind::Slide);
+    expect(slideResponse.slideAssist && slideResponse.frictionScale < 0.50F, "physics system exposes low-friction slide surface response");
+    const auto wallResponse = novacore::physics::surfaceResponseFor(novacore::physics::SurfaceKind::WallRun);
+    expect(wallResponse.wallRunAssist && !wallResponse.walkable, "physics system exposes wall-run surface response");
 
     novacore::physics::CharacterMotorConfig config{};
     novacore::physics::CharacterMotorState state{};
@@ -1054,6 +1064,23 @@ void testPhysicsSystemCharacterMotor() {
     expect(state.position.z > -0.50F, "physics character motor moves forward through the sandbox");
     expect(sweptTicks > 40U, "physics character motor uses sweeps for movement");
     expect(groundedTicks > 20U, "physics character motor preserves grounded telemetry across steps and jumps");
+
+    novacore::physics::CharacterMotorState replayStart{};
+    replayStart.position = {0.0F, 0.0F, -3.0F};
+    replayStart.capsuleHeight = config.standingHeight;
+    const auto script = novacore::physics::makeSandboxMovementScript(96U);
+    const auto replay = novacore::physics::runCharacterMotorReplay(
+        world,
+        replayStart,
+        script,
+        novacore::physics::CharacterMotorReplayDesc{config});
+
+    expect(replay.stable, "physics movement replay reports stable deterministic state");
+    expect(replay.simulatedTicks == 96U, "physics movement replay honors scripted tick count");
+    expect(replay.frames.size() == 96U, "physics movement replay keeps per-tick frames by default");
+    expect(replay.jumpTicks == 1U, "physics movement replay records jump event telemetry");
+    expect(replay.sweptTicks > 40U, "physics movement replay records sweep telemetry");
+    expect(replay.finalState.tick == replay.simulatedTicks, "physics movement replay final tick matches simulated ticks");
 }
 
 void testEngineSandboxRunsStandalone() {
@@ -1065,6 +1092,9 @@ void testEngineSandboxRunsStandalone() {
     expect(result.previewFrame.worldBoxes.size() >= result.physicsStats.staticColliderCount + 1U, "engine sandbox emits renderer preview boxes");
     expect(!result.previewFrame.worldLines.empty(), "engine sandbox emits trajectory preview lines");
     expect(result.summary.find("NovaCore Engine Sandbox") != std::string::npos, "engine sandbox exposes concise summary text");
+    if (result.finalCharacter.grounded) {
+        expect(std::abs(result.finalCharacter.velocity.y) < 0.001F, "engine sandbox settles vertical velocity when grounded");
+    }
 }
 
 void testVulkanRuntimeProbeIsStable() {
