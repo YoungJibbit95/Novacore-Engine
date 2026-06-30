@@ -44,6 +44,7 @@ struct StaticCollider final {
     bool blocksMovement = true;
     RampDirection rampDirection = RampDirection::None;
     float stepOverrideHeight = 0.0F;
+    math::Vec3 velocity{};
 };
 
 struct CharacterQuery final {
@@ -83,6 +84,7 @@ struct CharacterContact final {
     float penetrationDepth = 0.0F;
     bool blocking = false;
     bool walkable = false;
+    math::Vec3 surfaceVelocity{};
 };
 
 struct CharacterResolveResult final {
@@ -105,6 +107,8 @@ struct CharacterResolveResult final {
     std::string wallColliderId;
     SurfaceKind groundKind = SurfaceKind::Floor;
     SurfaceKind wallKind = SurfaceKind::Wall;
+    math::Vec3 groundVelocity{};
+    math::Vec3 wallVelocity{};
     std::vector<CharacterContact> contacts;
 };
 

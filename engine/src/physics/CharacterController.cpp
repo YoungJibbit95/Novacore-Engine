@@ -240,6 +240,7 @@ void recordGround(
     result.nearSlideSurface = result.nearSlideSurface || collider.kind == SurfaceKind::Slide;
     result.groundColliderId = collider.id;
     result.groundKind = collider.kind;
+    result.groundVelocity = collider.velocity;
     appendContact(
         result,
         CharacterContact{
@@ -253,6 +254,7 @@ void recordGround(
             0.0F,
             false,
             true,
+            collider.velocity,
         });
 
     const auto delta = result.position - before;
@@ -366,6 +368,7 @@ void recordWallContact(
     result.wallDistance = distance;
     result.wallColliderId = collider.id;
     result.wallKind = collider.kind;
+    result.wallVelocity = collider.velocity;
     result.nearWallRunSurface = collider.kind == SurfaceKind::WallRun;
     appendContact(
         result,
@@ -380,6 +383,7 @@ void recordWallContact(
             0.0F,
             true,
             false,
+            collider.velocity,
         });
 }
 
@@ -923,6 +927,7 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
             0.0F,
             true,
             false,
+            hit.collider->velocity,
         });
 
         remaining = remaining * (1.0F - safeFraction);

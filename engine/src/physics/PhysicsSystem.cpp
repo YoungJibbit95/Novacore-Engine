@@ -23,6 +23,10 @@ namespace {
     return (lhs.x * rhs.x) + (lhs.z * rhs.z);
 }
 
+[[nodiscard]] bool hasKinematicVelocity(math::Vec3 velocity) {
+    return velocity.lengthSquared() > 0.000001F;
+}
+
 [[nodiscard]] math::Vec3 horizontalRightFromForward(math::Vec3 forward) {
     const auto normalized = normalizeHorizontal(forward);
     if (normalized.lengthSquared() <= 0.000001F) {
@@ -123,6 +127,9 @@ PhysicsWorldStats summarizePhysicsWorld(const PhysicsWorld& world) {
         if (collider.kind == SurfaceKind::Slide) {
             ++stats.slideColliderCount;
         }
+        if (hasKinematicVelocity(collider.velocity)) {
+            ++stats.kinematicColliderCount;
+        }
     }
     return stats;
 }
@@ -184,6 +191,9 @@ CharacterMotorStepResult stepCharacterMotor(
     state.grounded = preResolve.grounded;
     state.nearWallRunSurface = preResolve.nearWallRunSurface;
     result.groundSurface = state.grounded ? surfaceResponseFor(preResolve.groundKind) : SurfaceResponse{};
+    result.supportVelocity = state.grounded ? preResolve.groundVelocity : math::Vec3{};
+    result.supportColliderId = state.grounded ? preResolve.groundColliderId : std::string{};
+    result.carriedBySupport = hasKinematicVelocity(result.supportVelocity);
     result.touchedSlideSurface = preResolve.nearSlideSurface || result.groundSurface.slideAssist;
     result.touchedWallRunSurface = preResolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
 
@@ -193,6 +203,11 @@ CharacterMotorStepResult stepCharacterMotor(
     }
 
     if (input.jumpPressed && state.grounded) {
+        if (result.carriedBySupport) {
+            state.velocity.x += result.supportVelocity.x;
+            state.velocity.z += result.supportVelocity.z;
+            state.velocity.y += std::max(0.0F, result.supportVelocity.y);
+        }
         state.velocity.y = std::max(0.0F, config.jumpSpeed);
         state.grounded = false;
         result.jumped = true;
@@ -229,7 +244,10 @@ CharacterMotorStepResult stepCharacterMotor(
             state.velocity.y - (std::max(0.0F, config.gravity) * dt));
     }
 
-    result.desiredDisplacement = state.velocity * dt;
+    const auto supportDisplacement = (!result.jumped && state.grounded)
+        ? result.supportVelocity * dt
+        : math::Vec3{};
+    result.desiredDisplacement = (state.velocity * dt) + supportDisplacement;
     if (result.desiredDisplacement.lengthSquared() > 0.0000001F) {
         result.swept = true;
         result.sweep = world.sweepCharacter(makeSweepQuery(state, config, result.desiredDisplacement));
@@ -247,6 +265,11 @@ CharacterMotorStepResult stepCharacterMotor(
     state.grounded = result.resolve.grounded;
     state.nearWallRunSurface = result.resolve.nearWallRunSurface;
     result.groundSurface = state.grounded ? surfaceResponseFor(result.resolve.groundKind) : result.groundSurface;
+    if (!result.jumped && state.grounded) {
+        result.supportVelocity = result.resolve.groundVelocity;
+        result.supportColliderId = result.resolve.groundColliderId;
+        result.carriedBySupport = hasKinematicVelocity(result.supportVelocity);
+    }
     result.touchedSlideSurface = result.touchedSlideSurface || result.resolve.nearSlideSurface || result.groundSurface.slideAssist;
     result.touchedWallRunSurface = result.touchedWallRunSurface || result.resolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
     if (state.grounded && !result.jumped) {
@@ -289,6 +312,16 @@ std::vector<StaticCollider> makeDefaultPhysicsSandboxColliders() {
             {6.0F, 0.70F, 0.0F},
             {1.15F, 0.70F, 1.10F},
             true,
+        },
+        StaticCollider{
+            "sandbox_moving_platform",
+            SurfaceKind::Cover,
+            {-2.25F, 0.16F, 4.60F},
+            {0.90F, 0.16F, 0.75F},
+            true,
+            RampDirection::None,
+            0.32F,
+            {0.85F, 0.0F, 0.0F},
         },
         StaticCollider{
             "sandbox_trigger_zone",

@@ -1028,10 +1028,11 @@ void testPhysicsSystemCharacterMotor() {
     }
 
     const auto stats = novacore::physics::summarizePhysicsWorld(world);
-    expect(stats.staticColliderCount == 5U, "physics system sandbox fixture creates five colliders");
-    expect(stats.blockingColliderCount == 4U, "physics system separates blocking and trigger colliders");
+    expect(stats.staticColliderCount == 6U, "physics system sandbox fixture creates six colliders");
+    expect(stats.blockingColliderCount == 5U, "physics system separates blocking and trigger colliders");
     expect(stats.wallRunColliderCount == 1U, "physics system counts wall-run surfaces");
     expect(stats.slideColliderCount == 1U, "physics system counts slide surfaces");
+    expect(stats.kinematicColliderCount == 1U, "physics system counts kinematic support colliders");
     const auto slideResponse = novacore::physics::surfaceResponseFor(novacore::physics::SurfaceKind::Slide);
     expect(slideResponse.slideAssist && slideResponse.frictionScale < 0.50F, "physics system exposes low-friction slide surface response");
     const auto wallResponse = novacore::physics::surfaceResponseFor(novacore::physics::SurfaceKind::WallRun);
@@ -1065,6 +1066,48 @@ void testPhysicsSystemCharacterMotor() {
     expect(sweptTicks > 40U, "physics character motor uses sweeps for movement");
     expect(groundedTicks > 20U, "physics character motor preserves grounded telemetry across steps and jumps");
 
+    novacore::physics::PhysicsWorld supportWorld;
+    supportWorld.setBounds({8.0F, 4.0F, 8.0F});
+    supportWorld.addStaticCollider(novacore::physics::StaticCollider{
+        "support_platform",
+        novacore::physics::SurfaceKind::Cover,
+        {0.0F, 0.16F, 0.0F},
+        {1.25F, 0.16F, 1.25F},
+        true,
+        novacore::physics::RampDirection::None,
+        0.32F,
+        {1.20F, 0.0F, 0.0F},
+    });
+    novacore::physics::CharacterMotorState supportState{};
+    supportState.position = {0.0F, 0.32F, 0.0F};
+    supportState.capsuleHeight = config.standingHeight;
+    std::uint32_t supportedTicks = 0;
+    float supportVelocityX = 0.0F;
+    for (std::uint32_t tick = 0; tick < 12U; ++tick) {
+        novacore::physics::CharacterMotorInput supportInput{};
+        const auto supportStep = novacore::physics::stepCharacterMotor(supportWorld, supportState, supportInput, config, 1.0F / 60.0F);
+        if (supportStep.carriedBySupport && supportStep.supportColliderId == "support_platform") {
+            ++supportedTicks;
+            supportVelocityX = supportStep.supportVelocity.x;
+        }
+        supportState = supportStep.state;
+    }
+    expect(supportedTicks >= 8U, "physics character motor detects repeated moving support contact");
+    expect(supportVelocityX > 1.0F, "physics character motor reports moving support velocity");
+    expect(supportState.position.x > 0.08F, "physics character motor carries the character with the support");
+
+    novacore::physics::CharacterMotorInput supportJumpInput{};
+    supportJumpInput.jumpPressed = true;
+    const auto supportJump = novacore::physics::stepCharacterMotor(
+        supportWorld,
+        supportState,
+        supportJumpInput,
+        config,
+        1.0F / 60.0F);
+    expect(supportJump.jumped, "physics character motor can jump from a moving support");
+    expect(supportJump.supportColliderId == "support_platform", "physics jump keeps source support telemetry");
+    expect(supportJump.state.velocity.x > 1.0F, "physics jump inherits moving support horizontal velocity");
+
     novacore::physics::CharacterMotorState replayStart{};
     replayStart.position = {0.0F, 0.0F, -3.0F};
     replayStart.capsuleHeight = config.standingHeight;
@@ -1084,17 +1127,57 @@ void testPhysicsSystemCharacterMotor() {
 }
 
 void testEngineSandboxRunsStandalone() {
-    const auto result = novacore::sandbox::runEngineSandbox(novacore::sandbox::EngineSandboxOptions{96U});
+    novacore::sandbox::EngineSandboxOptions options{};
+    options.tickCount = 96U;
+    const auto result = novacore::sandbox::runEngineSandbox(options);
 
-    expect(result.stable, "engine sandbox run completes with stable physics state");
-    expect(result.simulatedTicks == 96U, "engine sandbox honors requested tick count");
-    expect(result.physicsStats.staticColliderCount >= 5U, "engine sandbox owns an engine-side physics fixture");
-    expect(result.previewFrame.worldBoxes.size() >= result.physicsStats.staticColliderCount + 1U, "engine sandbox emits renderer preview boxes");
-    expect(!result.previewFrame.worldLines.empty(), "engine sandbox emits trajectory preview lines");
+    const auto findScenario = [](const novacore::sandbox::EngineSandboxRunResult& run, std::string_view id) {
+        return std::find_if(
+            run.scenarios.begin(),
+            run.scenarios.end(),
+            [id](const novacore::sandbox::EngineSandboxScenarioResult& scenario) {
+                return scenario.id == id;
+            });
+    };
+
+    expect(result.stable, "engine sandbox run completes all headless scenarios");
+    expect(result.exitCode == novacore::sandbox::EngineSandboxExitCode::Success, "engine sandbox success exit code is explicit");
+    expect(result.passedCount == result.scenarios.size(), "engine sandbox counts passed scenarios");
+    expect(result.failedCount == 0U, "engine sandbox reports no failed scenarios");
+    expect(result.scenarios.size() >= 4U, "engine sandbox runs multiple standalone scenarios");
+    expect(findScenario(result, "fixed_step_clock") != result.scenarios.end(), "engine sandbox includes fixed-step scenario");
+    expect(findScenario(result, "ecs_lifecycle") != result.scenarios.end(), "engine sandbox includes ECS scenario");
+    expect(findScenario(result, "net_loopback_packets") != result.scenarios.end(), "engine sandbox includes network loopback scenario");
+    expect(findScenario(result, "asset_manifest_parse") != result.scenarios.end(), "engine sandbox includes asset manifest scenario");
     expect(result.summary.find("NovaCore Engine Sandbox") != std::string::npos, "engine sandbox exposes concise summary text");
-    if (result.finalCharacter.grounded) {
-        expect(std::abs(result.finalCharacter.velocity.y) < 0.001F, "engine sandbox settles vertical velocity when grounded");
-    }
+
+    const auto fixedStep = findScenario(result, "fixed_step_clock");
+    expect(fixedStep != result.scenarios.end() && fixedStep->simulatedTicks == 96U, "engine sandbox honors requested tick count");
+    expect(fixedStep != result.scenarios.end() && !fixedStep->telemetry.empty(), "engine sandbox emits scenario telemetry by default");
+
+    novacore::sandbox::EngineSandboxOptions filtered{};
+    filtered.tickCount = 32U;
+    filtered.includeTelemetry = false;
+    filtered.scenarioIds.push_back("net_loopback_packets");
+    const auto filteredResult = novacore::sandbox::runEngineSandbox(filtered);
+    expect(filteredResult.stable, "engine sandbox filtered run succeeds");
+    expect(filteredResult.scenarios.size() == 1U, "engine sandbox filters scenarios by id");
+    expect(filteredResult.scenarios.front().id == "net_loopback_packets", "engine sandbox runs requested scenario only");
+    expect(filteredResult.scenarios.front().telemetry.empty(), "engine sandbox can suppress telemetry events");
+
+    novacore::sandbox::EngineSandboxOptions missing{};
+    missing.scenarioIds.push_back("missing_scenario");
+    const auto missingResult = novacore::sandbox::runEngineSandbox(missing);
+    expect(!missingResult.stable, "engine sandbox missing filter is not stable");
+    expect(missingResult.exitCode == novacore::sandbox::EngineSandboxExitCode::NoScenarioSelected,
+           "engine sandbox reports no selected scenario distinctly");
+
+    const auto text = novacore::sandbox::formatEngineSandboxText(result);
+    const auto json = novacore::sandbox::formatEngineSandboxJson(filteredResult);
+    expect(text.find("fixed_step_clock") != std::string::npos, "engine sandbox text output includes scenario ids");
+    expect(json.find("\"net_loopback_packets\"") != std::string::npos, "engine sandbox json output includes selected scenario id");
+    expect(novacore::sandbox::engineSandboxExitCodeValue(novacore::sandbox::EngineSandboxExitCode::InvalidArguments) == 2,
+           "engine sandbox reserves invalid-argument exit code");
 }
 
 void testVulkanRuntimeProbeIsStable() {

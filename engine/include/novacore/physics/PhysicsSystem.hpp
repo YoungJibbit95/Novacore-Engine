@@ -4,6 +4,7 @@
 #include "novacore/physics/CharacterController.hpp"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace novacore::physics {
@@ -15,6 +16,7 @@ struct PhysicsWorldStats final {
     std::uint32_t walkableColliderCount = 0;
     std::uint32_t wallRunColliderCount = 0;
     std::uint32_t slideColliderCount = 0;
+    std::uint32_t kinematicColliderCount = 0;
 };
 
 struct PhysicsStepConfig final {
@@ -75,9 +77,12 @@ struct CharacterMotorStepResult final {
     CharacterResolveResult resolve{};
     CharacterSweepResult sweep{};
     math::Vec3 desiredDisplacement{};
+    math::Vec3 supportVelocity{};
     SurfaceResponse groundSurface{};
+    std::string supportColliderId;
     bool jumped = false;
     bool swept = false;
+    bool carriedBySupport = false;
     bool touchedSlideSurface = false;
     bool touchedWallRunSurface = false;
 };
