@@ -52,6 +52,10 @@ struct CharacterMotorConfig final {
     float jumpSpeed = 7.25F;
     float terminalFallSpeed = 48.0F;
     float groundFriction = 8.5F;
+    float capsuleSkinWidth = 0.003F;
+    float crouchTransitionSpeed = 7.5F;
+    float groundAdhesionSpeed = 2.5F;
+    std::uint32_t maxDepenetrationIterations = 6;
 };
 
 struct CharacterMotorInput final {
@@ -69,6 +73,9 @@ struct CharacterMotorState final {
     bool grounded = false;
     bool crouched = false;
     bool nearWallRunSurface = false;
+    float crouchFraction = 0.0F;
+    math::Vec3 groundNormal{0.0F, 1.0F, 0.0F};
+    std::string supportColliderId;
     std::uint64_t tick = 0;
 };
 
@@ -85,6 +92,9 @@ struct CharacterMotorStepResult final {
     bool carriedBySupport = false;
     bool touchedSlideSurface = false;
     bool touchedWallRunSurface = false;
+    bool crouchBlocked = false;
+    bool landed = false;
+    float impactSpeed = 0.0F;
 };
 
 [[nodiscard]] PhysicsWorldStats summarizePhysicsWorld(const PhysicsWorld& world);

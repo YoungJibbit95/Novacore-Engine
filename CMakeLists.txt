@@ -52,6 +52,11 @@ function(novacore_copy_mingw_runtime target_name)
 endfunction()
 
 add_library(novacore_engine
+    engine/src/animation/AnimationClip.cpp
+    engine/src/animation/AnimationRuntime.cpp
+    engine/src/animation/AnimationTypes.cpp
+    engine/src/animation/Skeleton.cpp
+    engine/src/assets/GltfAnimationBridge.cpp
     engine/src/assets/GltfDocument.cpp
     engine/src/assets/GltfMetadata.cpp
     engine/src/assets/AssetManifest.cpp
@@ -215,6 +220,16 @@ if(NOVACORE_BUILD_TESTS)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_smoke_tests)
     add_test(NAME novacore_smoke_tests COMMAND novacore_smoke_tests)
+
+    add_executable(novacore_animation_runtime_tests tests/animation_runtime_tests.cpp)
+    target_link_libraries(novacore_animation_runtime_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_animation_runtime_tests)
+    add_test(NAME novacore_animation_runtime_tests COMMAND novacore_animation_runtime_tests)
+
+    add_executable(novacore_gltf_animation_import_tests tests/gltf_animation_import_tests.cpp)
+    target_link_libraries(novacore_gltf_animation_import_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_gltf_animation_import_tests)
+    add_test(NAME novacore_gltf_animation_import_tests COMMAND novacore_gltf_animation_import_tests)
 endif()
 
 include(CMakePackageConfigHelpers)

@@ -67,9 +67,10 @@ namespace {
 }
 
 [[nodiscard]] bool verticalRangesOverlap(float playerFeetY, float playerHeight, const StaticCollider& collider) {
+    constexpr float kVerticalEpsilon = 0.0001F;
     const float playerMinY = playerFeetY;
     const float playerMaxY = playerFeetY + playerHeight;
-    return playerMaxY >= minY(collider) && playerMinY <= maxY(collider);
+    return playerMaxY > minY(collider) + kVerticalEpsilon && playerMinY < maxY(collider) - kVerticalEpsilon;
 }
 
 [[nodiscard]] bool horizontalPointInsideExpanded(math::Vec3 position, const StaticCollider& collider, float expansion) {
@@ -77,6 +78,18 @@ namespace {
         position.x <= maxX(collider) + expansion &&
         position.z >= minZ(collider) - expansion &&
         position.z <= maxZ(collider) + expansion;
+}
+
+[[nodiscard]] bool horizontalCircleOverlapsAabb(
+    math::Vec3 position,
+    const StaticCollider& collider,
+    float radius) {
+    const float closestX = std::clamp(position.x, minX(collider), maxX(collider));
+    const float closestZ = std::clamp(position.z, minZ(collider), maxZ(collider));
+    const float dx = position.x - closestX;
+    const float dz = position.z - closestZ;
+    const float safeRadius = std::max(0.0F, radius);
+    return (dx * dx) + (dz * dz) <= (safeRadius * safeRadius) + 0.000001F;
 }
 
 [[nodiscard]] float rampT(const StaticCollider& collider, math::Vec3 position) {
@@ -143,7 +156,7 @@ namespace {
     const CharacterQuery& query,
     float groundHeight,
     math::Vec3 normal) {
-    if (!horizontalPointInsideExpanded(result.position, collider, query.radius)) {
+    if (!horizontalCircleOverlapsAabb(result.position, collider, query.radius + query.skinWidth)) {
         return false;
     }
 
@@ -221,7 +234,9 @@ void recordCorrection(CharacterResolveResult& result, math::Vec3 before, const S
     result.correction = result.correction + delta;
     result.blocked = true;
     ++result.hitCount;
-    result.lastColliderId = collider.id;
+    if (result.lastColliderId.empty()) {
+        result.lastColliderId = collider.id;
+    }
 }
 
 void recordGround(
@@ -241,6 +256,13 @@ void recordGround(
     result.groundColliderId = collider.id;
     result.groundKind = collider.kind;
     result.groundVelocity = collider.velocity;
+    const float verticalCorrection = groundHeight - before.y;
+    if (verticalCorrection < 0.0F) {
+        result.groundSnapDistance = std::max(result.groundSnapDistance, -verticalCorrection);
+    }
+    if (stepped && verticalCorrection > 0.0F) {
+        result.stepHeight = std::max(result.stepHeight, verticalCorrection);
+    }
     appendContact(
         result,
         CharacterContact{
@@ -261,7 +283,9 @@ void recordGround(
     if (delta.lengthSquared() > 0.000001F) {
         result.correction = result.correction + delta;
         ++result.hitCount;
-        result.lastColliderId = collider.id;
+        if (result.lastColliderId.empty()) {
+            result.lastColliderId = collider.id;
+        }
     }
 }
 
@@ -305,7 +329,10 @@ void resolveGroundSurfaces(
             continue;
         }
 
-        if (bestCollider == nullptr || bestCollider == &floor || height > bestHeight) {
+        const bool higher = height > bestHeight + 0.00001F;
+        const bool sameHeight = std::abs(height - bestHeight) <= 0.00001F;
+        const bool stableTie = sameHeight && bestCollider != nullptr && collider.id < bestCollider->id;
+        if (bestCollider == nullptr || bestCollider == &floor || higher || stableTie) {
             bestHeight = height;
             bestNormal = normal;
             bestCollider = &collider;
@@ -387,69 +414,125 @@ void recordWallContact(
         });
 }
 
-void resolveAgainstExpandedAabb(
-    CharacterResolveResult& result,
+struct DepenetrationCandidate final {
+    bool hit = false;
+    const StaticCollider* collider = nullptr;
+    math::Vec3 correction{};
+    math::Vec3 normal{};
+    float depth = 0.0F;
+};
+
+[[nodiscard]] DepenetrationCandidate depenetrationAgainstCollider(
+    math::Vec3 position,
     const StaticCollider& collider,
     const CharacterQuery& query) {
-    if (!collider.blocksMovement || !isBlockingSideSurface(collider.kind)) {
-        return;
-    }
-    if (!verticalRangesOverlap(result.position.y, query.height, collider)) {
-        return;
-    }
-
-    const float topY = maxY(collider);
-    if (isStandableTopSurface(collider.kind) &&
-        canSnapToSurface(result, collider, query, topY, {0.0F, 1.0F, 0.0F})) {
-        recordGround(result, collider, topY, {0.0F, 1.0F, 0.0F}, collider.kind == SurfaceKind::Cover);
-        return;
+    DepenetrationCandidate candidate{};
+    if (!collider.blocksMovement || !isBlockingSideSurface(collider.kind) ||
+        !verticalRangesOverlap(position.y, query.height, collider)) {
+        return candidate;
     }
 
-    const float expandedMinX = minX(collider) - query.radius;
-    const float expandedMaxX = maxX(collider) + query.radius;
-    const float expandedMinZ = minZ(collider) - query.radius;
-    const float expandedMaxZ = maxZ(collider) + query.radius;
-
-    if (result.position.x < expandedMinX || result.position.x > expandedMaxX ||
-        result.position.z < expandedMinZ || result.position.z > expandedMaxZ) {
-        return;
-    }
-
-    const auto before = result.position;
-    const std::array<float, 4> pushes{
-        expandedMinX - result.position.x,
-        expandedMaxX - result.position.x,
-        expandedMinZ - result.position.z,
-        expandedMaxZ - result.position.z,
-    };
-
-    std::size_t best = 0;
-    float bestMagnitude = std::abs(pushes[0]);
-    for (std::size_t index = 1; index < pushes.size(); ++index) {
-        const float magnitude = std::abs(pushes[index]);
-        if (magnitude < bestMagnitude) {
-            best = index;
-            bestMagnitude = magnitude;
-        }
+    const float effectiveRadius = query.radius + query.skinWidth;
+    const float closestX = std::clamp(position.x, minX(collider), maxX(collider));
+    const float closestZ = std::clamp(position.z, minZ(collider), maxZ(collider));
+    const float dx = position.x - closestX;
+    const float dz = position.z - closestZ;
+    const float distanceSquared = (dx * dx) + (dz * dz);
+    if (distanceSquared > (effectiveRadius * effectiveRadius) - 0.000001F) {
+        return candidate;
     }
 
     math::Vec3 normal{};
-    if (best == 0) {
-        result.position.x += pushes[best];
-        normal = {-1.0F, 0.0F, 0.0F};
-    } else if (best == 1) {
-        result.position.x += pushes[best];
-        normal = {1.0F, 0.0F, 0.0F};
-    } else if (best == 2) {
-        result.position.z += pushes[best];
-        normal = {0.0F, 0.0F, -1.0F};
+    float depth = 0.0F;
+    if (distanceSquared > 0.000001F) {
+        const float distance = std::sqrt(distanceSquared);
+        normal = {dx / distance, 0.0F, dz / distance};
+        depth = effectiveRadius - distance;
     } else {
-        result.position.z += pushes[best];
-        normal = {0.0F, 0.0F, 1.0F};
+        const std::array<std::pair<float, math::Vec3>, 4> faces{{
+            {position.x - minX(collider), {-1.0F, 0.0F, 0.0F}},
+            {maxX(collider) - position.x, {1.0F, 0.0F, 0.0F}},
+            {position.z - minZ(collider), {0.0F, 0.0F, -1.0F}},
+            {maxZ(collider) - position.z, {0.0F, 0.0F, 1.0F}},
+        }};
+        const auto nearest = std::min_element(
+            faces.begin(),
+            faces.end(),
+            [](const auto& lhs, const auto& rhs) {
+                return lhs.first < rhs.first;
+            });
+        normal = nearest->second;
+        depth = effectiveRadius + nearest->first;
     }
 
-    recordWallContact(result, collider, normal, bestMagnitude);
-    recordCorrection(result, before, collider);
+    if (depth <= 0.000001F) {
+        return candidate;
+    }
+    candidate.hit = true;
+    candidate.collider = &collider;
+    candidate.normal = normal;
+    candidate.depth = depth;
+    candidate.correction = normal * depth;
+    return candidate;
+}
+
+[[nodiscard]] bool preferDepenetration(
+    const DepenetrationCandidate& candidate,
+    const DepenetrationCandidate& current) {
+    if (!candidate.hit) {
+        return false;
+    }
+    if (!current.hit || candidate.depth > current.depth + 0.00001F) {
+        return true;
+    }
+    if (std::abs(candidate.depth - current.depth) <= 0.00001F) {
+        return candidate.collider->id < current.collider->id;
+    }
+    return false;
+}
+
+void resolveSidePenetrations(
+    CharacterResolveResult& result,
+    const std::vector<StaticCollider>& colliders,
+    const CharacterQuery& query) {
+    for (int iteration = 0; iteration < query.maxDepenetrationIterations; ++iteration) {
+        DepenetrationCandidate best{};
+        for (const auto& collider : colliders) {
+            const auto candidate = depenetrationAgainstCollider(result.position, collider, query);
+            if (preferDepenetration(candidate, best)) {
+                best = candidate;
+            }
+        }
+        if (!best.hit || best.collider == nullptr) {
+            break;
+        }
+
+        const auto before = result.position;
+        result.position = result.position + best.correction;
+        recordWallContact(result, *best.collider, best.normal, best.depth);
+        recordCorrection(result, before, *best.collider);
+        ++result.depenetrationIterations;
+    }
+}
+
+void clearGroundState(CharacterResolveResult& result) {
+    result.groundNormal = {0.0F, 1.0F, 0.0F};
+    result.groundHeight = 0.0F;
+    result.grounded = false;
+    result.stepped = false;
+    result.onRamp = false;
+    result.nearSlideSurface = false;
+    result.groundColliderId.clear();
+    result.groundKind = SurfaceKind::Floor;
+    result.groundVelocity = {};
+    result.contacts.erase(
+        std::remove_if(
+            result.contacts.begin(),
+            result.contacts.end(),
+            [](const CharacterContact& contact) {
+                return contact.role == CharacterContactRole::Ground || contact.role == CharacterContactRole::Step;
+            }),
+        result.contacts.end());
 }
 
 [[nodiscard]] float distanceOutsideAabb1D(float value, float minValue, float maxValue) {
@@ -580,6 +663,8 @@ void resolveAgainstExpandedAabb(
     characterQuery.wallProbeDistance = query.wallProbeDistance;
     characterQuery.enableGroundSnap = query.enableGroundSnap;
     characterQuery.enableStepUp = query.enableStepUp;
+    characterQuery.skinWidth = query.skinWidth;
+    characterQuery.maxDepenetrationIterations = query.maxDepenetrationIterations;
     return characterQuery;
 }
 
@@ -601,14 +686,30 @@ void resolveAgainstExpandedAabb(
         return false;
     }
 
-    CharacterResolveResult result{};
-    result.position = position;
-    return canSnapToSurface(
-        result,
-        collider,
-        characterQueryFromSweep(query, position),
-        maxY(collider),
-        {0.0F, 1.0F, 0.0F});
+    const float stepHeight = maxY(collider) - position.y;
+    const float allowedHeight = std::max(query.maxStepHeight, collider.stepOverrideHeight);
+    return stepHeight > query.skinWidth &&
+        stepHeight <= allowedHeight + query.skinWidth &&
+        horizontalCircleOverlapsAabb(position, collider, query.radius + query.skinWidth);
+}
+
+[[nodiscard]] bool capsuleHasStepClearance(
+    const std::vector<StaticCollider>& colliders,
+    const StaticCollider& stepCollider,
+    math::Vec3 position,
+    const CharacterSweepQuery& query) {
+    for (const auto& collider : colliders) {
+        if (&collider == &stepCollider || !collider.blocksMovement || collider.kind == SurfaceKind::Trigger) {
+            continue;
+        }
+        if (!verticalRangesOverlap(position.y, query.height, collider)) {
+            continue;
+        }
+        if (horizontalCircleOverlapsAabb(position, collider, query.radius + query.skinWidth)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 struct SweepHitCandidate final {
@@ -616,67 +717,125 @@ struct SweepHitCandidate final {
     float fraction = 1.0F;
     math::Vec3 normal{};
     const StaticCollider* collider = nullptr;
+    std::string colliderId;
+    SurfaceKind kind = SurfaceKind::Wall;
+    math::Vec3 surfaceVelocity{};
+    bool walkable = false;
 };
 
-[[nodiscard]] SweepHitCandidate sweepExpandedAabb2D(
+[[nodiscard]] bool preferSweepHit(const SweepHitCandidate& candidate, const SweepHitCandidate& current) {
+    if (!candidate.hit) {
+        return false;
+    }
+    if (!current.hit || candidate.fraction < current.fraction - 0.00001F) {
+        return true;
+    }
+    if (std::abs(candidate.fraction - current.fraction) <= 0.00001F) {
+        return candidate.colliderId < current.colliderId;
+    }
+    return false;
+}
+
+void considerSweepHit(SweepHitCandidate& best, SweepHitCandidate candidate) {
+    if (preferSweepHit(candidate, best)) {
+        best = std::move(candidate);
+    }
+}
+
+[[nodiscard]] SweepHitCandidate sweepCircleAgainstAabb2D(
     math::Vec3 position,
     math::Vec3 displacement,
     const StaticCollider& collider,
     float radius) {
     constexpr float kEpsilon = 0.00001F;
-    SweepHitCandidate result{};
-    float tEnter = 0.0F;
-    float tExit = 1.0F;
-    math::Vec3 normal{};
+    SweepHitCandidate best{};
 
-    const auto testAxis = [&](float origin, float delta, float low, float high, math::Vec3 lowNormal, math::Vec3 highNormal) {
-        if (std::abs(delta) <= kEpsilon) {
-            return origin >= low && origin <= high;
+    const auto makeCandidate = [&](float fraction, math::Vec3 normal) {
+        SweepHitCandidate candidate{};
+        if (fraction < -kEpsilon || fraction > 1.0F + kEpsilon ||
+            dotHorizontal(displacement, normal) >= -kEpsilon) {
+            return candidate;
         }
-
-        float nearT = (low - origin) / delta;
-        float farT = (high - origin) / delta;
-        math::Vec3 nearNormal = lowNormal;
-        if (nearT > farT) {
-            std::swap(nearT, farT);
-            nearNormal = highNormal;
-        }
-
-        if (nearT > tEnter) {
-            tEnter = nearT;
-            normal = nearNormal;
-        }
-        tExit = std::min(tExit, farT);
-        return tEnter <= tExit;
+        candidate.hit = true;
+        candidate.fraction = std::clamp(fraction, 0.0F, 1.0F);
+        candidate.normal = normal;
+        candidate.collider = &collider;
+        candidate.colliderId = collider.id;
+        candidate.kind = collider.kind;
+        candidate.surfaceVelocity = collider.velocity;
+        return candidate;
     };
 
-    const float expandedMinX = minX(collider) - radius;
-    const float expandedMaxX = maxX(collider) + radius;
-    const float expandedMinZ = minZ(collider) - radius;
-    const float expandedMaxZ = maxZ(collider) + radius;
-    if (!testAxis(position.x, displacement.x, expandedMinX, expandedMaxX, {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F})) {
-        return result;
-    }
-    if (!testAxis(position.z, displacement.z, expandedMinZ, expandedMaxZ, {0.0F, 0.0F, -1.0F}, {0.0F, 0.0F, 1.0F})) {
-        return result;
-    }
-
-    if (tEnter < 0.0F || tEnter > 1.0F || tExit < 0.0F) {
-        return result;
-    }
-    if (normal.lengthSquared() <= 0.000001F || dotHorizontal(displacement, normal) >= 0.0F) {
-        return result;
+    if (displacement.x > kEpsilon) {
+        const float t = ((minX(collider) - radius) - position.x) / displacement.x;
+        const float z = position.z + (displacement.z * t);
+        if (z >= minZ(collider) - kEpsilon && z <= maxZ(collider) + kEpsilon) {
+            considerSweepHit(best, makeCandidate(t, {-1.0F, 0.0F, 0.0F}));
+        }
+    } else if (displacement.x < -kEpsilon) {
+        const float t = ((maxX(collider) + radius) - position.x) / displacement.x;
+        const float z = position.z + (displacement.z * t);
+        if (z >= minZ(collider) - kEpsilon && z <= maxZ(collider) + kEpsilon) {
+            considerSweepHit(best, makeCandidate(t, {1.0F, 0.0F, 0.0F}));
+        }
     }
 
-    result.hit = true;
-    result.fraction = std::clamp(tEnter, 0.0F, 1.0F);
-    result.normal = normal;
-    result.collider = &collider;
-    return result;
+    if (displacement.z > kEpsilon) {
+        const float t = ((minZ(collider) - radius) - position.z) / displacement.z;
+        const float x = position.x + (displacement.x * t);
+        if (x >= minX(collider) - kEpsilon && x <= maxX(collider) + kEpsilon) {
+            considerSweepHit(best, makeCandidate(t, {0.0F, 0.0F, -1.0F}));
+        }
+    } else if (displacement.z < -kEpsilon) {
+        const float t = ((maxZ(collider) + radius) - position.z) / displacement.z;
+        const float x = position.x + (displacement.x * t);
+        if (x >= minX(collider) - kEpsilon && x <= maxX(collider) + kEpsilon) {
+            considerSweepHit(best, makeCandidate(t, {0.0F, 0.0F, 1.0F}));
+        }
+    }
+
+    const float a = (displacement.x * displacement.x) + (displacement.z * displacement.z);
+    if (a <= kEpsilon) {
+        return best;
+    }
+    const std::array<math::Vec3, 4> corners{{
+        {minX(collider), 0.0F, minZ(collider)},
+        {minX(collider), 0.0F, maxZ(collider)},
+        {maxX(collider), 0.0F, minZ(collider)},
+        {maxX(collider), 0.0F, maxZ(collider)},
+    }};
+    for (const auto corner : corners) {
+        const float rx = position.x - corner.x;
+        const float rz = position.z - corner.z;
+        const float b = 2.0F * ((rx * displacement.x) + (rz * displacement.z));
+        const float c = (rx * rx) + (rz * rz) - (radius * radius);
+        const float discriminant = (b * b) - (4.0F * a * c);
+        if (discriminant < 0.0F) {
+            continue;
+        }
+        const float t = (-b - std::sqrt(discriminant)) / (2.0F * a);
+        if (t < -kEpsilon || t > 1.0F + kEpsilon) {
+            continue;
+        }
+        const auto impact = position + (displacement * t);
+        const bool xOutside = corner.x == minX(collider)
+            ? impact.x <= minX(collider) + kEpsilon
+            : impact.x >= maxX(collider) - kEpsilon;
+        const bool zOutside = corner.z == minZ(collider)
+            ? impact.z <= minZ(collider) + kEpsilon
+            : impact.z >= maxZ(collider) - kEpsilon;
+        if (!xOutside || !zOutside) {
+            continue;
+        }
+        const auto normal = normalizeOrZero({impact.x - corner.x, 0.0F, impact.z - corner.z});
+        considerSweepHit(best, makeCandidate(t, normal));
+    }
+    return best;
 }
 
 [[nodiscard]] SweepHitCandidate findEarliestSweepHit(
     const std::vector<StaticCollider>& colliders,
+    math::Vec3 boundsHalfExtents,
     const CharacterSweepQuery& query,
     math::Vec3 position,
     math::Vec3 displacement) {
@@ -684,23 +843,110 @@ struct SweepHitCandidate final {
     best.fraction = 1.0F;
     const auto end = position + displacement;
     for (const auto& collider : colliders) {
-        if (!collider.blocksMovement || !isBlockingSideSurface(collider.kind)) {
-            continue;
-        }
-        if (!verticalSweepRangeOverlaps(position, end, query.height, collider)) {
-            continue;
-        }
-        if (canStepOntoColliderDuringSweep(collider, query, end)) {
+        if (!collider.blocksMovement) {
             continue;
         }
 
-        const auto candidate = sweepExpandedAabb2D(position, displacement, collider, query.radius);
-        if (!candidate.hit) {
-            continue;
+        if (isBlockingSideSurface(collider.kind) && verticalSweepRangeOverlaps(position, end, query.height, collider)) {
+            auto candidate = sweepCircleAgainstAabb2D(position, displacement, collider, query.radius + query.skinWidth);
+            if (candidate.hit) {
+                const auto impact = position + (displacement * candidate.fraction);
+                if (!verticalRangesOverlap(impact.y, query.height, collider)) {
+                    candidate.hit = false;
+                }
+            }
+            considerSweepHit(best, std::move(candidate));
         }
-        if (!best.hit || candidate.fraction < best.fraction) {
-            best = candidate;
+
+        if (isGroundSurface(collider.kind)) {
+            const auto normal = (collider.kind == SurfaceKind::Ramp || collider.kind == SurfaceKind::Slide)
+                ? rampNormal(collider)
+                : math::Vec3{0.0F, 1.0F, 0.0F};
+            const float surfaceStart = surfaceHeightAt(collider, position);
+            const float surfaceEnd = surfaceHeightAt(collider, end);
+            const float relativeStart = position.y - surfaceStart;
+            const float relativeDelta = displacement.y - (surfaceEnd - surfaceStart);
+            if (normal.y >= query.walkableSlopeCosine && relativeStart > 0.0001F && relativeDelta < -0.00001F) {
+                const float t = -relativeStart / relativeDelta;
+                const auto impact = position + (displacement * t);
+                if (t >= 0.0F && t <= 1.0F &&
+                    horizontalCircleOverlapsAabb(impact, collider, query.radius + query.skinWidth)) {
+                    SweepHitCandidate ground{};
+                    ground.hit = true;
+                    ground.fraction = t;
+                    ground.normal = normal;
+                    ground.collider = &collider;
+                    ground.colliderId = collider.id;
+                    ground.kind = collider.kind;
+                    ground.surfaceVelocity = collider.velocity;
+                    ground.walkable = true;
+                    considerSweepHit(best, std::move(ground));
+                }
+            }
         }
+
+        if (displacement.y > 0.00001F) {
+            const float headStart = position.y + query.height;
+            const float ceiling = minY(collider);
+            const float t = (ceiling - headStart) / displacement.y;
+            const auto impact = position + (displacement * t);
+            if (t >= 0.0F && t <= 1.0F && headStart <= ceiling + 0.0001F &&
+                horizontalCircleOverlapsAabb(impact, collider, query.radius + query.skinWidth)) {
+                SweepHitCandidate ceilingHit{};
+                ceilingHit.hit = true;
+                ceilingHit.fraction = t;
+                ceilingHit.normal = {0.0F, -1.0F, 0.0F};
+                ceilingHit.collider = &collider;
+                ceilingHit.colliderId = collider.id;
+                ceilingHit.kind = collider.kind;
+                ceilingHit.surfaceVelocity = collider.velocity;
+                considerSweepHit(best, std::move(ceilingHit));
+            }
+        }
+    }
+
+    if (displacement.y < -0.00001F && position.y > 0.0001F) {
+        const float t = -position.y / displacement.y;
+        const auto impact = position + (displacement * t);
+        if (t >= 0.0F && t <= 1.0F &&
+            std::abs(impact.x) <= boundsHalfExtents.x - query.radius &&
+            std::abs(impact.z) <= boundsHalfExtents.z - query.radius) {
+            SweepHitCandidate floor{};
+            floor.hit = true;
+            floor.fraction = t;
+            floor.normal = {0.0F, 1.0F, 0.0F};
+            floor.colliderId = "floor_main";
+            floor.kind = SurfaceKind::Floor;
+            floor.walkable = true;
+            considerSweepHit(best, std::move(floor));
+        }
+    }
+
+    const float minAllowedX = -boundsHalfExtents.x + query.radius + query.skinWidth;
+    const float maxAllowedX = boundsHalfExtents.x - query.radius - query.skinWidth;
+    const float minAllowedZ = -boundsHalfExtents.z + query.radius + query.skinWidth;
+    const float maxAllowedZ = boundsHalfExtents.z - query.radius - query.skinWidth;
+    const auto considerBound = [&](float t, math::Vec3 normal) {
+        SweepHitCandidate bounds{};
+        if (t < 0.0F || t > 1.0F) {
+            return;
+        }
+        bounds.hit = true;
+        bounds.fraction = t;
+        bounds.normal = normal;
+        bounds.colliderId = "world_bounds";
+        bounds.kind = SurfaceKind::Wall;
+        considerSweepHit(best, std::move(bounds));
+    };
+    if (displacement.x > 0.00001F && end.x > maxAllowedX) {
+        considerBound((maxAllowedX - position.x) / displacement.x, {-1.0F, 0.0F, 0.0F});
+    } else if (displacement.x < -0.00001F && end.x < minAllowedX) {
+        considerBound((minAllowedX - position.x) / displacement.x, {1.0F, 0.0F, 0.0F});
+    }
+    if (displacement.z > 0.00001F && end.z > maxAllowedZ) {
+        considerBound((maxAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, -1.0F});
+    } else if (displacement.z < -0.00001F && end.z < minAllowedZ) {
+        considerBound((minAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, 1.0F});
     }
     return best;
 }
@@ -839,25 +1085,28 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
     query.snapDownDistance = std::max(0.0F, query.snapDownDistance);
     query.walkableSlopeCosine = std::clamp(query.walkableSlopeCosine, 0.0F, 1.0F);
     query.wallProbeDistance = std::max(0.0F, query.wallProbeDistance);
+    query.skinWidth = std::clamp(query.skinWidth, 0.0001F, std::max(0.0001F, query.radius * 0.25F));
+    query.maxDepenetrationIterations = std::clamp(query.maxDepenetrationIterations, 1, 16);
 
     CharacterResolveResult result{};
     result.position = query.position;
 
     if (result.position.y <= 0.0F) {
+        const auto before = result.position;
         result.position.y = 0.0F;
         result.groundHeight = 0.0F;
         result.groundNormal = {0.0F, 1.0F, 0.0F};
         result.grounded = true;
         result.groundColliderId = "floor_main";
         result.groundKind = SurfaceKind::Floor;
+        result.correction = result.correction + (result.position - before);
     }
 
-    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query);
     resolveBounds(result, boundsHalfExtents_, query.radius);
-
-    for (const auto& collider : staticColliders_) {
-        resolveAgainstExpandedAabb(result, collider, query);
-    }
+    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query);
+    resolveSidePenetrations(result, staticColliders_, query);
+    clearGroundState(result);
+    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query);
 
     const auto wall = probeWall(WallProbe{result.position, query.radius, query.height, query.wallProbeDistance});
     if (wall.hit) {
@@ -865,6 +1114,16 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
             recordWallContact(result, *collider, wall.normal, wall.distance);
         }
     }
+
+    std::stable_sort(
+        result.contacts.begin(),
+        result.contacts.end(),
+        [](const CharacterContact& lhs, const CharacterContact& rhs) {
+            if (lhs.role != rhs.role) {
+                return lhs.role < rhs.role;
+            }
+            return lhs.colliderId < rhs.colliderId;
+        });
 
     return result;
 }
@@ -877,6 +1136,8 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
     query.walkableSlopeCosine = std::clamp(query.walkableSlopeCosine, 0.0F, 1.0F);
     query.wallProbeDistance = std::max(0.0F, query.wallProbeDistance);
     query.maxIterations = std::clamp(query.maxIterations, 1, 8);
+    query.skinWidth = std::clamp(query.skinWidth, 0.0001F, std::max(0.0001F, query.radius * 0.25F));
+    query.maxDepenetrationIterations = std::clamp(query.maxDepenetrationIterations, 1, 16);
 
     CharacterSweepResult result{};
     result.startPosition = query.startPosition;
@@ -886,25 +1147,44 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
     startResolveQuery.enableGroundSnap = false;
     auto start = resolveCharacter(startResolveQuery);
     math::Vec3 position = start.position;
-    math::Vec3 remaining = query.desiredDisplacement + (query.startPosition - position);
+    math::Vec3 remaining = query.desiredDisplacement;
+    math::Vec3 rejectedDisplacement{};
+    const bool startedGrounded = start.grounded;
     result.startPosition = position;
 
     for (int iteration = 0; iteration < query.maxIterations; ++iteration) {
-        if (horizontalLength(remaining) <= 0.0001F) {
+        if (remaining.lengthSquared() <= 0.00000001F) {
             position = position + remaining;
             remaining = {};
             break;
         }
 
-        auto hit = findEarliestSweepHit(staticColliders_, query, position, remaining);
-        if (!hit.hit || hit.collider == nullptr) {
+        auto hit = findEarliestSweepHit(staticColliders_, boundsHalfExtents_, query, position, remaining);
+        if (!hit.hit) {
             position = position + remaining;
             remaining = {};
             result.iterationCount = static_cast<std::size_t>(iteration + 1);
             break;
         }
 
-        const float travelLength = std::max(0.001F, horizontalLength(remaining));
+        const auto contactPosition = position + (remaining * hit.fraction);
+        if (startedGrounded && hit.collider != nullptr && std::abs(hit.normal.y) <= 0.0001F &&
+            canStepOntoColliderDuringSweep(*hit.collider, query, contactPosition)) {
+            const float stepHeight = maxY(*hit.collider) - position.y;
+            auto raisedPosition = contactPosition;
+            raisedPosition.y = maxY(*hit.collider) + query.skinWidth;
+            if (capsuleHasStepClearance(staticColliders_, *hit.collider, raisedPosition, query)) {
+                position = raisedPosition;
+                remaining = remaining * (1.0F - hit.fraction);
+                remaining.y = std::max(0.0F, remaining.y);
+                result.stepped = true;
+                result.stepHeight = std::max(result.stepHeight, stepHeight);
+                result.iterationCount = static_cast<std::size_t>(iteration + 1);
+                continue;
+            }
+        }
+
+        const float travelLength = std::max(0.001F, std::sqrt(remaining.lengthSquared()));
         const float safetyFraction = std::min(0.05F, 0.003F / travelLength);
         const float safeFraction = std::max(0.0F, hit.fraction - safetyFraction);
         position = position + (remaining * safeFraction);
@@ -913,12 +1193,12 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
         if (result.hitColliderId.empty()) {
             result.firstHitFraction = hit.fraction;
             result.hitNormal = hit.normal;
-            result.hitColliderId = hit.collider->id;
-            result.hitKind = hit.collider->kind;
+            result.hitColliderId = hit.colliderId;
+            result.hitKind = hit.kind;
         }
         result.sweepContacts.push_back(CharacterContact{
-            hit.collider->id,
-            hit.collider->kind,
+            hit.colliderId,
+            hit.kind,
             CharacterContactRole::Sweep,
             position,
             hit.normal,
@@ -926,22 +1206,27 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
             hit.fraction,
             0.0F,
             true,
-            false,
-            hit.collider->velocity,
+            hit.walkable,
+            hit.surfaceVelocity,
         });
 
         remaining = remaining * (1.0F - safeFraction);
-        const float intoWall = dotHorizontal(remaining, hit.normal);
-        if (intoWall < 0.0F) {
-            remaining.x -= hit.normal.x * intoWall;
-            remaining.z -= hit.normal.z * intoWall;
+        const float intoSurface = (remaining.x * hit.normal.x) +
+            (remaining.y * hit.normal.y) +
+            (remaining.z * hit.normal.z);
+        if (intoSurface < 0.0F) {
+            const auto rejected = hit.normal * intoSurface;
+            rejectedDisplacement = rejectedDisplacement + rejected;
+            remaining = remaining - rejected;
         }
         result.iterationCount = static_cast<std::size_t>(iteration + 1);
     }
 
-    result.remainingDisplacement = remaining;
+    result.remainingDisplacement = remaining + rejectedDisplacement;
     auto resolveQuery = characterQueryFromSweep(query, position);
     result.resolve = resolveCharacter(resolveQuery);
+    result.resolve.stepped = result.resolve.stepped || result.stepped;
+    result.resolve.stepHeight = std::max(result.resolve.stepHeight, result.stepHeight);
     result.appliedDisplacement = result.resolve.position - result.startPosition;
     for (const auto& contact : result.sweepContacts) {
         appendContact(result.resolve, contact);
@@ -958,7 +1243,9 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
                 result.resolve.lastColliderId = result.hitColliderId;
             }
         }
-        if (result.resolve.wallColliderId.empty() && !result.hitColliderId.empty()) {
+        if (result.resolve.wallColliderId.empty() &&
+            !result.hitColliderId.empty() &&
+            std::abs(result.hitNormal.y) <= 0.25F) {
             result.resolve.wallColliderId = result.hitColliderId;
             result.resolve.wallNormal = result.hitNormal;
             result.resolve.wallTangent = tangentForWallNormal(result.hitNormal);
@@ -982,7 +1269,8 @@ WallProbeResult PhysicsWorld::probeWall(WallProbe probe) const {
         if (!candidate.hit) {
             continue;
         }
-        if (!best.hit || candidate.distance < best.distance) {
+        if (!best.hit || candidate.distance < best.distance - 0.00001F ||
+            (std::abs(candidate.distance - best.distance) <= 0.00001F && candidate.colliderId < best.colliderId)) {
             best = std::move(candidate);
         }
     }
@@ -1014,7 +1302,8 @@ MantleProbeResult PhysicsWorld::probeMantle(MantleProbe probe) const {
         if (!candidate.hit) {
             continue;
         }
-        if (!best.hit || candidate.distance < best.distance) {
+        if (!best.hit || candidate.distance < best.distance - 0.00001F ||
+            (std::abs(candidate.distance - best.distance) <= 0.00001F && candidate.colliderId < best.colliderId)) {
             best = std::move(candidate);
         }
     }

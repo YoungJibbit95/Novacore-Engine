@@ -57,6 +57,8 @@ struct CharacterQuery final {
     float wallProbeDistance = 0.30F;
     bool enableGroundSnap = true;
     bool enableStepUp = true;
+    float skinWidth = 0.003F;
+    int maxDepenetrationIterations = 6;
 };
 
 struct CharacterSweepQuery final {
@@ -71,6 +73,8 @@ struct CharacterSweepQuery final {
     int maxIterations = 4;
     bool enableGroundSnap = true;
     bool enableStepUp = true;
+    float skinWidth = 0.003F;
+    int maxDepenetrationIterations = 6;
 };
 
 struct CharacterContact final {
@@ -94,8 +98,11 @@ struct CharacterResolveResult final {
     math::Vec3 wallNormal{};
     math::Vec3 wallTangent{};
     float groundHeight = 0.0F;
+    float groundSnapDistance = 0.0F;
+    float stepHeight = 0.0F;
     float wallDistance = 0.0F;
     std::size_t hitCount = 0;
+    std::size_t depenetrationIterations = 0;
     bool grounded = false;
     bool blocked = false;
     bool stepped = false;
@@ -123,6 +130,8 @@ struct CharacterSweepResult final {
     std::size_t iterationCount = 0;
     bool swept = false;
     bool hit = false;
+    bool stepped = false;
+    float stepHeight = 0.0F;
     std::string hitColliderId;
     SurfaceKind hitKind = SurfaceKind::Wall;
     std::vector<CharacterContact> sweepContacts;

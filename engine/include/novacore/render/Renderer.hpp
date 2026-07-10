@@ -37,8 +37,14 @@ struct MeshResourceHandle final {
     }
 };
 
+enum class MeshResourceUsage : std::uint8_t {
+    Static,
+    DynamicVertices
+};
+
 struct MeshResourceStats final {
     std::size_t registeredResources = 0;
+    std::size_t dynamicVertexResources = 0;
     std::size_t pendingUploadResources = 0;
     std::size_t residentResources = 0;
     std::size_t failedResources = 0;
@@ -53,6 +59,9 @@ struct MeshResourceStats final {
     std::uint64_t gpuUploadQueueProcessedCount = 0;
     std::uint64_t gpuUploadRetireCount = 0;
     std::uint64_t gpuUploadDestroyedCount = 0;
+    std::uint64_t dynamicVertexUpdateAttemptCount = 0;
+    std::uint64_t dynamicVertexUpdateSuccessCount = 0;
+    std::uint64_t dynamicVertexUpdateFailureCount = 0;
 };
 
 struct RenderBackendFrameStats final {
@@ -85,6 +94,7 @@ struct MeshResourceView final {
     MeshResourceHandle handle{};
     std::string assetId;
     std::shared_ptr<const assets::GltfMeshData> meshData;
+    MeshResourceUsage usage = MeshResourceUsage::Static;
 };
 
 struct DebugRect final {
@@ -245,6 +255,10 @@ public:
     bool create(platform::Window& window, const RendererCreateInfo& info);
     [[nodiscard]] MeshResourceHandle registerMeshResource(
         std::string assetId,
+        const assets::GltfMeshData& meshData,
+        MeshResourceUsage usage = MeshResourceUsage::Static);
+    [[nodiscard]] bool updateMeshResourceVertices(
+        MeshResourceHandle handle,
         const assets::GltfMeshData& meshData);
     void releaseMeshResource(MeshResourceHandle handle);
     [[nodiscard]] MeshResourceHandle findMeshResource(std::string_view assetId) const;
@@ -271,6 +285,5 @@ private:
 };
 
 } // namespace novacore::render
-
 
 

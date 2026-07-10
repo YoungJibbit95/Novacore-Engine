@@ -802,6 +802,28 @@ void testRendererMeshResourceRegistry() {
     expect(stats.registeredResources == 0, "mesh resource registry releases all resources cleanly");
     expect(stats.totalVertices == 0, "mesh resource registry clears vertex stats after full release");
     expect(stats.totalIndices == 0, "mesh resource registry clears index stats after full release");
+
+    const auto dynamic = renderer.registerMeshResource(
+        "animated_triangle",
+        triangle,
+        novacore::render::MeshResourceUsage::DynamicVertices);
+    expect(dynamic.isValid(), "dynamic vertex mesh resource creates a valid handle");
+    stats = renderer.meshResourceStats();
+    expect(stats.dynamicVertexResources == 1, "mesh resource stats report dynamic vertex resources");
+
+    auto animatedTriangle = triangle;
+    animatedTriangle.primitives.front().positions.front().y = 0.25F;
+    expect(
+        renderer.updateMeshResourceVertices(dynamic, animatedTriangle),
+        "dynamic mesh accepts compatible animated vertex data");
+    animatedTriangle.primitives.front().positions.push_back({0.0F, 0.0F, 0.0F});
+    expect(
+        !renderer.updateMeshResourceVertices(dynamic, animatedTriangle),
+        "dynamic mesh rejects vertex-count changes that would invalidate GPU buffers");
+    expect(
+        !renderer.updateMeshResourceVertices({}, triangle),
+        "dynamic mesh update rejects invalid handles");
+    renderer.releaseMeshResource(dynamic);
 }
 
 void testPhysicsCharacterControllerSurfaces() {

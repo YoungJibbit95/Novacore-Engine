@@ -44,6 +44,13 @@ namespace {
     return current + (delta * (maxDelta / length));
 }
 
+[[nodiscard]] float approachFloat(float current, float target, float maxDelta) {
+    if (current < target) {
+        return std::min(target, current + std::max(0.0F, maxDelta));
+    }
+    return std::max(target, current - std::max(0.0F, maxDelta));
+}
+
 [[nodiscard]] math::Vec3 applyFriction(math::Vec3 velocity, float friction, float deltaSeconds) {
     const float horizontalSpeed = lengthHorizontal(velocity);
     if (horizontalSpeed <= 0.0001F) {
@@ -81,6 +88,8 @@ namespace {
     query.wallProbeDistance = config.wallProbeDistance;
     query.enableGroundSnap = enableSnap;
     query.enableStepUp = enableStep;
+    query.skinWidth = config.capsuleSkinWidth;
+    query.maxDepenetrationIterations = static_cast<int>(config.maxDepenetrationIterations);
     return query;
 }
 
@@ -100,6 +109,8 @@ namespace {
     query.maxIterations = 5;
     query.enableGroundSnap = displacement.y <= 0.02F;
     query.enableStepUp = true;
+    query.skinWidth = config.capsuleSkinWidth;
+    query.maxDepenetrationIterations = static_cast<int>(config.maxDepenetrationIterations);
     return query;
 }
 
@@ -181,15 +192,28 @@ CharacterMotorStepResult stepCharacterMotor(
     float deltaSeconds) {
     const float dt = std::clamp(deltaSeconds, 0.0F, 0.10F);
     CharacterMotorStepResult result{};
-    state.crouched = input.crouchHeld;
-    state.capsuleHeight = input.crouchHeld
-        ? std::clamp(config.crouchedHeight, config.radius * 2.0F, config.standingHeight)
-        : std::max(config.radius * 2.0F, config.standingHeight);
+    const bool wasGrounded = state.grounded;
+    const float incomingVerticalSpeed = state.velocity.y;
+    const float standingHeight = std::max(config.radius * 2.0F, config.standingHeight);
+    const float crouchedHeight = std::clamp(config.crouchedHeight, config.radius * 2.0F, standingHeight);
+    const float crouchTarget = input.crouchHeld ? 1.0F : 0.0F;
+    state.crouchFraction = approachFloat(
+        clamp01(state.crouchFraction),
+        crouchTarget,
+        std::max(0.01F, config.crouchTransitionSpeed) * dt);
+    state.crouched = state.crouchFraction > 0.001F;
+    state.capsuleHeight = standingHeight + ((crouchedHeight - standingHeight) * state.crouchFraction);
 
-    const auto preResolve = world.resolveCharacter(makeResolveQuery(state, config, true, true));
+    const bool allowInitialSnap = state.grounded || state.velocity.y <= 0.0F;
+    const bool allowInitialStep = state.grounded || (state.position.y <= config.snapDownDistance && state.velocity.y <= 0.0F);
+    const auto preResolve = world.resolveCharacter(makeResolveQuery(state, config, allowInitialSnap, allowInitialStep));
     state.position = preResolve.position;
     state.grounded = preResolve.grounded;
     state.nearWallRunSurface = preResolve.nearWallRunSurface;
+    state.groundNormal = preResolve.groundNormal;
+    state.supportColliderId = preResolve.groundColliderId;
+    result.landed = !wasGrounded && state.grounded && incomingVerticalSpeed < -0.01F;
+    result.impactSpeed = result.landed ? -incomingVerticalSpeed : 0.0F;
     result.groundSurface = state.grounded ? surfaceResponseFor(preResolve.groundKind) : SurfaceResponse{};
     result.supportVelocity = state.grounded ? preResolve.groundVelocity : math::Vec3{};
     result.supportColliderId = state.grounded ? preResolve.groundColliderId : std::string{};
@@ -197,8 +221,10 @@ CharacterMotorStepResult stepCharacterMotor(
     result.touchedSlideSurface = preResolve.nearSlideSurface || result.groundSurface.slideAssist;
     result.touchedWallRunSurface = preResolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
 
-    if (state.grounded && state.velocity.y < 0.0F) {
-        state.velocity.y = 0.0F;
+    if (state.grounded) {
+        if (state.velocity.y < 0.0F) {
+            state.velocity.y = 0.0F;
+        }
         state.velocity = projectVelocityOnPlane(state.velocity, preResolve.groundNormal);
     }
 
@@ -208,7 +234,8 @@ CharacterMotorStepResult stepCharacterMotor(
             state.velocity.z += result.supportVelocity.z;
             state.velocity.y += std::max(0.0F, result.supportVelocity.y);
         }
-        state.velocity.y = std::max(0.0F, config.jumpSpeed);
+        state.velocity.y = std::max(0.0F, config.jumpSpeed) +
+            (result.carriedBySupport ? std::max(0.0F, result.supportVelocity.y) : 0.0F);
         state.grounded = false;
         result.jumped = true;
     }
@@ -227,11 +254,19 @@ CharacterMotorStepResult stepCharacterMotor(
     const float braking = state.grounded
         ? config.brakingDeceleration * result.groundSurface.frictionScale
         : config.groundFriction;
-    const auto nextHorizontal = inputStrength > 0.001F
-        ? approachVec3(currentHorizontal, desiredHorizontal, acceleration * dt)
-        : applyFriction(currentHorizontal, braking, dt);
-    state.velocity.x = nextHorizontal.x;
-    state.velocity.z = nextHorizontal.z;
+    if (state.grounded && !result.jumped) {
+        const auto currentTangent = projectVelocityOnPlane(state.velocity, preResolve.groundNormal);
+        const auto desiredTangent = projectVelocityOnPlane(desiredHorizontal, preResolve.groundNormal);
+        state.velocity = inputStrength > 0.001F
+            ? approachVec3(currentTangent, desiredTangent, acceleration * dt)
+            : projectVelocityOnPlane(applyFriction(currentTangent, braking, dt), preResolve.groundNormal);
+    } else {
+        const auto nextHorizontal = inputStrength > 0.001F
+            ? approachVec3(currentHorizontal, desiredHorizontal, acceleration * dt)
+            : applyFriction(currentHorizontal, braking, dt);
+        state.velocity.x = nextHorizontal.x;
+        state.velocity.z = nextHorizontal.z;
+    }
 
     if (state.grounded && result.groundSurface.slideAssist && preResolve.groundNormal.y < 0.99F) {
         const auto downhill = normalizeHorizontal(projectVelocityOnPlane({0.0F, -1.0F, 0.0F}, preResolve.groundNormal));
@@ -247,15 +282,20 @@ CharacterMotorStepResult stepCharacterMotor(
     const auto supportDisplacement = (!result.jumped && state.grounded)
         ? result.supportVelocity * dt
         : math::Vec3{};
-    result.desiredDisplacement = (state.velocity * dt) + supportDisplacement;
+    const auto adhesionDisplacement = (!result.jumped && state.grounded)
+        ? preResolve.groundNormal * (-std::max(0.0F, config.groundAdhesionSpeed) * dt)
+        : math::Vec3{};
+    result.desiredDisplacement = (state.velocity * dt) + supportDisplacement + adhesionDisplacement;
     if (result.desiredDisplacement.lengthSquared() > 0.0000001F) {
         result.swept = true;
         result.sweep = world.sweepCharacter(makeSweepQuery(state, config, result.desiredDisplacement));
         state.position = result.sweep.resolve.position;
         if (result.sweep.hit) {
-            state.velocity = projectVelocityOnPlane(state.velocity, result.sweep.hitNormal);
-            if (result.sweep.hitNormal.y > config.walkableSlopeCosine && state.velocity.y < 0.0F) {
-                state.velocity.y = 0.0F;
+            for (const auto& contact : result.sweep.sweepContacts) {
+                const float intoSurface = dot(state.velocity, contact.normal);
+                if (intoSurface < 0.0F) {
+                    state.velocity = projectVelocityOnPlane(state.velocity, contact.normal);
+                }
             }
         }
     }
@@ -264,6 +304,8 @@ CharacterMotorStepResult stepCharacterMotor(
     state.position = result.resolve.position;
     state.grounded = result.resolve.grounded;
     state.nearWallRunSurface = result.resolve.nearWallRunSurface;
+    state.groundNormal = result.resolve.groundNormal;
+    state.supportColliderId = result.resolve.groundColliderId;
     result.groundSurface = state.grounded ? surfaceResponseFor(result.resolve.groundKind) : result.groundSurface;
     if (!result.jumped && state.grounded) {
         result.supportVelocity = result.resolve.groundVelocity;
@@ -273,7 +315,7 @@ CharacterMotorStepResult stepCharacterMotor(
     result.touchedSlideSurface = result.touchedSlideSurface || result.resolve.nearSlideSurface || result.groundSurface.slideAssist;
     result.touchedWallRunSurface = result.touchedWallRunSurface || result.resolve.nearWallRunSurface || result.groundSurface.wallRunAssist;
     if (state.grounded && !result.jumped) {
-        state.velocity.y = 0.0F;
+        state.velocity = projectVelocityOnPlane(state.velocity, result.resolve.groundNormal);
     }
     ++state.tick;
     result.state = state;

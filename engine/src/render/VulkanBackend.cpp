@@ -490,11 +490,12 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 [[nodiscard]] WorldMeshPushConstants pushConstantsForMesh(
     const Mat4& viewProjection,
     const RenderMesh3D& mesh,
-    const RenderWorldLighting& lighting) {
+    const RenderWorldLighting& lighting,
+    std::array<float, 4> color) {
     const auto worldViewProjection = multiply(viewProjection, modelMatrixForMesh(mesh));
     return WorldMeshPushConstants{
         worldViewProjection.value,
-        mesh.color,
+        color,
         packedLighting(lighting),
         packedFillLighting(lighting),
         packedMaterialResponse(lighting, mesh.material),
@@ -542,17 +543,22 @@ enum class GpuMeshState {
 };
 
 struct GpuMeshPrimitive final {
-    GpuBuffer vertexBuffer{};
+    std::array<GpuBuffer, kMaxFramesInFlight> vertexBuffers{};
     GpuBuffer indexBuffer{};
+    std::size_t vertexCount = 0;
     std::uint32_t indexCount = 0;
+    int materialIndex = -1;
+    bool dynamicVertices = false;
 };
 
 struct GpuMeshAsset final {
     MeshResourceHandle handle{};
     std::string assetId;
     std::vector<GpuMeshPrimitive> primitives;
+    std::vector<assets::GltfMaterialData> materials;
     std::size_t vertexCount = 0;
     std::size_t indexCount = 0;
+    MeshResourceUsage usage = MeshResourceUsage::Static;
     GpuMeshState state = GpuMeshState::PendingUpload;
     std::uint64_t lastTouchedFrame = 0;
 };
@@ -560,6 +566,16 @@ struct GpuMeshAsset final {
 struct PendingMeshUpload final {
     MeshResourceView resource;
     std::uint64_t queuedFrame = 0;
+};
+
+struct PendingDynamicPrimitiveUpdate final {
+    std::vector<math::Vec3> positions;
+    std::vector<math::Vec3> normals;
+};
+
+struct PendingDynamicMeshUpdate final {
+    MeshResourceHandle handle{};
+    std::vector<PendingDynamicPrimitiveUpdate> primitives;
 };
 
 struct DeferredGpuMeshDestroy final {
@@ -719,6 +735,7 @@ struct VulkanBackend::Impl final {
     std::array<VkFence, kMaxFramesInFlight> inFlight{};
     std::unordered_map<std::uint64_t, GpuMeshAsset> gpuMeshes;
     std::vector<PendingMeshUpload> pendingMeshUploads;
+    std::vector<PendingDynamicMeshUpdate> pendingDynamicMeshUpdates;
     std::vector<DeferredGpuMeshDestroy> deferredMeshDestroys;
     std::uint64_t frameSerial = 0;
     std::uint32_t currentFrame = 0;
@@ -739,6 +756,9 @@ struct VulkanBackend::Impl final {
     std::uint64_t gpuUploadQueueProcessedCount = 0;
     std::uint64_t gpuUploadRetireCount = 0;
     std::uint64_t gpuUploadDestroyedCount = 0;
+    std::uint64_t dynamicVertexUpdateAttemptCount = 0;
+    std::uint64_t dynamicVertexUpdateSuccessCount = 0;
+    std::uint64_t dynamicVertexUpdateFailureCount = 0;
     std::uint32_t requestedSwapchainWidth = 0;
     std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
@@ -2305,6 +2325,7 @@ struct VulkanBackend::Impl final {
 
     [[nodiscard]] bool uploadMeshPrimitive(
         const assets::GltfPrimitiveData& source,
+        MeshResourceUsage usage,
         GpuMeshPrimitive& outPrimitive) {
         if (source.positions.empty() || source.indices.empty()) {
             core::logWarning("render", "Skipping empty glTF primitive during Vulkan upload");
@@ -2315,11 +2336,28 @@ struct VulkanBackend::Impl final {
         const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
         const VkDeviceSize indexBytes = sizeof(std::uint32_t) * source.indices.size();
 
-        if (!uploadDeviceLocalBuffer(
-                vertices.data(),
-                vertexBytes,
-                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                outPrimitive.vertexBuffer)) {
+        outPrimitive.dynamicVertices = usage == MeshResourceUsage::DynamicVertices;
+        outPrimitive.materialIndex = source.materialIndex;
+        outPrimitive.vertexCount = vertices.size();
+        if (outPrimitive.dynamicVertices) {
+            for (auto& buffer : outPrimitive.vertexBuffers) {
+                if (!createBuffer(
+                        vertexBytes,
+                        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                        buffer) ||
+                    !writeHostVisibleBuffer(vertices.data(), vertexBytes, buffer)) {
+                    for (auto& created : outPrimitive.vertexBuffers) {
+                        destroyBuffer(created);
+                    }
+                    return false;
+                }
+            }
+        } else if (!uploadDeviceLocalBuffer(
+                       vertices.data(),
+                       vertexBytes,
+                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                       outPrimitive.vertexBuffers.front())) {
             return false;
         }
         if (!uploadDeviceLocalBuffer(
@@ -2327,7 +2365,9 @@ struct VulkanBackend::Impl final {
                 indexBytes,
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                 outPrimitive.indexBuffer)) {
-            destroyBuffer(outPrimitive.vertexBuffer);
+            for (auto& buffer : outPrimitive.vertexBuffers) {
+                destroyBuffer(buffer);
+            }
             return false;
         }
 
@@ -2339,11 +2379,15 @@ struct VulkanBackend::Impl final {
 
     void destroyGpuMeshAsset(GpuMeshAsset& asset) {
         for (auto& primitive : asset.primitives) {
-            destroyBuffer(primitive.vertexBuffer);
+            for (auto& buffer : primitive.vertexBuffers) {
+                destroyBuffer(buffer);
+            }
             destroyBuffer(primitive.indexBuffer);
+            primitive.vertexCount = 0;
             primitive.indexCount = 0;
         }
         asset.primitives.clear();
+        asset.materials.clear();
         asset.vertexCount = 0;
         asset.indexCount = 0;
     }
@@ -2354,6 +2398,7 @@ struct VulkanBackend::Impl final {
         }
         gpuMeshes.clear();
         pendingMeshUploads.clear();
+        pendingDynamicMeshUpdates.clear();
         for (auto& item : deferredMeshDestroys) {
             destroyGpuMeshAsset(item.asset);
         }
@@ -2386,6 +2431,7 @@ struct VulkanBackend::Impl final {
         GpuMeshAsset placeholder{};
         placeholder.handle = resource.handle;
         placeholder.assetId = std::string(resource.assetId);
+        placeholder.usage = resource.usage;
         placeholder.state = GpuMeshState::PendingUpload;
         placeholder.lastTouchedFrame = frameSerial;
         gpuMeshes[key] = std::move(placeholder);
@@ -2402,6 +2448,11 @@ struct VulkanBackend::Impl final {
             pendingMeshUploads,
             [key](const PendingMeshUpload& upload) {
                 return resourceKey(upload.resource.handle) == key;
+            });
+        std::erase_if(
+            pendingDynamicMeshUpdates,
+            [key](const PendingDynamicMeshUpdate& update) {
+                return resourceKey(update.handle) == key;
             });
 
         const auto it = gpuMeshes.find(key);
@@ -2438,13 +2489,15 @@ struct VulkanBackend::Impl final {
         GpuMeshAsset asset{};
         asset.handle = upload.resource.handle;
         asset.assetId = std::string(upload.resource.assetId);
+        asset.usage = upload.resource.usage;
         asset.primitives.reserve(upload.resource.meshData->primitives.size());
+        asset.materials = upload.resource.meshData->materials;
         asset.state = GpuMeshState::PendingUpload;
         asset.lastTouchedFrame = frameSerial;
 
         for (const auto& primitiveData : upload.resource.meshData->primitives) {
             GpuMeshPrimitive gpuPrimitive{};
-            if (!uploadMeshPrimitive(primitiveData, gpuPrimitive)) {
+            if (!uploadMeshPrimitive(primitiveData, upload.resource.usage, gpuPrimitive)) {
                 destroyGpuMeshAsset(asset);
                 assetIt->second.state = GpuMeshState::Failed;
                 ++gpuUploadFailureCount;
@@ -2471,6 +2524,98 @@ struct VulkanBackend::Impl final {
         assetIt->second = std::move(asset);
         ++gpuUploadSuccessCount;
         return true;
+    }
+
+    [[nodiscard]] bool queueDynamicMeshUpdate(
+        MeshResourceHandle handle,
+        const assets::GltfMeshData& meshData) {
+        ++dynamicVertexUpdateAttemptCount;
+        const auto key = resourceKey(handle);
+        const auto asset = gpuMeshes.find(key);
+        if (asset == gpuMeshes.end() || asset->second.usage != MeshResourceUsage::DynamicVertices ||
+            asset->second.primitives.size() != meshData.primitives.size()) {
+            ++dynamicVertexUpdateFailureCount;
+            return false;
+        }
+
+        PendingDynamicMeshUpdate replacement{};
+        replacement.handle = handle;
+        replacement.primitives.reserve(meshData.primitives.size());
+        for (const auto& primitive : meshData.primitives) {
+            replacement.primitives.push_back(PendingDynamicPrimitiveUpdate{
+                primitive.positions,
+                primitive.normals,
+            });
+        }
+
+        const auto pending = std::ranges::find_if(
+            pendingDynamicMeshUpdates,
+            [key](const PendingDynamicMeshUpdate& update) {
+                return resourceKey(update.handle) == key;
+            });
+        if (pending != pendingDynamicMeshUpdates.end()) {
+            *pending = std::move(replacement);
+        } else {
+            pendingDynamicMeshUpdates.push_back(std::move(replacement));
+        }
+        return true;
+    }
+
+    void processDynamicMeshUpdates() {
+        if (pendingDynamicMeshUpdates.empty()) {
+            return;
+        }
+
+        for (auto& update : pendingDynamicMeshUpdates) {
+            const auto assetIt = gpuMeshes.find(resourceKey(update.handle));
+            if (assetIt == gpuMeshes.end() || assetIt->second.state != GpuMeshState::Resident ||
+                assetIt->second.usage != MeshResourceUsage::DynamicVertices ||
+                assetIt->second.primitives.size() != update.primitives.size()) {
+                ++dynamicVertexUpdateFailureCount;
+                continue;
+            }
+
+            bool updated = true;
+            for (std::size_t primitiveIndex = 0;
+                 primitiveIndex < assetIt->second.primitives.size();
+                 ++primitiveIndex) {
+                auto& destination = assetIt->second.primitives[primitiveIndex];
+                const auto& source = update.primitives[primitiveIndex];
+                if (!destination.dynamicVertices || destination.vertexCount != source.positions.size()) {
+                    updated = false;
+                    break;
+                }
+
+                std::vector<VulkanMeshVertex> vertices;
+                vertices.reserve(source.positions.size());
+                for (std::size_t vertexIndex = 0; vertexIndex < source.positions.size(); ++vertexIndex) {
+                    const auto position = source.positions[vertexIndex];
+                    const auto normal = vertexIndex < source.normals.size()
+                        ? normalized(source.normals[vertexIndex])
+                        : math::Vec3{0.0F, 1.0F, 0.0F};
+                    vertices.push_back(VulkanMeshVertex{
+                        {position.x, position.y, position.z},
+                        {normal.x, normal.y, normal.z},
+                    });
+                }
+                const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
+                if (vertexBytes > destination.vertexBuffers[currentFrame].size ||
+                    !writeHostVisibleBuffer(
+                        vertices.data(),
+                        vertexBytes,
+                        destination.vertexBuffers[currentFrame])) {
+                    updated = false;
+                    break;
+                }
+            }
+
+            if (updated) {
+                ++dynamicVertexUpdateSuccessCount;
+            } else {
+                ++dynamicVertexUpdateFailureCount;
+            }
+        }
+        pendingDynamicMeshUpdates.clear();
     }
 
     void processMeshUploadQueue(std::size_t maxUploadsPerFrame) {
@@ -2515,6 +2660,9 @@ struct VulkanBackend::Impl final {
         stats.gpuUploadQueueProcessedCount = gpuUploadQueueProcessedCount;
         stats.gpuUploadRetireCount = gpuUploadRetireCount;
         stats.gpuUploadDestroyedCount = gpuUploadDestroyedCount;
+        stats.dynamicVertexUpdateAttemptCount = dynamicVertexUpdateAttemptCount;
+        stats.dynamicVertexUpdateSuccessCount = dynamicVertexUpdateSuccessCount;
+        stats.dynamicVertexUpdateFailureCount = dynamicVertexUpdateFailureCount;
 
         for (const auto& [_, asset] : gpuMeshes) {
             switch (asset.state) {
@@ -2523,6 +2671,9 @@ struct VulkanBackend::Impl final {
                 break;
             case GpuMeshState::Resident:
                 ++stats.residentResources;
+                if (asset.usage == MeshResourceUsage::DynamicVertices) {
+                    ++stats.dynamicVertexResources;
+                }
                 stats.totalPrimitives += asset.primitives.size();
                 stats.totalVertices += asset.vertexCount;
                 stats.totalIndices += asset.indexCount;
@@ -2733,23 +2884,41 @@ struct VulkanBackend::Impl final {
                 }
                 uploaded->second.lastTouchedFrame = frameSerial;
 
-                const auto constants = pushConstantsForMesh(viewProjection, mesh, frame.lighting);
-                vkCmdPushConstants(
-                    commandBuffer,
-                    worldMeshPipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0,
-                    static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
-                    &constants);
-
                 for (const auto& primitive : uploaded->second.primitives) {
-                    if (primitive.vertexBuffer.buffer == VK_NULL_HANDLE ||
+                    const auto& vertexBuffer = primitive.dynamicVertices
+                        ? primitive.vertexBuffers[currentFrame]
+                        : primitive.vertexBuffers.front();
+                    if (vertexBuffer.buffer == VK_NULL_HANDLE ||
                         primitive.indexBuffer.buffer == VK_NULL_HANDLE ||
                         primitive.indexCount == 0) {
                         continue;
                     }
 
-                    const VkBuffer vertexBuffers[] = {primitive.vertexBuffer.buffer};
+                    auto primitiveColor = mesh.color;
+                    if (primitive.materialIndex >= 0 &&
+                        static_cast<std::size_t>(primitive.materialIndex) < uploaded->second.materials.size()) {
+                        const auto& material = uploaded->second.materials[static_cast<std::size_t>(primitive.materialIndex)];
+                        for (std::size_t component = 0; component < primitiveColor.size(); ++component) {
+                            primitiveColor[component] *= material.baseColorFactor[component];
+                        }
+                        primitiveColor[0] = std::clamp(primitiveColor[0] + material.emissiveFactor.x * 0.35F, 0.0F, 1.0F);
+                        primitiveColor[1] = std::clamp(primitiveColor[1] + material.emissiveFactor.y * 0.35F, 0.0F, 1.0F);
+                        primitiveColor[2] = std::clamp(primitiveColor[2] + material.emissiveFactor.z * 0.35F, 0.0F, 1.0F);
+                    }
+                    const auto constants = pushConstantsForMesh(
+                        viewProjection,
+                        mesh,
+                        frame.lighting,
+                        primitiveColor);
+                    vkCmdPushConstants(
+                        commandBuffer,
+                        worldMeshPipelineLayout,
+                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                        0,
+                        static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
+                        &constants);
+
+                    const VkBuffer vertexBuffers[] = {vertexBuffer.buffer};
                     const VkDeviceSize offsets[] = {0};
                     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
                     vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
@@ -3063,6 +3232,7 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
     vkWaitForFences(impl_->device, 1, &impl_->inFlight[impl_->currentFrame], VK_TRUE, UINT64_MAX);
     impl_->processDeferredMeshDestroys();
     impl_->processMeshUploadQueue(32);
+    impl_->processDynamicMeshUpdates();
 
     const VkResult acquireResult = vkAcquireNextImageKHR(
         impl_->device,
@@ -3160,6 +3330,21 @@ void VulkanBackend::registerMeshResource(const MeshResourceView& resource) {
     impl_->registerMeshResource(resource);
 #else
     (void)resource;
+#endif
+}
+
+bool VulkanBackend::updateMeshResourceVertices(
+    MeshResourceHandle handle,
+    const assets::GltfMeshData& meshData) {
+#if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    if (!impl_->isReady || impl_->device == VK_NULL_HANDLE) {
+        return false;
+    }
+    return impl_->queueDynamicMeshUpdate(handle, meshData);
+#else
+    (void)handle;
+    (void)meshData;
+    return true;
 #endif
 }
 

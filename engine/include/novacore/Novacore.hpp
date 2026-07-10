@@ -1,7 +1,12 @@
 #pragma once
 
+#include "novacore/animation/AnimationClip.hpp"
+#include "novacore/animation/AnimationRuntime.hpp"
+#include "novacore/animation/AnimationTypes.hpp"
+#include "novacore/animation/Skeleton.hpp"
 #include "novacore/assets/AssetManifest.hpp"
 #include "novacore/assets/GltfDocument.hpp"
+#include "novacore/assets/GltfAnimationBridge.hpp"
 #include "novacore/assets/GltfMetadata.hpp"
 #include "novacore/assets/AssetRegistry.hpp"
 #include "novacore/assets/AssetStreamer.hpp"

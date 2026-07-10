@@ -22,6 +22,9 @@ public:
 
     [[nodiscard]] bool create(platform::Window& window, std::array<float, 4> clearColor);
     void registerMeshResource(const MeshResourceView& resource);
+    [[nodiscard]] bool updateMeshResourceVertices(
+        MeshResourceHandle handle,
+        const assets::GltfMeshData& meshData);
     void releaseMeshResource(MeshResourceHandle handle);
     void beginFrame(const RenderFrameInfo& frame);
     void endFrame();

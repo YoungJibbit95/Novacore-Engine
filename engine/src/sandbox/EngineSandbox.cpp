@@ -1,5 +1,6 @@
 #include "novacore/sandbox/EngineSandbox.hpp"
 
+#include "novacore/animation/AnimationRuntime.hpp"
 #include "novacore/assets/AssetManifest.hpp"
 #include "novacore/core/ConfigDocument.hpp"
 #include "novacore/core/FixedStep.hpp"
@@ -29,6 +30,7 @@ constexpr std::string_view kNetLoopbackScenario = "net_loopback_packets";
 constexpr std::string_view kAssetManifestScenario = "asset_manifest_parse";
 constexpr std::string_view kMovementReplayScenario = "movement_replay";
 constexpr std::string_view kMovingSupportScenario = "moving_support";
+constexpr std::string_view kAnimationBlendScenario = "animation_blend";
 
 [[nodiscard]] bool finite(novacore::math::Vec3 value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
@@ -597,6 +599,106 @@ void appendScenario(EngineSandboxRunResult& result, EngineSandboxScenarioResult 
     return scenario;
 }
 
+[[nodiscard]] EngineSandboxScenarioResult runAnimationBlendScenario(const EngineSandboxOptions& options) {
+    EngineSandboxScenarioResult scenario{};
+    scenario.id = toString(kAnimationBlendScenario);
+    scenario.name = "Animation blending and socket evaluation";
+    animation::Skeleton skeleton{};
+    skeleton.name = "sandbox_operator";
+    skeleton.joints = {
+        animation::Joint{"root", -1, {}},
+        animation::Joint{"spine", 0, {{0.0F, 0.9F, 0.0F}, {}, {1.0F, 1.0F, 1.0F}}},
+        animation::Joint{"hand_r", 1, {{0.32F, 0.42F, 0.10F}, {}, {1.0F, 1.0F, 1.0F}}},
+    };
+    skeleton.sockets.push_back(animation::Socket{
+        "socket_weapon_root",
+        2U,
+        {{0.0F, 0.0F, 0.18F}, {}, {1.0F, 1.0F, 1.0F}},
+    });
+
+    animation::AnimationClip idle{};
+    idle.name = "idle";
+    idle.duration = 1.0F;
+    animation::JointTrack idleSpine{1U};
+    idleSpine.rotation = animation::QuatTrack{
+            animation::InterpolationMode::Linear,
+            {
+                {0.0F, {0.0F, 0.0F, 0.0F, 1.0F}},
+                {0.5F, {0.0F, 0.0F, 0.025F, 0.9996875F}},
+                {1.0F, {0.0F, 0.0F, 0.0F, 1.0F}},
+            },
+        };
+    idle.tracks.push_back(std::move(idleSpine));
+
+    animation::AnimationClip run{};
+    run.name = "run";
+    run.duration = 1.0F;
+    animation::JointTrack runRoot{0U};
+    runRoot.translation = animation::Vec3Track{
+            animation::InterpolationMode::Linear,
+            {{0.0F, {}}, {1.0F, {0.0F, 0.0F, 1.25F}}},
+        };
+    run.tracks.push_back(std::move(runRoot));
+    animation::JointTrack runHand{2U};
+    runHand.translation = animation::Vec3Track{
+            animation::InterpolationMode::Linear,
+            {
+                {0.0F, {0.32F, 0.42F, 0.10F}},
+                {0.5F, {0.32F, 0.36F, 0.24F}},
+                {1.0F, {0.32F, 0.42F, 0.10F}},
+            },
+        };
+    run.tracks.push_back(std::move(runHand));
+
+    animation::AnimationRuntime runtime;
+    const auto skeletonValidation = runtime.setSkeleton(skeleton);
+    const auto idleValidation = runtime.play(idle, animation::WrapMode::Loop);
+    const auto rootMotionValidation = runtime.setRootMotionJoint(0U);
+    const std::uint32_t ticks = std::clamp(options.tickCount, 30U, 720U);
+    const float dt = std::clamp(options.fixedDeltaSeconds, 1.0F / 240.0F, 1.0F / 20.0F);
+    bool runtimeStable = skeletonValidation.valid() && idleValidation.valid() && rootMotionValidation.valid();
+    float rootMotionDistance = 0.0F;
+    std::uint32_t transitionTicks = 0U;
+    for (std::uint32_t tick = 0; tick < ticks && runtimeStable; ++tick) {
+        if (tick == ticks / 3U) {
+            const auto transition = runtime.crossFade(run, 0.18F, animation::WrapMode::Loop);
+            runtimeStable = transition.valid();
+            if (options.includeTelemetry) {
+                scenario.telemetry.push_back(event(tick, "animation", "crossfade idle to run"));
+            }
+        }
+        runtimeStable = runtimeStable && runtime.update(dt);
+        rootMotionDistance += runtime.rootMotionDelta().translation.z;
+        transitionTicks += runtime.transitioning() ? 1U : 0U;
+    }
+
+    animation::Mat4 weaponSocket{};
+    const bool socketReady = runtime.socketTransform("socket_weapon_root", weaponSocket);
+    const auto socketPosition = animation::matrixTranslation(weaponSocket);
+
+    scenario.simulatedTicks = ticks;
+    scenario.passed = runtimeStable && socketReady && finite(socketPosition) &&
+        rootMotionDistance > 0.15F && transitionTicks > 0U && !runtime.transitioning();
+    scenario.metrics.push_back(metric("joints", static_cast<double>(skeleton.joints.size()), "joints"));
+    scenario.metrics.push_back(metric("clips", 2.0, "clips"));
+    scenario.metrics.push_back(metric("transition_ticks", transitionTicks, "ticks"));
+    scenario.metrics.push_back(metric("root_motion_z", rootMotionDistance, "meters"));
+    scenario.metrics.push_back(metric("weapon_socket_y", socketPosition.y, "meters"));
+    if (options.includeTelemetry) {
+        scenario.telemetry.push_back(event(ticks, "animation", scenario.passed
+            ? "animation runtime and socket remained stable"
+            : "animation runtime validation failed"));
+    }
+    std::ostringstream summary;
+    summary << scenario.id
+            << " ticks=" << ticks
+            << " root_motion=" << std::fixed << std::setprecision(2) << rootMotionDistance
+            << " socket_y=" << socketPosition.y
+            << " status=" << passText(scenario.passed);
+    scenario.summary = summary.str();
+    return scenario;
+}
+
 } // namespace
 
 EngineSandboxRunResult runEngineSandbox(const EngineSandboxOptions& options) {
@@ -719,6 +821,10 @@ EngineSandboxRunResult runEngineSandbox(const EngineSandboxOptions& options) {
         appendScenario(result, runMovingSupportScenario(options));
     }
 
+    if (!(options.failFast && result.failedCount > 0U) && wantsScenario(options, kAnimationBlendScenario)) {
+        appendScenario(result, runAnimationBlendScenario(options));
+    }
+
     if (result.scenarios.empty()) {
         result.stable = false;
         result.exitCode = EngineSandboxExitCode::NoScenarioSelected;
@@ -740,6 +846,7 @@ std::vector<std::string_view> availableEngineSandboxScenarioIds() {
         kAssetManifestScenario,
         kMovementReplayScenario,
         kMovingSupportScenario,
+        kAnimationBlendScenario,
     };
 }
 

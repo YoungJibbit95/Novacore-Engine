@@ -128,6 +128,7 @@ struct MeshResourceSlot final {
     MeshResourceHandle handle{};
     std::string assetId;
     std::shared_ptr<const assets::GltfMeshData> meshData;
+    MeshResourceUsage usage = MeshResourceUsage::Static;
     bool alive = false;
 };
 
@@ -136,7 +137,8 @@ struct MeshResourceSlot final {
 struct MeshResourceRegistry final {
     [[nodiscard]] MeshResourceHandle registerResource(
         std::string assetId,
-        const assets::GltfMeshData& meshData) {
+        const assets::GltfMeshData& meshData,
+        MeshResourceUsage usage) {
         if (assetId.empty() || meshData.primitives.empty()) {
             return {};
         }
@@ -159,9 +161,31 @@ struct MeshResourceRegistry final {
         slot.handle = MeshResourceHandle{slotIndex, nextGeneration};
         slot.assetId = std::move(assetId);
         slot.meshData = std::make_shared<assets::GltfMeshData>(meshData);
+        slot.usage = usage;
         slot.alive = true;
         handlesByAssetId.emplace(slot.assetId, slot.handle);
         return slot.handle;
+    }
+
+    [[nodiscard]] bool canUpdateVertices(
+        MeshResourceHandle handle,
+        const assets::GltfMeshData& meshData) const {
+        const auto* slot = constSlot(handle);
+        if (slot == nullptr || slot->usage != MeshResourceUsage::DynamicVertices ||
+            slot->meshData == nullptr ||
+            slot->meshData->primitives.size() != meshData.primitives.size()) {
+            return false;
+        }
+
+        for (std::size_t index = 0; index < meshData.primitives.size(); ++index) {
+            const auto& current = slot->meshData->primitives[index];
+            const auto& updated = meshData.primitives[index];
+            if (current.positions.size() != updated.positions.size() ||
+                current.indices.size() != updated.indices.size()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     void release(MeshResourceHandle handle) {
@@ -173,6 +197,7 @@ struct MeshResourceRegistry final {
         handlesByAssetId.erase(slot->assetId);
         slot->assetId.clear();
         slot->meshData.reset();
+        slot->usage = MeshResourceUsage::Static;
         slot->alive = false;
         freeList.push_back(handle.index);
     }
@@ -190,7 +215,7 @@ struct MeshResourceRegistry final {
         if (slot == nullptr || slot->meshData == nullptr) {
             return std::nullopt;
         }
-        return MeshResourceView{slot->handle, slot->assetId, slot->meshData};
+        return MeshResourceView{slot->handle, slot->assetId, slot->meshData, slot->usage};
     }
 
     [[nodiscard]] std::vector<MeshResourceView> views() const {
@@ -200,7 +225,7 @@ struct MeshResourceRegistry final {
             if (!slot.alive || slot.meshData == nullptr) {
                 continue;
             }
-            result.push_back(MeshResourceView{slot.handle, slot.assetId, slot.meshData});
+            result.push_back(MeshResourceView{slot.handle, slot.assetId, slot.meshData, slot.usage});
         }
         return result;
     }
@@ -213,6 +238,9 @@ struct MeshResourceRegistry final {
             }
 
             ++result.registeredResources;
+            if (slot.usage == MeshResourceUsage::DynamicVertices) {
+                ++result.dynamicVertexResources;
+            }
             result.totalPrimitives += slot.meshData->primitiveCount();
             result.totalVertices += slot.meshData->vertexCount();
             result.totalIndices += slot.meshData->indexCount();
@@ -367,8 +395,9 @@ bool Renderer::create(platform::Window& window, const RendererCreateInfo& info) 
 
 MeshResourceHandle Renderer::registerMeshResource(
     std::string assetId,
-    const assets::GltfMeshData& meshData) {
-    const auto handle = meshResources_->registerResource(std::move(assetId), meshData);
+    const assets::GltfMeshData& meshData,
+    MeshResourceUsage usage) {
+    const auto handle = meshResources_->registerResource(std::move(assetId), meshData, usage);
     if (!handle.isValid()) {
         core::logWarning("render", "Mesh resource registration rejected invalid mesh data");
         return {};
@@ -381,6 +410,20 @@ MeshResourceHandle Renderer::registerMeshResource(
         }
     }
     return handle;
+}
+
+bool Renderer::updateMeshResourceVertices(
+    MeshResourceHandle handle,
+    const assets::GltfMeshData& meshData) {
+    if (!meshResources_->canUpdateVertices(handle, meshData)) {
+        core::logWarning("render", "Dynamic mesh vertex update rejected incompatible mesh data");
+        return false;
+    }
+
+    if (vulkanBackend_ != nullptr && vulkanBackend_->ready()) {
+        return vulkanBackend_->updateMeshResourceVertices(handle, meshData);
+    }
+    return true;
 }
 
 void Renderer::releaseMeshResource(MeshResourceHandle handle) {
@@ -413,6 +456,9 @@ MeshResourceStats Renderer::meshResourceStats() const {
         stats.gpuUploadQueueProcessedCount = gpuStats.gpuUploadQueueProcessedCount;
         stats.gpuUploadRetireCount = gpuStats.gpuUploadRetireCount;
         stats.gpuUploadDestroyedCount = gpuStats.gpuUploadDestroyedCount;
+        stats.dynamicVertexUpdateAttemptCount = gpuStats.dynamicVertexUpdateAttemptCount;
+        stats.dynamicVertexUpdateSuccessCount = gpuStats.dynamicVertexUpdateSuccessCount;
+        stats.dynamicVertexUpdateFailureCount = gpuStats.dynamicVertexUpdateFailureCount;
     }
     return stats;
 }
@@ -515,7 +561,5 @@ bool Renderer::isReady() const {
 }
 
 } // namespace novacore::render
-
-
 
 

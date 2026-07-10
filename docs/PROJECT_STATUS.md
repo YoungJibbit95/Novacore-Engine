@@ -1,5 +1,14 @@
 # NovaCore Project Status
 
+## Added In Latest Block - Animation Runtime, glTF Skins, Dynamic Meshes, And KCC Stability
+
+* Added a complete CPU animation foundation: skeleton validation, local/global poses, quaternion/vector sampling, loop/clamp playback, crossfades, masked layers, sockets, root motion, and runtime diagnostics.
+* Expanded glTF/GLB import with node hierarchy/TRS, skins, joints, inverse bind matrices, JOINTS_0/WEIGHTS_0, mesh-node-to-skin bindings, and animation sampler/channel/keyframe decoding.
+* Added the glTF animation bridge and CPU skinning path used by Nemisis, plus dynamic Vulkan vertex resources with per-frame host-visible buffers and queued updates.
+* Imported glTF PBR material factors and now apply per-primitive base color/emissive factors in the Vulkan mesh draw path.
+* Expanded KCC resolution with configurable skin width, iterative depenetration, stable sweep step-up, richer snap/step/contact diagnostics, slope projection, crouch motor interpolation, support data, and landing impact telemetry.
+* Added the standalone `animation_blend` sandbox scenario and dedicated animation/import tests; NovaCore now passes 3/3 CTest targets and seven sandbox scenarios.
+
 ## Overview
 
 NovaCore is a modular C++23 engine targeting high-performance multiplayer FPS games.
