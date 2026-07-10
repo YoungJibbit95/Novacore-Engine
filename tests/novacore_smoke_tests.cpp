@@ -159,6 +159,21 @@ void testRenderSkyFrameData() {
     expect(frame.sky.enabled, "render sky can be enabled for a frame");
     expect(frame.sky.horizonColor[2] > frame.sky.zenithColor[2], "render sky keeps distinct gradient bands");
     expect(frame.sky.horizonHeight > 0.0F && frame.sky.horizonHeight < 1.0F, "render sky horizon is normalized");
+    expect(frame.sky.sunAngularRadiusDegrees > 0.0F, "render sky carries an atmospheric sun disc radius");
+    expect(frame.sky.hazeStrength >= 0.0F, "render sky carries haze strength");
+    expect(frame.sky.cloudStrength >= 0.0F, "render sky carries cloud strength");
+
+    frame.contactShadows.push_back(novacore::render::RenderContactShadow3D{
+        {2.0F, 1.0F, -3.0F},
+        0.01F,
+        {0.72F, 0.44F},
+        1.0F,
+        0.8F,
+        0.7F,
+    });
+    expect(frame.lighting.contactShadowsEnabled, "world lighting enables contact shadows by default");
+    expect(frame.contactShadows.size() == 1U, "render frame stores contact shadow submissions");
+    expect(frame.contactShadows.front().radius.x > frame.contactShadows.front().radius.y, "contact shadows support directional footprints");
 }
 
 void testRenderMaterialFallbackFrameData() {
@@ -172,6 +187,9 @@ void testRenderMaterialFallbackFrameData() {
     expect(!mesh.materialBinding.descriptorReady, "render mesh material binding starts without a descriptor");
     expect(!mesh.materialBinding.textureBound, "render mesh material binding starts without a texture");
     expect(mesh.materialBinding.fallbackOnly, "render mesh material binding starts in fallback-only mode");
+    expect(mesh.layer == novacore::render::RenderMeshLayer::World, "render mesh starts in the world depth layer");
+    mesh.layer = novacore::render::RenderMeshLayer::ViewModel;
+    expect(mesh.layer == novacore::render::RenderMeshLayer::ViewModel, "render mesh can opt into isolated viewmodel depth");
 
     mesh.material = novacore::render::RenderMaterialFallback{
         1.35F,

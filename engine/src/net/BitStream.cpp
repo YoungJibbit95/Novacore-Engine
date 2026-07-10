@@ -36,6 +36,10 @@ void PacketWriter::writeBytes(std::string_view bytes) {
     bytes_.insert(bytes_.end(), bytes.begin(), bytes.end());
 }
 
+void PacketWriter::writeBytes(std::span<const std::uint8_t> bytes) {
+    bytes_.insert(bytes_.end(), bytes.begin(), bytes.end());
+}
+
 std::vector<std::uint8_t> PacketWriter::finish() const {
     return bytes_;
 }
@@ -107,6 +111,16 @@ std::optional<std::string_view> PacketReader::readBytes(std::size_t count) {
     const auto* begin = reinterpret_cast<const char*>(bytes_.data() + offset_);
     offset_ += count;
     return std::string_view(begin, count);
+}
+
+std::optional<std::span<const std::uint8_t>> PacketReader::readByteSpan(std::size_t count) {
+    if (!canRead(count)) {
+        return std::nullopt;
+    }
+
+    const auto bytes = std::span<const std::uint8_t>(bytes_.data() + offset_, count);
+    offset_ += count;
+    return bytes;
 }
 
 bool PacketReader::canRead(std::size_t count) const {

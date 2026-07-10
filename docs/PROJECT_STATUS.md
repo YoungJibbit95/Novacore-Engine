@@ -1,5 +1,12 @@
 # NovaCore Project Status
 
+## Added In Latest Block - FPS Physics, Replication, And Presentation Rendering
+
+* Expanded the KCC with multi-contact capsule sweeps, deterministic manifold hashes, crease clipping, unwalkable-slope handling, step clearance, ground snap, coyote/jump buffering, hard-landing telemetry, and velocity-carrying moving supports.
+* Added strict packet envelopes/checksums, wrap-safe sequence acknowledgements, sent-packet tracking, snapshot baselines and component deltas, bounded interpolation/extrapolation, prediction history, reconciliation replay plans, and server tick estimation.
+* Added an atmospheric camera-oriented sky with sun disc, haze, and light clouds; soft analytic contact shadows; UV-aware roughness/metallic mesh shading; and an isolated depth layer for first-person viewmodels.
+* Added dedicated physics and netcode test targets. The standalone sandbox remains the visible engine validation surface.
+
 ## Added In Latest Block - Animation Runtime, glTF Skins, Dynamic Meshes, And KCC Stability
 
 * Added a complete CPU animation foundation: skeleton validation, local/global poses, quaternion/vector sampling, loop/clamp playback, crossfades, masked layers, sockets, root motion, and runtime diagnostics.

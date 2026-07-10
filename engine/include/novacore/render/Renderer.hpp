@@ -80,6 +80,7 @@ struct RenderBackendFrameStats final {
     std::uint32_t requestedSwapchainWidth = 0;
     std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
+    std::size_t lastContactShadowCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
@@ -146,6 +147,9 @@ struct RenderWorldLighting final {
     float specularIntensity = 0.12F;
     float contrast = 1.08F;
     float saturation = 1.04F;
+    bool contactShadowsEnabled = true;
+    float contactShadowOpacity = 0.42F;
+    float contactShadowSoftness = 0.58F;
 };
 
 struct RenderMaterialFallback final {
@@ -202,6 +206,15 @@ struct RenderSky final {
     float horizonHeight = 0.48F;
     float gradientPower = 1.35F;
     float exposure = 1.0F;
+    float sunAngularRadiusDegrees = 1.8F;
+    float sunIntensity = 1.35F;
+    float hazeStrength = 0.24F;
+    float cloudStrength = 0.18F;
+};
+
+enum class RenderMeshLayer : std::uint8_t {
+    World,
+    ViewModel
 };
 
 struct RenderBox3D final {
@@ -227,6 +240,16 @@ struct RenderMesh3D final {
     std::array<float, 4> color{0.70F, 0.78F, 0.80F, 1.0F};
     RenderMaterialFallback material{};
     RenderMaterialBinding materialBinding{};
+    RenderMeshLayer layer = RenderMeshLayer::World;
+};
+
+struct RenderContactShadow3D final {
+    math::Vec3 casterPosition{};
+    float receiverHeight = 0.012F;
+    math::Vec2 radius{0.45F, 0.32F};
+    float casterHeight = 0.0F;
+    float opacity = 1.0F;
+    float softness = 1.0F;
 };
 
 struct RenderFrameInfo final {
@@ -234,6 +257,7 @@ struct RenderFrameInfo final {
     RenderSky sky{};
     RenderCamera3D camera3D{};
     RenderWorldLighting lighting{};
+    std::vector<RenderContactShadow3D> contactShadows;
     std::vector<RenderBox3D> worldBoxes;
     std::vector<RenderLine3D> worldLines;
     std::vector<RenderMesh3D> worldMeshes;
@@ -285,5 +309,4 @@ private:
 };
 
 } // namespace novacore::render
-
 

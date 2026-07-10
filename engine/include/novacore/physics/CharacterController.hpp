@@ -3,6 +3,8 @@
 #include "novacore/math/Types.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -32,6 +34,7 @@ enum class CharacterContactRole {
     Ground,
     Step,
     Wall,
+    Ceiling,
     Bounds,
     Sweep,
 };
@@ -74,6 +77,7 @@ struct CharacterSweepQuery final {
     bool enableGroundSnap = true;
     bool enableStepUp = true;
     float skinWidth = 0.003F;
+    float deltaSeconds = 0.0F;
     int maxDepenetrationIterations = 6;
 };
 
@@ -89,6 +93,7 @@ struct CharacterContact final {
     bool blocking = false;
     bool walkable = false;
     math::Vec3 surfaceVelocity{};
+    std::uint32_t iteration = 0;
 };
 
 struct CharacterResolveResult final {
@@ -103,6 +108,8 @@ struct CharacterResolveResult final {
     float wallDistance = 0.0F;
     std::size_t hitCount = 0;
     std::size_t depenetrationIterations = 0;
+    std::size_t blockingContactCount = 0;
+    std::size_t walkableContactCount = 0;
     bool grounded = false;
     bool blocked = false;
     bool stepped = false;
@@ -117,6 +124,7 @@ struct CharacterResolveResult final {
     math::Vec3 groundVelocity{};
     math::Vec3 wallVelocity{};
     std::vector<CharacterContact> contacts;
+    std::uint64_t contactHash = 0;
 };
 
 struct CharacterSweepResult final {
@@ -128,13 +136,19 @@ struct CharacterSweepResult final {
     math::Vec3 hitNormal{};
     float firstHitFraction = 1.0F;
     std::size_t iterationCount = 0;
+    std::size_t slidePlaneCount = 0;
     bool swept = false;
     bool hit = false;
     bool stepped = false;
+    bool startedGrounded = false;
+    bool endedGrounded = false;
+    bool ceilingHit = false;
+    bool stoppedOnCrease = false;
     float stepHeight = 0.0F;
     std::string hitColliderId;
     SurfaceKind hitKind = SurfaceKind::Wall;
     std::vector<CharacterContact> sweepContacts;
+    std::uint64_t contactHash = 0;
 };
 
 struct WallProbe final {
@@ -183,6 +197,11 @@ public:
 
     void clearStaticColliders();
     void addStaticCollider(StaticCollider collider);
+    [[nodiscard]] bool setColliderKinematics(
+        std::string_view id,
+        math::Vec3 center,
+        math::Vec3 velocity);
+    [[nodiscard]] std::size_t advanceKinematicColliders(float deltaSeconds);
     [[nodiscard]] const std::vector<StaticCollider>& staticColliders() const;
     [[nodiscard]] const StaticCollider* findStaticCollider(std::string_view id) const;
     [[nodiscard]] std::size_t colliderCount() const;
@@ -199,5 +218,6 @@ private:
 
 [[nodiscard]] const char* surfaceKindName(SurfaceKind kind);
 [[nodiscard]] const char* contactRoleName(CharacterContactRole role);
+[[nodiscard]] std::uint64_t hashCharacterContacts(std::span<const CharacterContact> contacts);
 
 } // namespace novacore::physics

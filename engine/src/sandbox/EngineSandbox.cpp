@@ -551,7 +551,10 @@ void appendScenario(EngineSandboxRunResult& result, EngineSandboxScenarioResult 
     const std::uint32_t carryTicks = std::min(std::max(options.tickCount / 4U, 8U), 36U);
 
     std::uint32_t supportedTicks = 0;
+    std::uint32_t manifoldTicks = 0;
+    std::uint32_t movedColliderSteps = 0;
     float firstSupportVelocityX = 0.0F;
+    std::uint64_t telemetryHash = 0;
     for (std::uint32_t tick = 0; tick < carryTicks; ++tick) {
         physics::CharacterMotorInput input{};
         input.forward = {0.0F, 0.0F, 1.0F};
@@ -562,13 +565,18 @@ void appendScenario(EngineSandboxRunResult& result, EngineSandboxScenarioResult 
                 firstSupportVelocityX = step.supportVelocity.x;
             }
         }
+        manifoldTicks += step.telemetry.contactCount > 0U ? 1U : 0U;
+        telemetryHash ^= step.telemetry.stateHash + (step.telemetry.contactHash * 0x9E3779B185EBCA87ULL);
         state = step.state;
+        movedColliderSteps += static_cast<std::uint32_t>(world.advanceKinematicColliders(dt));
     }
 
     physics::CharacterMotorInput jumpInput{};
     jumpInput.forward = {0.0F, 0.0F, 1.0F};
     jumpInput.jumpPressed = true;
     const auto jumpStep = physics::stepCharacterMotor(world, state, jumpInput, config, dt);
+    const auto* finalSupport = world.findStaticCollider("support_platform");
+    const float platformDistanceX = finalSupport != nullptr ? finalSupport->center.x : 0.0F;
 
     EngineSandboxScenarioResult scenario{};
     scenario.id = toString(kMovingSupportScenario);
@@ -577,6 +585,11 @@ void appendScenario(EngineSandboxRunResult& result, EngineSandboxScenarioResult 
     scenario.passed = supportedTicks >= (carryTicks / 2U) &&
         firstSupportVelocityX > 1.0F &&
         state.position.x > 0.05F &&
+        platformDistanceX > 0.05F &&
+        std::abs(state.position.x - platformDistanceX) < 0.08F &&
+        manifoldTicks >= (carryTicks / 2U) &&
+        movedColliderSteps == carryTicks &&
+        telemetryHash != 0U &&
         jumpStep.jumped &&
         jumpStep.state.velocity.x > 1.0F &&
         finite(jumpStep.state.position) &&
@@ -584,6 +597,9 @@ void appendScenario(EngineSandboxRunResult& result, EngineSandboxScenarioResult 
     scenario.metrics.push_back(metric("supported_ticks", supportedTicks, "ticks"));
     scenario.metrics.push_back(metric("support_velocity_x", firstSupportVelocityX, "mps"));
     scenario.metrics.push_back(metric("carried_distance_x", state.position.x, "meters"));
+    scenario.metrics.push_back(metric("platform_distance_x", platformDistanceX, "meters"));
+    scenario.metrics.push_back(metric("manifold_ticks", manifoldTicks, "ticks"));
+    scenario.metrics.push_back(metric("moved_collider_steps", movedColliderSteps, "steps"));
     scenario.metrics.push_back(metric("jump_velocity_x", jumpStep.state.velocity.x, "mps"));
     scenario.metrics.push_back(metric("jump_velocity_y", jumpStep.state.velocity.y, "mps"));
     if (options.includeTelemetry) {
@@ -798,6 +814,12 @@ EngineSandboxRunResult runEngineSandbox(const EngineSandboxOptions& options) {
         movement.metrics.push_back(metric("grounded_ticks", replay.groundedTicks, "ticks"));
         movement.metrics.push_back(metric("swept_ticks", replay.sweptTicks, "ticks"));
         movement.metrics.push_back(metric("wall_probe_ticks", replay.wallProbeTicks, "ticks"));
+        movement.metrics.push_back(metric("landed_ticks", replay.landedTicks, "ticks"));
+        movement.metrics.push_back(metric("stepped_ticks", replay.steppedTicks, "ticks"));
+        movement.metrics.push_back(metric("ground_snap_ticks", replay.groundSnapTicks, "ticks"));
+        movement.metrics.push_back(metric("support_ticks", replay.supportTicks, "ticks"));
+        movement.metrics.push_back(metric("max_contacts", replay.maximumContactCount, "contacts"));
+        movement.metrics.push_back(metric("max_impact_speed", replay.maximumImpactSpeed, "mps"));
         movement.metrics.push_back(metric("static_colliders", result.physicsStats.staticColliderCount, "colliders"));
         movement.metrics.push_back(metric("kinematic_colliders", result.physicsStats.kinematicColliderCount, "colliders"));
         movement.metrics.push_back(metric("final_speed", std::sqrt(result.finalCharacter.velocity.lengthSquared()), "mps"));

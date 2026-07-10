@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -16,6 +17,7 @@ public:
     void writeU64(std::uint64_t value);
     void writeFloat(float value);
     void writeBytes(std::string_view bytes);
+    void writeBytes(std::span<const std::uint8_t> bytes);
 
     [[nodiscard]] std::vector<std::uint8_t> finish() const;
     [[nodiscard]] std::size_t size() const;
@@ -34,6 +36,7 @@ public:
     [[nodiscard]] bool readU64(std::uint64_t& value);
     [[nodiscard]] bool readFloat(float& value);
     [[nodiscard]] std::optional<std::string_view> readBytes(std::size_t count);
+    [[nodiscard]] std::optional<std::span<const std::uint8_t>> readByteSpan(std::size_t count);
     [[nodiscard]] bool canRead(std::size_t count) const;
     [[nodiscard]] bool consumed() const;
     [[nodiscard]] std::size_t remaining() const;

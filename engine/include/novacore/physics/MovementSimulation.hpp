@@ -37,6 +37,15 @@ struct CharacterMotorReplayResult final {
     std::uint32_t jumpTicks = 0;
     std::uint32_t slideSurfaceTicks = 0;
     std::uint32_t wallProbeTicks = 0;
+    std::uint32_t landedTicks = 0;
+    std::uint32_t hardLandingTicks = 0;
+    std::uint32_t steppedTicks = 0;
+    std::uint32_t groundSnapTicks = 0;
+    std::uint32_t supportTicks = 0;
+    std::uint32_t supportChangeTicks = 0;
+    std::uint32_t maximumContactCount = 0;
+    float maximumImpactSpeed = 0.0F;
+    std::uint64_t deterministicHash = 0;
     bool stable = false;
 };
 

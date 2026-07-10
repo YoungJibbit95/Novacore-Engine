@@ -52,10 +52,16 @@ struct CharacterMotorConfig final {
     float jumpSpeed = 7.25F;
     float terminalFallSpeed = 48.0F;
     float groundFriction = 8.5F;
+    float airDrag = 0.10F;
     float capsuleSkinWidth = 0.003F;
     float crouchTransitionSpeed = 7.5F;
     float groundAdhesionSpeed = 2.5F;
+    float coyoteTimeSeconds = 0.10F;
+    float jumpBufferSeconds = 0.12F;
+    float hardLandingSpeed = 10.0F;
+    float landingRecoverySeconds = 0.18F;
     std::uint32_t maxDepenetrationIterations = 6;
+    std::uint32_t maxSweepIterations = 6;
 };
 
 struct CharacterMotorInput final {
@@ -75,8 +81,60 @@ struct CharacterMotorState final {
     bool nearWallRunSurface = false;
     float crouchFraction = 0.0F;
     math::Vec3 groundNormal{0.0F, 1.0F, 0.0F};
+    math::Vec3 supportVelocity{};
     std::string supportColliderId;
+    float airborneSeconds = 0.0F;
+    float groundedSeconds = 0.0F;
+    float timeSinceGrounded = 0.0F;
+    float jumpBufferRemaining = 0.0F;
+    float landingRecoveryRemaining = 0.0F;
+    float lastImpactSpeed = 0.0F;
     std::uint64_t tick = 0;
+};
+
+enum class CharacterMotorEvent : std::uint32_t {
+    None = 0,
+    Jumped = 1U << 0U,
+    Landed = 1U << 1U,
+    HardLanded = 1U << 2U,
+    Stepped = 1U << 3U,
+    GroundSnapped = 1U << 4U,
+    SupportChanged = 1U << 5U,
+    SupportLost = 1U << 6U,
+    CeilingHit = 1U << 7U,
+    CrouchBlocked = 1U << 8U,
+    SweepBlocked = 1U << 9U,
+};
+
+[[nodiscard]] constexpr CharacterMotorEvent operator|(CharacterMotorEvent lhs, CharacterMotorEvent rhs) {
+    return static_cast<CharacterMotorEvent>(
+        static_cast<std::uint32_t>(lhs) | static_cast<std::uint32_t>(rhs));
+}
+
+constexpr CharacterMotorEvent& operator|=(CharacterMotorEvent& lhs, CharacterMotorEvent rhs) {
+    lhs = lhs | rhs;
+    return lhs;
+}
+
+[[nodiscard]] constexpr bool hasCharacterMotorEvent(CharacterMotorEvent events, CharacterMotorEvent event) {
+    return (static_cast<std::uint32_t>(events) & static_cast<std::uint32_t>(event)) != 0U;
+}
+
+struct CharacterMotorTelemetry final {
+    std::uint64_t tick = 0;
+    CharacterMotorEvent events = CharacterMotorEvent::None;
+    std::uint32_t contactCount = 0;
+    std::uint32_t blockingContactCount = 0;
+    std::uint32_t walkableContactCount = 0;
+    std::uint32_t sweepIterations = 0;
+    std::uint32_t depenetrationIterations = 0;
+    float groundSlopeDegrees = 0.0F;
+    float groundSnapDistance = 0.0F;
+    float stepHeight = 0.0F;
+    float impactSpeed = 0.0F;
+    math::Vec3 supportDisplacement{};
+    std::uint64_t contactHash = 0;
+    std::uint64_t stateHash = 0;
 };
 
 struct CharacterMotorStepResult final {
@@ -85,6 +143,7 @@ struct CharacterMotorStepResult final {
     CharacterSweepResult sweep{};
     math::Vec3 desiredDisplacement{};
     math::Vec3 supportVelocity{};
+    math::Vec3 supportDisplacement{};
     SurfaceResponse groundSurface{};
     std::string supportColliderId;
     bool jumped = false;
@@ -94,13 +153,18 @@ struct CharacterMotorStepResult final {
     bool touchedWallRunSurface = false;
     bool crouchBlocked = false;
     bool landed = false;
+    bool hardLanded = false;
+    bool supportChanged = false;
+    bool supportLost = false;
     float impactSpeed = 0.0F;
+    CharacterMotorTelemetry telemetry{};
 };
 
 [[nodiscard]] PhysicsWorldStats summarizePhysicsWorld(const PhysicsWorld& world);
 [[nodiscard]] SurfaceResponse surfaceResponseFor(SurfaceKind kind);
 [[nodiscard]] math::Vec3 normalizeHorizontal(math::Vec3 value);
 [[nodiscard]] math::Vec3 projectVelocityOnPlane(math::Vec3 velocity, math::Vec3 normal);
+[[nodiscard]] std::uint64_t hashCharacterMotorState(const CharacterMotorState& state);
 [[nodiscard]] CharacterMotorStepResult stepCharacterMotor(
     const PhysicsWorld& world,
     CharacterMotorState state,

@@ -23,6 +23,9 @@ public:
         bool exact = false;
         bool clampedToOldest = false;
         bool clampedToNewest = false;
+        bool extrapolating = false;
+        double targetPosition = 0.0;
+        double extrapolationDistance = 0.0;
 
         [[nodiscard]] bool valid() const {
             return from != nullptr && to != nullptr;
@@ -76,6 +79,7 @@ public:
     [[nodiscard]] Sample sample(std::uint64_t targetSequence) const {
         Sample result{};
         result.targetSequence = targetSequence;
+        result.targetPosition = static_cast<double>(targetSequence);
 
         if (const auto* exact = buffer_.find(targetSequence); exact != nullptr) {
             result.fromSequence = targetSequence;
@@ -136,6 +140,107 @@ public:
             return result;
         }
 
+        return result;
+    }
+
+    [[nodiscard]] Sample sampleFractional(
+        double targetPosition,
+        double maxExtrapolationDistance = 0.0) const {
+        Sample result{};
+        result.targetPosition = targetPosition;
+        result.targetSequence = targetPosition > 0.0
+            ? static_cast<std::uint64_t>(targetPosition)
+            : 0U;
+        if (buffer_.empty()) {
+            return result;
+        }
+
+        const Value* lower = nullptr;
+        const Value* upper = nullptr;
+        const Value* secondNewest = nullptr;
+        const Value* newest = nullptr;
+        std::uint64_t lowerSequence = 0U;
+        std::uint64_t upperSequence = 0U;
+        std::uint64_t newestSequence = 0U;
+        std::uint64_t secondNewestSequence = 0U;
+        bool hasLower = false;
+        bool hasUpper = false;
+        bool hasNewest = false;
+        bool hasSecondNewest = false;
+
+        buffer_.forEach([&](std::uint64_t sequence, const Value& value) {
+            const auto position = static_cast<double>(sequence);
+            if (position <= targetPosition && (!hasLower || sequence > lowerSequence)) {
+                lower = &value;
+                lowerSequence = sequence;
+                hasLower = true;
+            }
+            if (position >= targetPosition && (!hasUpper || sequence < upperSequence)) {
+                upper = &value;
+                upperSequence = sequence;
+                hasUpper = true;
+            }
+            if (!hasNewest || sequence > newestSequence) {
+                secondNewest = hasNewest ? newest : secondNewest;
+                secondNewestSequence = hasNewest ? newestSequence : secondNewestSequence;
+                hasSecondNewest = hasNewest;
+                newest = &value;
+                newestSequence = sequence;
+                hasNewest = true;
+            } else if ((!hasSecondNewest || sequence > secondNewestSequence) && sequence < newestSequence) {
+                secondNewest = &value;
+                secondNewestSequence = sequence;
+                hasSecondNewest = true;
+            }
+        });
+
+        if (hasLower && hasUpper) {
+            result.fromSequence = lowerSequence;
+            result.toSequence = upperSequence;
+            result.from = lower;
+            result.to = upper;
+            if (lowerSequence == upperSequence) {
+                result.exact = targetPosition == static_cast<double>(lowerSequence);
+                return result;
+            }
+            const auto span = static_cast<double>(upperSequence - lowerSequence);
+            result.alpha = static_cast<float>(std::clamp(
+                (targetPosition - static_cast<double>(lowerSequence)) / span,
+                0.0,
+                1.0));
+            return result;
+        }
+
+        if (hasLower) {
+            const auto distance = targetPosition - static_cast<double>(lowerSequence);
+            if (distance > 0.0 && distance <= maxExtrapolationDistance && hasSecondNewest &&
+                secondNewestSequence < lowerSequence) {
+                result.fromSequence = secondNewestSequence;
+                result.toSequence = lowerSequence;
+                result.from = secondNewest;
+                result.to = lower;
+                result.alpha = static_cast<float>(
+                    (targetPosition - static_cast<double>(secondNewestSequence)) /
+                    static_cast<double>(lowerSequence - secondNewestSequence));
+                result.extrapolating = true;
+                result.extrapolationDistance = distance;
+                return result;
+            }
+            result.fromSequence = lowerSequence;
+            result.toSequence = lowerSequence;
+            result.from = lower;
+            result.to = lower;
+            result.clampedToNewest = true;
+            return result;
+        }
+
+        if (hasUpper) {
+            result.fromSequence = upperSequence;
+            result.toSequence = upperSequence;
+            result.from = upper;
+            result.to = upper;
+            result.clampedToOldest = true;
+        }
         return result;
     }
 

@@ -73,6 +73,8 @@ Packet fragmentation should be avoided whenever practical.
 
 Large payloads should instead be divided across multiple simulation updates.
 
+The shared protocol layer uses a strict packet envelope with fixed magic and version fields, validated packet type and flags, wrap-safe sequences, a 32-packet selective acknowledgement window, explicit tick and payload length, payload limits, and checksum verification. Decoders reject truncation, malformed fields, size mismatches, and trailing bytes.
+
 ## Packet Channels
 
 Separate logical channels exist:
@@ -188,6 +190,8 @@ Only changed replicated fields should be serialized.
 
 Unchanged values should consume zero bandwidth whenever possible.
 
+NovaCore snapshot replication represents entity state as versioned component payloads. A server delta can create or remove entities, replace an entity generation, add or change components, and remove components. Every delta names the exact baseline it requires. Full snapshots and deltas use canonical ordering, bounded counts and payloads, duplicate detection, and strict decoding.
+
 ## Relevance Filtering
 
 Before snapshot construction:
@@ -227,6 +231,8 @@ When packets arrive late:
 * Large discontinuities should trigger teleport handling.
 
 Interpolation should never affect authoritative simulation.
+
+The generic interpolation buffer supports fractional render ticks, sub-tick alpha, bounded short extrapolation, and explicit oldest/newest clamping. `ServerTickEstimator` maps local ticks onto a smoothed server timeline and applies interpolation delay without changing simulation state.
 
 ## Lag Compensation
 
@@ -301,8 +307,19 @@ Current implementation includes:
 * Little-endian serialization
 * Overread protection
 * Round-trip serialization tests
+* Strict versioned packet envelope and checksum validation
+* Wrap-safe sequence and selective acknowledgement tracking
+* Sent-packet acknowledgement ledger
+* Full snapshot baseline serialization
+* Entity/component delta generation and application
+* Bounded baseline history
+* Fractional interpolation and bounded extrapolation
+* Generic prediction history and reconciliation replay plans
+* Smoothed server tick estimation
 
-Future milestones extend this foundation with prediction buffers, snapshot replication, delta compression, and live UDP networking.
+Current networking provides deterministic protocol, replication, interpolation, and reconciliation primitives shared by loopback and future UDP transports. Game schemas translate game components and commands into engine-owned replicated payloads.
+
+Remaining milestones include live UDP sockets, reliable-event retransmission, per-client relevance and bandwidth budgets, game schema integration, packet simulation, and lag-compensation history.
 
 ## Acceptance Criteria
 

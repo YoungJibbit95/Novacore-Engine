@@ -7,6 +7,16 @@ namespace novacore::physics {
 
 namespace {
 
+constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
+constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
+
+void appendHash(std::uint64_t& hash, std::uint64_t value) {
+    for (std::uint32_t shift = 0; shift < 64U; shift += 8U) {
+        hash ^= static_cast<std::uint8_t>((value >> shift) & 0xFFU);
+        hash *= kFnvPrime;
+    }
+}
+
 [[nodiscard]] bool finite(math::Vec3 value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
@@ -40,6 +50,7 @@ CharacterMotorReplayResult runCharacterMotorReplay(
     }
 
     auto state = initialState;
+    result.deterministicHash = kFnvOffset;
     for (const auto& command : commands) {
         const auto ticks = sanitizedTickCount(command.tickCount);
         for (std::uint32_t localTick = 0; localTick < ticks; ++localTick) {
@@ -64,6 +75,31 @@ CharacterMotorReplayResult runCharacterMotorReplay(
             if (step.state.nearWallRunSurface || step.touchedWallRunSurface) {
                 ++result.wallProbeTicks;
             }
+            if (step.landed) {
+                ++result.landedTicks;
+                result.maximumImpactSpeed = std::max(result.maximumImpactSpeed, step.impactSpeed);
+            }
+            if (step.hardLanded) {
+                ++result.hardLandingTicks;
+            }
+            if (hasCharacterMotorEvent(step.telemetry.events, CharacterMotorEvent::Stepped)) {
+                ++result.steppedTicks;
+            }
+            if (hasCharacterMotorEvent(step.telemetry.events, CharacterMotorEvent::GroundSnapped)) {
+                ++result.groundSnapTicks;
+            }
+            if (step.carriedBySupport) {
+                ++result.supportTicks;
+            }
+            if (step.supportChanged) {
+                ++result.supportChangeTicks;
+            }
+            result.maximumContactCount = std::max(
+                result.maximumContactCount,
+                step.telemetry.contactCount);
+            appendHash(result.deterministicHash, step.telemetry.stateHash);
+            appendHash(result.deterministicHash, step.telemetry.contactHash);
+            appendHash(result.deterministicHash, static_cast<std::uint32_t>(step.telemetry.events));
 
             if (desc.keepFrames) {
                 result.frames.push_back(CharacterMotorReplayFrame{
@@ -79,7 +115,8 @@ CharacterMotorReplayResult runCharacterMotorReplay(
     result.stable = finite(state.position) &&
         finite(state.velocity) &&
         result.simulatedTicks == totalRequestedTicks &&
-        result.simulatedTicks > 0U;
+        result.simulatedTicks > 0U &&
+        result.deterministicHash != 0U;
     return result;
 }
 

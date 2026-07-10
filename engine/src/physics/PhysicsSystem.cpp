@@ -2,10 +2,48 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
+#include <string_view>
 
 namespace novacore::physics {
 
 namespace {
+
+constexpr std::uint64_t kFnvOffset = 14695981039346656037ULL;
+constexpr std::uint64_t kFnvPrime = 1099511628211ULL;
+
+void hashByte(std::uint64_t& hash, std::uint8_t value) {
+    hash ^= value;
+    hash *= kFnvPrime;
+}
+
+void hashU64(std::uint64_t& hash, std::uint64_t value) {
+    for (std::uint32_t shift = 0; shift < 64U; shift += 8U) {
+        hashByte(hash, static_cast<std::uint8_t>((value >> shift) & 0xFFU));
+    }
+}
+
+void hashFloat(std::uint64_t& hash, float value) {
+    constexpr double kPrecision = 10000.0;
+    const auto quantized = std::isfinite(value)
+        ? static_cast<std::int64_t>(std::llround(static_cast<double>(value) * kPrecision))
+        : std::numeric_limits<std::int64_t>::min();
+    hashU64(hash, static_cast<std::uint64_t>(quantized));
+}
+
+void hashVec3(std::uint64_t& hash, math::Vec3 value) {
+    hashFloat(hash, value.x);
+    hashFloat(hash, value.y);
+    hashFloat(hash, value.z);
+}
+
+void hashString(std::uint64_t& hash, std::string_view value) {
+    hashU64(hash, value.size());
+    for (const char character : value) {
+        hashByte(hash, static_cast<std::uint8_t>(character));
+    }
+}
 
 [[nodiscard]] float clamp01(float value) {
     return std::clamp(value, 0.0F, 1.0F);
@@ -96,7 +134,8 @@ namespace {
 [[nodiscard]] CharacterSweepQuery makeSweepQuery(
     const CharacterMotorState& state,
     const CharacterMotorConfig& config,
-    math::Vec3 displacement) {
+    math::Vec3 displacement,
+    float deltaSeconds) {
     CharacterSweepQuery query{};
     query.startPosition = state.position;
     query.desiredDisplacement = displacement;
@@ -106,12 +145,24 @@ namespace {
     query.snapDownDistance = config.snapDownDistance;
     query.walkableSlopeCosine = config.walkableSlopeCosine;
     query.wallProbeDistance = config.wallProbeDistance;
-    query.maxIterations = 5;
+    query.maxIterations = static_cast<int>(config.maxSweepIterations);
     query.enableGroundSnap = displacement.y <= 0.02F;
-    query.enableStepUp = true;
+    query.enableStepUp = state.grounded && displacement.y <= 0.02F;
     query.skinWidth = config.capsuleSkinWidth;
+    query.deltaSeconds = deltaSeconds;
     query.maxDepenetrationIterations = static_cast<int>(config.maxDepenetrationIterations);
     return query;
+}
+
+[[nodiscard]] float slopeDegrees(math::Vec3 normal) {
+    const float cosine = std::clamp(normal.y, -1.0F, 1.0F);
+    return std::acos(cosine) * (180.0F / 3.14159265358979323846F);
+}
+
+void addEvent(CharacterMotorTelemetry& telemetry, CharacterMotorEvent event, bool condition) {
+    if (condition) {
+        telemetry.events |= event;
+    }
 }
 
 } // namespace
@@ -184,6 +235,28 @@ math::Vec3 projectVelocityOnPlane(math::Vec3 velocity, math::Vec3 normal) {
     return velocity - (unitNormal * dot(velocity, unitNormal));
 }
 
+std::uint64_t hashCharacterMotorState(const CharacterMotorState& state) {
+    std::uint64_t hash = kFnvOffset;
+    hashVec3(hash, state.position);
+    hashVec3(hash, state.velocity);
+    hashFloat(hash, state.capsuleHeight);
+    hashU64(hash, state.grounded ? 1U : 0U);
+    hashU64(hash, state.crouched ? 1U : 0U);
+    hashU64(hash, state.nearWallRunSurface ? 1U : 0U);
+    hashFloat(hash, state.crouchFraction);
+    hashVec3(hash, state.groundNormal);
+    hashVec3(hash, state.supportVelocity);
+    hashString(hash, state.supportColliderId);
+    hashFloat(hash, state.airborneSeconds);
+    hashFloat(hash, state.groundedSeconds);
+    hashFloat(hash, state.timeSinceGrounded);
+    hashFloat(hash, state.jumpBufferRemaining);
+    hashFloat(hash, state.landingRecoveryRemaining);
+    hashFloat(hash, state.lastImpactSpeed);
+    hashU64(hash, state.tick);
+    return hash;
+}
+
 CharacterMotorStepResult stepCharacterMotor(
     const PhysicsWorld& world,
     CharacterMotorState state,
@@ -193,7 +266,13 @@ CharacterMotorStepResult stepCharacterMotor(
     const float dt = std::clamp(deltaSeconds, 0.0F, 0.10F);
     CharacterMotorStepResult result{};
     const bool wasGrounded = state.grounded;
+    const std::string previousSupportId = state.supportColliderId;
     const float incomingVerticalSpeed = state.velocity.y;
+    state.jumpBufferRemaining = input.jumpPressed
+        ? std::max(0.0F, config.jumpBufferSeconds)
+        : std::max(0.0F, state.jumpBufferRemaining - dt);
+    state.landingRecoveryRemaining = std::max(0.0F, state.landingRecoveryRemaining - dt);
+
     const float standingHeight = std::max(config.radius * 2.0F, config.standingHeight);
     const float crouchedHeight = std::clamp(config.crouchedHeight, config.radius * 2.0F, standingHeight);
     const float crouchTarget = input.crouchHeld ? 1.0F : 0.0F;
@@ -212,8 +291,7 @@ CharacterMotorStepResult stepCharacterMotor(
     state.nearWallRunSurface = preResolve.nearWallRunSurface;
     state.groundNormal = preResolve.groundNormal;
     state.supportColliderId = preResolve.groundColliderId;
-    result.landed = !wasGrounded && state.grounded && incomingVerticalSpeed < -0.01F;
-    result.impactSpeed = result.landed ? -incomingVerticalSpeed : 0.0F;
+    state.supportVelocity = preResolve.groundVelocity;
     result.groundSurface = state.grounded ? surfaceResponseFor(preResolve.groundKind) : SurfaceResponse{};
     result.supportVelocity = state.grounded ? preResolve.groundVelocity : math::Vec3{};
     result.supportColliderId = state.grounded ? preResolve.groundColliderId : std::string{};
@@ -228,32 +306,46 @@ CharacterMotorStepResult stepCharacterMotor(
         state.velocity = projectVelocityOnPlane(state.velocity, preResolve.groundNormal);
     }
 
-    if (input.jumpPressed && state.grounded) {
+    const bool hasGroundHistory = wasGrounded || state.grounded || state.groundedSeconds > 0.0F;
+    const bool withinCoyoteWindow = hasGroundHistory &&
+        state.timeSinceGrounded <= std::max(0.0F, config.coyoteTimeSeconds);
+    if (state.jumpBufferRemaining > 0.0F && (state.grounded || withinCoyoteWindow)) {
         if (result.carriedBySupport) {
             state.velocity.x += result.supportVelocity.x;
             state.velocity.z += result.supportVelocity.z;
-            state.velocity.y += std::max(0.0F, result.supportVelocity.y);
         }
         state.velocity.y = std::max(0.0F, config.jumpSpeed) +
             (result.carriedBySupport ? std::max(0.0F, result.supportVelocity.y) : 0.0F);
         state.grounded = false;
+        state.supportColliderId.clear();
+        state.supportVelocity = {};
+        state.jumpBufferRemaining = 0.0F;
+        state.timeSinceGrounded = std::max(0.0F, config.coyoteTimeSeconds) + dt;
         result.jumped = true;
     }
 
     const auto move = desiredMoveWorld(input);
     const float inputStrength = std::min(1.0F, std::sqrt(dotHorizontal(input.move, input.move)));
-    const float targetSpeed = input.crouchHeld
+    float targetSpeed = input.crouchHeld
         ? config.crouchSpeed
         : input.sprintHeld ? config.sprintSpeed : config.groundSpeed;
+    if (state.landingRecoveryRemaining > 0.0F && config.landingRecoverySeconds > 0.0F) {
+        const float recovery = clamp01(state.landingRecoveryRemaining / config.landingRecoverySeconds);
+        targetSpeed *= 1.0F - (0.25F * recovery);
+    }
     const float surfaceSpeedScale = state.grounded ? result.groundSurface.speedScale : 1.0F;
     const auto desiredHorizontal = move * (targetSpeed * surfaceSpeedScale * inputStrength);
     const auto currentHorizontal = math::Vec3{state.velocity.x, 0.0F, state.velocity.z};
-    const float acceleration = state.grounded
+    float acceleration = state.grounded
         ? config.groundAcceleration * result.groundSurface.accelerationScale
         : config.airAcceleration;
+    if (state.grounded && state.landingRecoveryRemaining > 0.0F && config.landingRecoverySeconds > 0.0F) {
+        const float recovery = clamp01(state.landingRecoveryRemaining / config.landingRecoverySeconds);
+        acceleration *= 1.0F - (0.40F * recovery);
+    }
     const float braking = state.grounded
         ? config.brakingDeceleration * result.groundSurface.frictionScale
-        : config.groundFriction;
+        : config.airDrag;
     if (state.grounded && !result.jumped) {
         const auto currentTangent = projectVelocityOnPlane(state.velocity, preResolve.groundNormal);
         const auto desiredTangent = projectVelocityOnPlane(desiredHorizontal, preResolve.groundNormal);
@@ -279,16 +371,18 @@ CharacterMotorStepResult stepCharacterMotor(
             state.velocity.y - (std::max(0.0F, config.gravity) * dt));
     }
 
-    const auto supportDisplacement = (!result.jumped && state.grounded)
+    const float collisionVerticalSpeed = state.velocity.y;
+
+    result.supportDisplacement = (!result.jumped && state.grounded)
         ? result.supportVelocity * dt
         : math::Vec3{};
     const auto adhesionDisplacement = (!result.jumped && state.grounded)
         ? preResolve.groundNormal * (-std::max(0.0F, config.groundAdhesionSpeed) * dt)
         : math::Vec3{};
-    result.desiredDisplacement = (state.velocity * dt) + supportDisplacement + adhesionDisplacement;
+    result.desiredDisplacement = (state.velocity * dt) + result.supportDisplacement + adhesionDisplacement;
     if (result.desiredDisplacement.lengthSquared() > 0.0000001F) {
         result.swept = true;
-        result.sweep = world.sweepCharacter(makeSweepQuery(state, config, result.desiredDisplacement));
+        result.sweep = world.sweepCharacter(makeSweepQuery(state, config, result.desiredDisplacement, dt));
         state.position = result.sweep.resolve.position;
         if (result.sweep.hit) {
             for (const auto& contact : result.sweep.sweepContacts) {
@@ -300,12 +394,19 @@ CharacterMotorStepResult stepCharacterMotor(
         }
     }
 
-    result.resolve = world.resolveCharacter(makeResolveQuery(state, config, !result.jumped, true));
+    const bool allowFinalGroundSnap = !result.jumped && state.velocity.y <= 0.02F;
+    const bool allowFinalStep = state.grounded && !result.jumped && state.velocity.y <= 0.02F;
+    result.resolve = world.resolveCharacter(makeResolveQuery(
+        state,
+        config,
+        allowFinalGroundSnap,
+        allowFinalStep));
     state.position = result.resolve.position;
     state.grounded = result.resolve.grounded;
     state.nearWallRunSurface = result.resolve.nearWallRunSurface;
     state.groundNormal = result.resolve.groundNormal;
     state.supportColliderId = result.resolve.groundColliderId;
+    state.supportVelocity = result.resolve.groundVelocity;
     result.groundSurface = state.grounded ? surfaceResponseFor(result.resolve.groundKind) : result.groundSurface;
     if (!result.jumped && state.grounded) {
         result.supportVelocity = result.resolve.groundVelocity;
@@ -317,8 +418,71 @@ CharacterMotorStepResult stepCharacterMotor(
     if (state.grounded && !result.jumped) {
         state.velocity = projectVelocityOnPlane(state.velocity, result.resolve.groundNormal);
     }
+
+    const bool hadAirborneMotion = state.airborneSeconds > dt ||
+        incomingVerticalSpeed < -0.01F || collisionVerticalSpeed < -0.01F;
+    result.landed = !wasGrounded && state.grounded && !result.jumped && hadAirborneMotion;
+    if (result.landed) {
+        const float relativeVerticalSpeed = collisionVerticalSpeed - result.resolve.groundVelocity.y;
+        result.impactSpeed = std::max(0.0F, -relativeVerticalSpeed);
+        if (result.impactSpeed <= 0.01F) {
+            result.impactSpeed = std::max(0.0F, -incomingVerticalSpeed);
+        }
+        result.hardLanded = result.impactSpeed >= std::max(0.0F, config.hardLandingSpeed);
+        state.lastImpactSpeed = result.impactSpeed;
+        if (result.hardLanded) {
+            state.landingRecoveryRemaining = std::max(0.0F, config.landingRecoverySeconds);
+        }
+    }
+
+    if (state.grounded && !result.jumped) {
+        state.groundedSeconds = wasGrounded ? state.groundedSeconds + dt : dt;
+        state.airborneSeconds = 0.0F;
+        state.timeSinceGrounded = 0.0F;
+    } else {
+        state.airborneSeconds = wasGrounded ? dt : state.airborneSeconds + dt;
+        state.groundedSeconds = 0.0F;
+        state.timeSinceGrounded = wasGrounded ? dt : state.timeSinceGrounded + dt;
+    }
+
+    const std::string currentSupportId = state.grounded ? state.supportColliderId : std::string{};
+    result.supportChanged = !previousSupportId.empty() && !currentSupportId.empty() &&
+        previousSupportId != currentSupportId;
+    result.supportLost = !previousSupportId.empty() && currentSupportId.empty() && !result.jumped;
+    if (!state.grounded) {
+        state.supportColliderId.clear();
+        state.supportVelocity = {};
+    }
+
     ++state.tick;
     result.state = state;
+
+    auto& telemetry = result.telemetry;
+    telemetry.tick = state.tick;
+    telemetry.contactCount = static_cast<std::uint32_t>(result.resolve.contacts.size());
+    telemetry.blockingContactCount = static_cast<std::uint32_t>(result.resolve.blockingContactCount);
+    telemetry.walkableContactCount = static_cast<std::uint32_t>(result.resolve.walkableContactCount);
+    telemetry.sweepIterations = static_cast<std::uint32_t>(result.sweep.iterationCount);
+    telemetry.depenetrationIterations = static_cast<std::uint32_t>(
+        preResolve.depenetrationIterations + result.resolve.depenetrationIterations);
+    telemetry.groundSlopeDegrees = state.grounded ? slopeDegrees(state.groundNormal) : 0.0F;
+    telemetry.groundSnapDistance = std::max(preResolve.groundSnapDistance, result.resolve.groundSnapDistance);
+    telemetry.stepHeight = std::max({preResolve.stepHeight, result.resolve.stepHeight, result.sweep.stepHeight});
+    telemetry.impactSpeed = result.impactSpeed;
+    telemetry.supportDisplacement = result.supportDisplacement;
+    telemetry.contactHash = result.resolve.contactHash ^ result.sweep.contactHash;
+    telemetry.stateHash = hashCharacterMotorState(state);
+    addEvent(telemetry, CharacterMotorEvent::Jumped, result.jumped);
+    addEvent(telemetry, CharacterMotorEvent::Landed, result.landed);
+    addEvent(telemetry, CharacterMotorEvent::HardLanded, result.hardLanded);
+    addEvent(telemetry, CharacterMotorEvent::Stepped, result.resolve.stepped || result.sweep.stepped);
+    addEvent(telemetry, CharacterMotorEvent::GroundSnapped, telemetry.groundSnapDistance > 0.0001F);
+    addEvent(telemetry, CharacterMotorEvent::SupportChanged, result.supportChanged);
+    addEvent(telemetry, CharacterMotorEvent::SupportLost, result.supportLost);
+    addEvent(telemetry, CharacterMotorEvent::CeilingHit, result.sweep.ceilingHit);
+    addEvent(telemetry, CharacterMotorEvent::CrouchBlocked, result.crouchBlocked);
+    addEvent(telemetry, CharacterMotorEvent::SweepBlocked, result.sweep.hit);
+
     return result;
 }
 

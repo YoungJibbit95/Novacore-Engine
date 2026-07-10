@@ -235,6 +235,10 @@ Current implementation:
 * Swapchain acquire and present paths detect out-of-date/suboptimal presentation.
 * Swapchain image views, render pass, depth resources, framebuffers, world pipelines, and UI primitive pipelines are recreated as one dependent-resource group.
 * Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, last world box/mesh/line counts, and last UI rect/line/text counts are exposed through renderer backend stats for game-side diagnostics.
+* The sky pass is camera-oriented and renders a configurable sun disc, atmospheric haze, horizon response, and light procedural cloud breakup.
+* Soft sun-aligned contact shadows are submitted as a dedicated blended depth-tested pass and reported through backend frame statistics.
+* World meshes upload cooked UV0 data and use per-fragment metallic/roughness response with deterministic micro-surface variation.
+* Viewmodel meshes use an isolated short-range projection and depth clear so held weapons and arms do not disappear into world geometry.
 
 ## Performance Goals
 
@@ -275,7 +279,7 @@ M2:
 
 M3:
 
-* Texture and material resources
+* Descriptor-backed texture and material resources
 * Streaming upload budgets
 * Expanded directional lighting
 * Shadow mapping

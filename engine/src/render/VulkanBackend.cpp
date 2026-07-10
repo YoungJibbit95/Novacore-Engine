@@ -153,6 +153,15 @@ struct SkyPushConstants final {
     std::array<float, 4> horizonColor{};
     std::array<float, 4> groundColor{};
     std::array<float, 4> parameters{};
+    std::array<float, 4> sunDirectionSize{};
+    std::array<float, 4> atmosphereCamera{};
+};
+
+struct ContactShadowPushConstants final {
+    std::array<float, 16> viewProjection{};
+    std::array<float, 4> casterReceiver{};
+    std::array<float, 4> radiusHeight{};
+    std::array<float, 4> sunOpacity{};
 };
 
 struct WorldBoxPushConstants final {
@@ -187,9 +196,11 @@ struct UiPushConstants final {
 struct VulkanMeshVertex final {
     float position[3]{};
     float normal[3]{0.0F, 1.0F, 0.0F};
+    float texcoord[2]{};
 };
 
 static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay under the Vulkan minimum limit");
+static_assert(sizeof(ContactShadowPushConstants) <= 128, "Contact shadow push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldBoxPushConstants) <= 128, "World box push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldMeshPushConstants) <= 128, "World mesh push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
@@ -283,13 +294,14 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 
 [[nodiscard]] std::array<float, 4> packedMaterialResponse(
     const RenderWorldLighting& lighting,
-    const RenderMaterialFallback& material) {
+    const RenderMaterialFallback& material,
+    const assets::GltfMaterialData* gltfMaterial) {
     const auto safeMaterial = sanitizeRenderMaterialFallback(material);
     return {
         std::clamp(lighting.rimIntensity * safeMaterial.rimScale, 0.0F, 1.0F),
         std::clamp(lighting.specularIntensity * safeMaterial.specularScale, 0.0F, 1.0F),
-        std::clamp(lighting.contrast * safeMaterial.contrastScale, 0.5F, 1.8F),
-        std::clamp(lighting.saturation * safeMaterial.saturationScale, 0.0F, 2.0F),
+        gltfMaterial == nullptr ? 0.08F : std::clamp(gltfMaterial->metallicFactor, 0.0F, 1.0F),
+        gltfMaterial == nullptr ? 0.72F : std::clamp(gltfMaterial->roughnessFactor, 0.04F, 1.0F),
     };
 }
 
@@ -473,7 +485,11 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     };
 }
 
-[[nodiscard]] SkyPushConstants pushConstantsForSky(const RenderSky& sky) {
+[[nodiscard]] SkyPushConstants pushConstantsForSky(
+    const RenderSky& sky,
+    const RenderCamera3D& camera,
+    const RenderWorldLighting& lighting) {
+    const auto sun = normalized(lighting.sunDirection);
     return SkyPushConstants{
         sky.zenithColor,
         sky.horizonColor,
@@ -482,7 +498,47 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
             std::clamp(sky.horizonHeight, 0.05F, 0.95F),
             std::clamp(sky.gradientPower, 0.20F, 5.0F),
             std::clamp(sky.exposure, 0.0F, 4.0F),
-            0.0F,
+            std::clamp(sky.sunIntensity, 0.0F, 8.0F),
+        },
+        {
+            sun.x,
+            sun.y,
+            sun.z,
+            degreesToRadians(std::clamp(sky.sunAngularRadiusDegrees, 0.05F, 12.0F)),
+        },
+        {
+            std::clamp(sky.hazeStrength, 0.0F, 1.0F),
+            std::clamp(sky.cloudStrength, 0.0F, 1.0F),
+            degreesToRadians(camera.yawDegrees),
+            degreesToRadians(camera.pitchDegrees),
+        },
+    };
+}
+
+[[nodiscard]] ContactShadowPushConstants pushConstantsForContactShadow(
+    const Mat4& viewProjection,
+    const RenderContactShadow3D& shadow,
+    const RenderWorldLighting& lighting) {
+    const auto sun = normalized(lighting.sunDirection);
+    return ContactShadowPushConstants{
+        viewProjection.value,
+        {
+            shadow.casterPosition.x,
+            shadow.casterPosition.y,
+            shadow.casterPosition.z,
+            shadow.receiverHeight,
+        },
+        {
+            std::max(shadow.radius.x, 0.02F),
+            std::max(shadow.radius.y, 0.02F),
+            std::max(shadow.casterHeight, 0.0F),
+            std::clamp(shadow.softness * lighting.contactShadowSoftness, 0.05F, 1.0F),
+        },
+        {
+            sun.x,
+            sun.z,
+            std::max(sun.y, 0.12F),
+            std::clamp(shadow.opacity * lighting.contactShadowOpacity, 0.0F, 1.0F),
         },
     };
 }
@@ -491,14 +547,15 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     const Mat4& viewProjection,
     const RenderMesh3D& mesh,
     const RenderWorldLighting& lighting,
-    std::array<float, 4> color) {
+    std::array<float, 4> color,
+    const assets::GltfMaterialData* gltfMaterial) {
     const auto worldViewProjection = multiply(viewProjection, modelMatrixForMesh(mesh));
     return WorldMeshPushConstants{
         worldViewProjection.value,
         color,
         packedLighting(lighting),
         packedFillLighting(lighting),
-        packedMaterialResponse(lighting, mesh.material),
+        packedMaterialResponse(lighting, mesh.material, gltfMaterial),
     };
 }
 
@@ -549,6 +606,7 @@ struct GpuMeshPrimitive final {
     std::uint32_t indexCount = 0;
     int materialIndex = -1;
     bool dynamicVertices = false;
+    std::vector<math::Vec2> texcoords;
 };
 
 struct GpuMeshAsset final {
@@ -718,6 +776,8 @@ struct VulkanBackend::Impl final {
     std::vector<VkFramebuffer> framebuffers;
     VkPipelineLayout skyPipelineLayout = VK_NULL_HANDLE;
     VkPipeline skyPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout contactShadowPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline contactShadowPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldBoxPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldBoxPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldLinePipelineLayout = VK_NULL_HANDLE;
@@ -762,6 +822,7 @@ struct VulkanBackend::Impl final {
     std::uint32_t requestedSwapchainWidth = 0;
     std::uint32_t requestedSwapchainHeight = 0;
     std::size_t lastSkyDrawCount = 0;
+    std::size_t lastContactShadowCount = 0;
     std::size_t lastWorldBoxCount = 0;
     std::size_t lastWorldMeshCount = 0;
     std::size_t lastWorldLineCount = 0;
@@ -770,6 +831,7 @@ struct VulkanBackend::Impl final {
     std::size_t lastUiTextCount = 0;
     bool frameActive = false;
     bool loggedSkySubmission = false;
+    bool loggedContactShadowSubmission = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
     bool loggedWorldMeshSubmission = false;
@@ -1456,6 +1518,138 @@ struct VulkanBackend::Impl final {
         return success;
     }
 
+    [[nodiscard]] bool createContactShadowPipeline() {
+        beginPipelineCreate();
+        const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "contact_shadow.vert.spv");
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "contact_shadow.frag.spv");
+        if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
+            skipPipelineCreate();
+            core::logWarning("render", "Vulkan contact shadow pipeline skipped because shader binaries are missing");
+            return false;
+        }
+
+        const VkShaderModule vertexShader = createShaderModule(vertexShaderBytes);
+        const VkShaderModule fragmentShader = createShaderModule(fragmentShaderBytes);
+        if (vertexShader == VK_NULL_HANDLE || fragmentShader == VK_NULL_HANDLE) {
+            if (vertexShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, vertexShader, nullptr);
+            }
+            if (fragmentShader != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(device, fragmentShader, nullptr);
+            }
+            finishPipelineCreate(false);
+            return false;
+        }
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = vertexShader;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = fragmentShader;
+        stages[1].pName = "main";
+
+        VkPipelineVertexInputStateCreateInfo vertexInput{};
+        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkViewport viewport{};
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.maxDepth = 1.0F;
+        VkRect2D scissor{{0, 0}, swapchainExtent};
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = &viewport;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+        rasterizer.lineWidth = 1.0F;
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+        rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizer.depthBiasEnable = VK_TRUE;
+        rasterizer.depthBiasConstantFactor = -1.0F;
+        rasterizer.depthBiasSlopeFactor = -1.0F;
+
+        VkPipelineMultisampleStateCreateInfo multisampling{};
+        multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState blendAttachment{};
+        blendAttachment.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blendAttachment.blendEnable = VK_TRUE;
+        blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &blendAttachment;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depthStencil.depthTestEnable = VK_TRUE;
+        depthStencil.depthWriteEnable = VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+        VkPushConstantRange pushRange{};
+        pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushRange.size = static_cast<std::uint32_t>(sizeof(ContactShadowPushConstants));
+        VkPipelineLayoutCreateInfo layoutInfo{};
+        layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layoutInfo.pushConstantRangeCount = 1;
+        layoutInfo.pPushConstantRanges = &pushRange;
+        if (!vkOk(
+                vkCreatePipelineLayout(device, &layoutInfo, nullptr, &contactShadowPipelineLayout),
+                "vkCreatePipelineLayout(contactShadow)")) {
+            vkDestroyShaderModule(device, fragmentShader, nullptr);
+            vkDestroyShaderModule(device, vertexShader, nullptr);
+            finishPipelineCreate(false);
+            return false;
+        }
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = static_cast<std::uint32_t>(stages.size());
+        pipelineInfo.pStages = stages.data();
+        pipelineInfo.pVertexInputState = &vertexInput;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil;
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.layout = contactShadowPipelineLayout;
+        pipelineInfo.renderPass = renderPass;
+        const bool success = vkOk(
+            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &contactShadowPipeline),
+            "vkCreateGraphicsPipelines(contactShadow)");
+
+        vkDestroyShaderModule(device, fragmentShader, nullptr);
+        vkDestroyShaderModule(device, vertexShader, nullptr);
+        if (success) {
+            setObjectName(vulkanObjectHandle(contactShadowPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore Contact Shadow Pipeline");
+            setObjectName(vulkanObjectHandle(contactShadowPipelineLayout), VK_OBJECT_TYPE_PIPELINE_LAYOUT, "NovaCore Contact Shadow PipelineLayout");
+            core::logInfo("render", "Vulkan contact shadow graphics pipeline created");
+        }
+        finishPipelineCreate(success);
+        return success;
+    }
+
     [[nodiscard]] bool createWorldBoxPipeline() {
         beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
@@ -1803,7 +1997,7 @@ struct VulkanBackend::Impl final {
         vertexBinding.stride = sizeof(VulkanMeshVertex);
         vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 2> vertexAttributes{};
+        std::array<VkVertexInputAttributeDescription, 3> vertexAttributes{};
         vertexAttributes[0].binding = 0;
         vertexAttributes[0].location = 0;
         vertexAttributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1812,6 +2006,10 @@ struct VulkanBackend::Impl final {
         vertexAttributes[1].location = 1;
         vertexAttributes[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         vertexAttributes[1].offset = offsetof(VulkanMeshVertex, normal);
+        vertexAttributes[2].binding = 0;
+        vertexAttributes[2].location = 2;
+        vertexAttributes[2].format = VK_FORMAT_R32G32_SFLOAT;
+        vertexAttributes[2].offset = offsetof(VulkanMeshVertex, texcoord);
 
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -2315,9 +2513,13 @@ struct VulkanBackend::Impl final {
             const auto normal = index < primitive.normals.size()
                 ? normalized(primitive.normals[index])
                 : novacore::math::Vec3{0.0F, 1.0F, 0.0F};
+            const auto texcoord = index < primitive.texcoords.size()
+                ? primitive.texcoords[index]
+                : novacore::math::Vec2{position.x, position.z};
             vertices.push_back(VulkanMeshVertex{
                 {position.x, position.y, position.z},
                 {normal.x, normal.y, normal.z},
+                {texcoord.x, texcoord.y},
             });
         }
         return vertices;
@@ -2338,6 +2540,14 @@ struct VulkanBackend::Impl final {
 
         outPrimitive.dynamicVertices = usage == MeshResourceUsage::DynamicVertices;
         outPrimitive.materialIndex = source.materialIndex;
+        outPrimitive.texcoords = source.texcoords;
+        if (outPrimitive.texcoords.size() != source.positions.size()) {
+            outPrimitive.texcoords.clear();
+            outPrimitive.texcoords.reserve(source.positions.size());
+            for (const auto& position : source.positions) {
+                outPrimitive.texcoords.push_back(math::Vec2{position.x, position.z});
+            }
+        }
         outPrimitive.vertexCount = vertices.size();
         if (outPrimitive.dynamicVertices) {
             for (auto& buffer : outPrimitive.vertexBuffers) {
@@ -2593,9 +2803,13 @@ struct VulkanBackend::Impl final {
                     const auto normal = vertexIndex < source.normals.size()
                         ? normalized(source.normals[vertexIndex])
                         : math::Vec3{0.0F, 1.0F, 0.0F};
+                    const auto texcoord = vertexIndex < destination.texcoords.size()
+                        ? destination.texcoords[vertexIndex]
+                        : math::Vec2{position.x, position.z};
                     vertices.push_back(VulkanMeshVertex{
                         {position.x, position.y, position.z},
                         {normal.x, normal.y, normal.z},
+                        {texcoord.x, texcoord.y},
                     });
                 }
                 const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
@@ -2789,8 +3003,73 @@ struct VulkanBackend::Impl final {
         }
     }
 
+    void drawMeshLayer(
+        VkCommandBuffer commandBuffer,
+        const RenderFrameInfo& frame,
+        RenderMeshLayer layer,
+        const Mat4& viewProjection) {
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
+        for (const auto& mesh : frame.worldMeshes) {
+            if (mesh.layer != layer || !mesh.mesh.isValid()) {
+                continue;
+            }
+
+            const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
+            if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
+                continue;
+            }
+            uploaded->second.lastTouchedFrame = frameSerial;
+
+            for (const auto& primitive : uploaded->second.primitives) {
+                const auto& vertexBuffer = primitive.dynamicVertices
+                    ? primitive.vertexBuffers[currentFrame]
+                    : primitive.vertexBuffers.front();
+                if (vertexBuffer.buffer == VK_NULL_HANDLE ||
+                    primitive.indexBuffer.buffer == VK_NULL_HANDLE ||
+                    primitive.indexCount == 0) {
+                    continue;
+                }
+
+                const assets::GltfMaterialData* gltfMaterial = nullptr;
+                auto primitiveColor = mesh.color;
+                if (primitive.materialIndex >= 0 &&
+                    static_cast<std::size_t>(primitive.materialIndex) < uploaded->second.materials.size()) {
+                    gltfMaterial = &uploaded->second.materials[static_cast<std::size_t>(primitive.materialIndex)];
+                    for (std::size_t component = 0; component < primitiveColor.size(); ++component) {
+                        primitiveColor[component] *= gltfMaterial->baseColorFactor[component];
+                    }
+                    primitiveColor[0] = std::clamp(primitiveColor[0] + gltfMaterial->emissiveFactor.x * 0.35F, 0.0F, 1.0F);
+                    primitiveColor[1] = std::clamp(primitiveColor[1] + gltfMaterial->emissiveFactor.y * 0.35F, 0.0F, 1.0F);
+                    primitiveColor[2] = std::clamp(primitiveColor[2] + gltfMaterial->emissiveFactor.z * 0.35F, 0.0F, 1.0F);
+                }
+                const auto constants = pushConstantsForMesh(
+                    viewProjection,
+                    mesh,
+                    frame.lighting,
+                    primitiveColor,
+                    gltfMaterial);
+                vkCmdPushConstants(
+                    commandBuffer,
+                    worldMeshPipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0,
+                    static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
+                    &constants);
+
+                const VkBuffer vertexBuffers[] = {vertexBuffer.buffer};
+                const VkDeviceSize offsets[] = {0};
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+                vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
+            }
+        }
+    }
+
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
         lastSkyDrawCount = (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) ? 1U : 0U;
+        lastContactShadowCount = contactShadowPipeline != VK_NULL_HANDLE && frame.lighting.contactShadowsEnabled
+            ? frame.contactShadows.size()
+            : 0U;
         lastWorldBoxCount = frame.worldBoxes.size();
         lastWorldMeshCount = frame.worldMeshes.size();
         lastWorldLineCount = frame.worldLines.size();
@@ -2825,7 +3104,7 @@ struct VulkanBackend::Impl final {
                 loggedSkySubmission = true;
             }
             beginDebugRegion(commandBuffer, "Sky", {0.08F, 0.32F, 0.92F, 1.0F});
-            const auto constants = pushConstantsForSky(frame.sky);
+            const auto constants = pushConstantsForSky(frame.sky, frame.camera3D, frame.lighting);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline);
             vkCmdPushConstants(
                 commandBuffer,
@@ -2862,6 +3141,31 @@ struct VulkanBackend::Impl final {
             endDebugRegion(commandBuffer);
         }
 
+        if (contactShadowPipeline != VK_NULL_HANDLE && frame.camera3D.enabled &&
+            frame.lighting.contactShadowsEnabled && !frame.contactShadows.empty()) {
+            if (!loggedContactShadowSubmission) {
+                core::logInfo(
+                    "render",
+                    "Vulkan contact shadow submission active: shadows=" + std::to_string(frame.contactShadows.size()));
+                loggedContactShadowSubmission = true;
+            }
+            beginDebugRegion(commandBuffer, "Contact Shadows", {0.28F, 0.24F, 0.36F, 1.0F});
+            const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, contactShadowPipeline);
+            for (const auto& shadow : frame.contactShadows) {
+                const auto constants = pushConstantsForContactShadow(viewProjection, shadow, frame.lighting);
+                vkCmdPushConstants(
+                    commandBuffer,
+                    contactShadowPipelineLayout,
+                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                    0,
+                    static_cast<std::uint32_t>(sizeof(ContactShadowPushConstants)),
+                    &constants);
+                vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+            }
+            endDebugRegion(commandBuffer);
+        }
+
         if (worldMeshPipeline != VK_NULL_HANDLE && frame.camera3D.enabled && !frame.worldMeshes.empty()) {
             if (!loggedWorldMeshSubmission) {
                 core::logInfo(
@@ -2872,58 +3176,29 @@ struct VulkanBackend::Impl final {
 
             beginDebugRegion(commandBuffer, "World Meshes", {0.94F, 0.62F, 0.20F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
-            for (const auto& mesh : frame.worldMeshes) {
-                if (!mesh.mesh.isValid()) {
-                    continue;
-                }
+            drawMeshLayer(commandBuffer, frame, RenderMeshLayer::World, viewProjection);
 
-                const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
-                if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
-                    continue;
-                }
-                uploaded->second.lastTouchedFrame = frameSerial;
+            const bool hasViewModel = std::ranges::any_of(
+                frame.worldMeshes,
+                [](const RenderMesh3D& mesh) { return mesh.layer == RenderMeshLayer::ViewModel; });
+            if (hasViewModel) {
+                VkClearAttachment depthClear{};
+                depthClear.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                depthClear.clearValue.depthStencil = {1.0F, 0};
+                VkClearRect clearRect{};
+                clearRect.rect = VkRect2D{{0, 0}, swapchainExtent};
+                clearRect.layerCount = 1;
+                vkCmdClearAttachments(commandBuffer, 1, &depthClear, 1, &clearRect);
 
-                for (const auto& primitive : uploaded->second.primitives) {
-                    const auto& vertexBuffer = primitive.dynamicVertices
-                        ? primitive.vertexBuffers[currentFrame]
-                        : primitive.vertexBuffers.front();
-                    if (vertexBuffer.buffer == VK_NULL_HANDLE ||
-                        primitive.indexBuffer.buffer == VK_NULL_HANDLE ||
-                        primitive.indexCount == 0) {
-                        continue;
-                    }
-
-                    auto primitiveColor = mesh.color;
-                    if (primitive.materialIndex >= 0 &&
-                        static_cast<std::size_t>(primitive.materialIndex) < uploaded->second.materials.size()) {
-                        const auto& material = uploaded->second.materials[static_cast<std::size_t>(primitive.materialIndex)];
-                        for (std::size_t component = 0; component < primitiveColor.size(); ++component) {
-                            primitiveColor[component] *= material.baseColorFactor[component];
-                        }
-                        primitiveColor[0] = std::clamp(primitiveColor[0] + material.emissiveFactor.x * 0.35F, 0.0F, 1.0F);
-                        primitiveColor[1] = std::clamp(primitiveColor[1] + material.emissiveFactor.y * 0.35F, 0.0F, 1.0F);
-                        primitiveColor[2] = std::clamp(primitiveColor[2] + material.emissiveFactor.z * 0.35F, 0.0F, 1.0F);
-                    }
-                    const auto constants = pushConstantsForMesh(
-                        viewProjection,
-                        mesh,
-                        frame.lighting,
-                        primitiveColor);
-                    vkCmdPushConstants(
-                        commandBuffer,
-                        worldMeshPipelineLayout,
-                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                        0,
-                        static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
-                        &constants);
-
-                    const VkBuffer vertexBuffers[] = {vertexBuffer.buffer};
-                    const VkDeviceSize offsets[] = {0};
-                    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-                    vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-                    vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
-                }
+                auto viewModelCamera = frame.camera3D;
+                viewModelCamera.verticalFovDegrees = std::clamp(frame.camera3D.verticalFovDegrees - 6.0F, 52.0F, 82.0F);
+                viewModelCamera.nearPlane = 0.004F;
+                viewModelCamera.farPlane = 8.0F;
+                drawMeshLayer(
+                    commandBuffer,
+                    frame,
+                    RenderMeshLayer::ViewModel,
+                    viewProjectionForCamera(viewModelCamera, swapchainExtent));
             }
             endDebugRegion(commandBuffer);
         }
@@ -3045,6 +3320,16 @@ struct VulkanBackend::Impl final {
             worldBoxPipelineLayout = VK_NULL_HANDLE;
         }
 
+        if (contactShadowPipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, contactShadowPipeline, nullptr);
+            contactShadowPipeline = VK_NULL_HANDLE;
+        }
+
+        if (contactShadowPipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(device, contactShadowPipelineLayout, nullptr);
+            contactShadowPipelineLayout = VK_NULL_HANDLE;
+        }
+
         if (skyPipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(device, skyPipeline, nullptr);
             skyPipeline = VK_NULL_HANDLE;
@@ -3109,6 +3394,7 @@ struct VulkanBackend::Impl final {
 
         (void)createSkyPipeline();
         (void)createWorldBoxPipeline();
+        (void)createContactShadowPipeline();
         (void)createWorldLinePipeline();
         (void)createWorldMeshPipeline();
         (void)createUiRectPipeline();
@@ -3125,11 +3411,13 @@ struct VulkanBackend::Impl final {
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
         loggedSkySubmission = false;
+        loggedContactShadowSubmission = false;
         loggedWorldDrawSubmission = false;
         loggedWorldLineSubmission = false;
         loggedWorldMeshSubmission = false;
         loggedUiSubmission = false;
         lastSkyDrawCount = 0;
+        lastContactShadowCount = 0;
         lastWorldBoxCount = 0;
         lastWorldMeshCount = 0;
         lastWorldLineCount = 0;
@@ -3385,6 +3673,7 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.requestedSwapchainWidth = impl_->requestedSwapchainWidth;
     stats.requestedSwapchainHeight = impl_->requestedSwapchainHeight;
     stats.lastSkyDrawCount = impl_->lastSkyDrawCount;
+    stats.lastContactShadowCount = impl_->lastContactShadowCount;
     stats.lastWorldBoxCount = impl_->lastWorldBoxCount;
     stats.lastWorldMeshCount = impl_->lastWorldMeshCount;
     stats.lastWorldLineCount = impl_->lastWorldLineCount;

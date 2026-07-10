@@ -74,7 +74,9 @@ add_library(novacore_engine
     engine/src/net/BitStream.cpp
     engine/src/net/Client.cpp
     engine/src/net/Loopback.cpp
+    engine/src/net/Protocol.cpp
     engine/src/net/Server.cpp
+    engine/src/net/SnapshotReplication.cpp
     engine/src/physics/CharacterController.cpp
     engine/src/physics/MovementSimulation.cpp
     engine/src/physics/PhysicsSystem.cpp
@@ -160,6 +162,8 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/debug_triangle.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/sky.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/sky.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/contact_shadow.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/contact_shadow.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.vert"
@@ -230,6 +234,16 @@ if(NOVACORE_BUILD_TESTS)
     target_link_libraries(novacore_gltf_animation_import_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_gltf_animation_import_tests)
     add_test(NAME novacore_gltf_animation_import_tests COMMAND novacore_gltf_animation_import_tests)
+
+    add_executable(novacore_netcode_tests tests/netcode_tests.cpp)
+    target_link_libraries(novacore_netcode_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_netcode_tests)
+    add_test(NAME novacore_netcode_tests COMMAND novacore_netcode_tests)
+
+    add_executable(novacore_physics_kcc_tests tests/physics_kcc_tests.cpp)
+    target_link_libraries(novacore_physics_kcc_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_physics_kcc_tests)
+    add_test(NAME novacore_physics_kcc_tests COMMAND novacore_physics_kcc_tests)
 endif()
 
 include(CMakePackageConfigHelpers)
