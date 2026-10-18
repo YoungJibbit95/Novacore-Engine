@@ -313,10 +313,13 @@ builds and are not a matched baseline.
 
 Capture a level view toward sun azimuth 25 degrees, yaw +/-45 degrees, pitch
 -30/0/20/70 degrees and roll 0/+15/-15 degrees. Pair translation with unchanged
-angles; compare VFOV 40/74/110 and 1280x720/720x1280/1920x1080 extents. The sun
+angles; compare game VFOV 55/74/105 and 1280x720/720x1280/1920x1080 extents. The sun
 must project at the world direction, the horizon must rotate with camera roll,
 and changing FOV/aspect must produce the same projection as world geometry.
 Changing FOV is expected to change the disc's pixel size, not its angular size.
+Nemisis render tuning clamps FOV to 55..105 degrees. The separate engine CPU
+and sandbox math cases at 40/110 remain valid but must not be labelled actual
+Nemisis capture settings; the original R0 matrix used those engine cases.
 
 R1's separate matrix keeps camera/light/materials fixed while rotating the same
 mesh through 0/90/180 degrees and applying identity/nonuniform instance scales

@@ -319,3 +319,20 @@ fix and exact cross-repo validation if pursued; do not mix it into this audit.
   offset assertions. R0 generated shader files remain frozen and untouched.
 - Full R1 Vulkan static library/install and exact-revision Nemisis checks follow;
   no device launch, GPU timing or visual acceptance is claimed.
+- Completed full separate SDL3/Vulkan Release static-library build and public
+  package install for implementation a68ea79de2c97b8b46e773da856d12f8886593e2.
+  Package: recovery/phase4/engine-r1-vulkan; library SHA-256:
+  92cf9b49a03d4fed0020bb3e722e1ccd4557a7524abaf33cf1e7f115b5a58428.
+  Headless package: recovery/phase4/engine-r1-headless; library SHA-256:
+  18361aa242c768e27042fc74086b6a603822f7f299d611e01b62c0b78fd64952.
+  Existing unused sandbox helper warning remains; no warnings/tests disabled.
+- Clarified visual capture matrix: Nemisis clamps FOV to 55..105 degrees, so
+  actual game comparisons use 55/74/105; engine CPU/sandbox cases 40/110 are
+  additional math coverage, not reported game camera settings.
+- Main-agent R0 cross-repo evidence: complete Nemisis build and 45/45 CPU suites
+  pass against exact R0 fa37f17 (133.77 seconds); engine R0 PR #12 Windows/MSVC
+  and Ubuntu/Clang checks pass, run 39166870602. This is CPU/compilation evidence.
+- R1 cross-repo integration/hosted CI and both packages' actual matched Vulkan
+  screenshots remain separate next gates. No GUI permission or device launch
+  occurred in this rendering subagent. Main owns publication/game pin changes;
+  no R2 resources or further rendering features started.
