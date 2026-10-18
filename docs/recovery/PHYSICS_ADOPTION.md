@@ -179,8 +179,12 @@ It finds the unchanged installed Jolt archive explicitly. New variant package:
 `C:/Users/Administrator/.codex/tmp/phase5-physics-sensors`; engine archive SHA256
 `0e0096c22fdf9be3aa33639f090911b819f2ba9f73922066da7db27a77343530`.
 The earlier `physics/package` engine/Jolt artifacts and recorded hashes remain
-untouched. Hosted MSVC/Clang and exact combined-game acceptance are pending for
-this new slice. No GUI or Vulkan validation was performed.
+untouched. Published Draft [PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20)
+contains runtime `34e87207f0219e1e8901e5b192703fa2adbb2d31`.
+Exact runtime complete default-off MSVC/Clang [run 39174235581](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235581)
+and Jolt MSVC/Clang [run 39174235602](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235602)
+all pass. Exact combined Nemisis acceptance remains separate. No GUI or Vulkan
+validation was performed.
 
 ## Build and validation
 
