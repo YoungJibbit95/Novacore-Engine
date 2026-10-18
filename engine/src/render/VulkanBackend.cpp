@@ -1,4 +1,5 @@
 #include "VulkanBackend.hpp"
+#include "VulkanUiRenderer.hpp"
 #include "DynamicMeshUpdates.hpp"
 
 #include "novacore/core/Log.hpp"
@@ -747,6 +748,9 @@ struct DeferredGpuMeshDestroy final {
 
 struct VulkanBackend::Impl final {
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
+    VulkanUiRenderer uiRenderer;
+    std::size_t lastUiGeometryDrawCount = 0;
+    bool uiGeometryReady = false;
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     platform::Window* ownerWindow = nullptr;
@@ -3248,6 +3252,7 @@ struct VulkanBackend::Impl final {
         }
 
         endDebugRegion(commandBuffer);
+        lastUiGeometryDrawCount = uiRenderer.record(commandBuffer, frame.ui, currentFrame, swapchainExtent);
         vkCmdEndRenderPass(commandBuffer);
 
         imageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
@@ -3259,6 +3264,7 @@ struct VulkanBackend::Impl final {
             return;
         }
 
+        uiRenderer.shutdown();
         if (uiLinePipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(device, uiLinePipeline, nullptr);
             uiLinePipeline = VK_NULL_HANDLE;
@@ -3388,6 +3394,7 @@ struct VulkanBackend::Impl final {
         (void)createWorldMeshPipeline();
         (void)createUiRectPipeline();
         (void)createUiLinePipeline();
+        uiGeometryReady = uiRenderer.create(physicalDevice, device, renderPass);
         return true;
     }
 
@@ -3510,6 +3517,7 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
     impl_->processDeferredMeshDestroys();
     impl_->processMeshUploadQueue(32);
     impl_->processDynamicMeshUpdates();
+    (void)impl_->uiRenderer.prepare(frame.ui, impl_->currentFrame, impl_->commandPool, impl_->graphicsQueue);
 
     const VkResult acquireResult = vkAcquireNextImageKHR(
         impl_->device,
@@ -3647,6 +3655,8 @@ MeshResourceStats VulkanBackend::meshResourceStats() const {
 RenderBackendFrameStats VulkanBackend::frameStats() const {
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
     RenderBackendFrameStats stats{};
+    stats.uiGeometryReady = impl_->uiGeometryReady;
+    stats.lastUiGeometryDrawCount = impl_->lastUiGeometryDrawCount;
     stats.submittedFrames = impl_->submittedFrameCount;
     stats.skippedFrames = impl_->skippedFrameCount;
     stats.swapchainRecreateCount = impl_->swapchainRecreateCount;
