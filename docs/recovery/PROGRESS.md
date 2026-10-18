@@ -97,3 +97,10 @@ pin remains dbdfc38d092e018952ead43d9cb669333ebf70bc.
   independent Nemisis PRs. Engine pin change is unnecessary for test/doc edits.
 - Post-change: complete local build passes; all 5/5 CTest suites pass with
   GCC 13.2/Ninja. `git diff --check` passes. No GPU rendering is claimed.
+- Coordinate analysis also closed one engine-owned test gap: mixed parent TRS /
+  child matrix plus nonuniform scale and marker forward/up. Existing tiny GLB
+  writer reused; resulting function count is 55 (54 baseline + one contract).
+  No importer implementation or public API changes. Independent game contract
+  tests still run against the exact old pin, whose runtime behavior is unchanged.
+- The added nested-transform contract also passes the complete local build and
+  5/5 suites. It is engine-owned; no parser/socket repair code was introduced.

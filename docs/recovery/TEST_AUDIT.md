@@ -37,6 +37,7 @@ Source: [`tests/novacore_smoke_tests.cpp`](../../tests/novacore_smoke_tests.cpp)
 | `testAssetManifestAndRegistry` | INTEGRATION | Parsed records/dependencies, mount, tags and streamable lookup | KEEP / H |
 | `testAssetStreamer` | CONTRACT | Coalescing, budget, priority, pending preservation and zone preload | KEEP / H |
 | `testGltfMeshDataAppliesNodeTransforms` | CONTRACT | Static hierarchy translation/scale baked into vertices; marker/source mapping | KEEP / H |
+| `testGltfMeshAndMarkersShareNestedTransform` (new) | CONTRACT | Parent quaternion/TRS, child column-major matrix, nonuniform scale and normalized marker basis share one mesh/marker space | KEEP / H; closes a composition/direction gap |
 | `testGltfMetadataAndMeshCatalog` | INTEGRATION | Metadata validation, GLB chunks/counts/decoding, imported handles and provenance | KEEP / H |
 | `testRendererMeshResourceRegistry` | CONTRACT | Invalid/deduplicated mesh registration, counts, release, generation reuse, dynamic topology/handles | KEEP / H; CPU resource state only |
 | `testPhysicsCharacterControllerSurfaces` | CONTRACT + REGRESSION | Ground/step/ramp/snap policy, contacts, no stale support, fast sweeps, wall slide, mantle geometry | KEEP / H |
@@ -124,6 +125,10 @@ chosen timings, input policy and movement feel.
    No assertion weakened and no production encoder/decoder changed.
 3. Clarified the CMake option description: it enables all five suites, not only
    smoke tests. Corrected acceptance documentation ownership and coverage claims.
+4. Coordinate review exposed missing mixed TRS/matrix and marker-direction
+   coverage. Added one engine-owned test through the existing tiny GLB writer;
+   no new utility, binary fixture, importer change or game-specific rule.
+   Baseline inventory is 54 functions; the resulting suite calls 55.
 
 ## Similarity is not equivalence
 
