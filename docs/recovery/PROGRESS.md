@@ -475,3 +475,8 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Previous frozen packages/builds were not overwritten. Hosted CI, the exact
   combined physics/UI/camera/R2/R3 consumer and actual device/visual gates remain
   pending integration ownership. The material flag stays default OFF.
+- Published [Draft PR #22](https://github.com/YoungJibbit95/Novacore-Engine/pull/22),
+  stacked on recovery/phase5-directional-shadows. Exact tested runtime/source
+  head is 9ff8ea038c2f21f242bd8af9920bc78c7123b420. The separate integration
+  branch must combine the physics APIs before a full Nemisis consumer gate;
+  public glTF/renderer aggregate changes require a full consumer rebuild.
