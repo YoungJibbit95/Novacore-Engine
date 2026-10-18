@@ -1,6 +1,7 @@
 #include "VulkanBackend.hpp"
 #include "CameraMath.hpp"
 #include "DynamicMeshUpdates.hpp"
+#include "MeshLighting.hpp"
 
 #include "novacore/core/Log.hpp"
 #include "novacore/render/Renderer.hpp"
@@ -171,9 +172,10 @@ struct WorldBoxPushConstants final {
 struct WorldMeshPushConstants final {
     std::array<float, 16> worldViewProjection{};
     std::array<float, 4> color{};
-    std::array<float, 4> lightDirectionAmbient{};
-    std::array<float, 4> fillDirectionIntensity{};
-    std::array<float, 4> materialResponse{};
+    std::array<float, 4> normalRotation{};
+    std::array<float, 3> inverseScale{};
+    std::uint32_t sunDirection = 0;
+    std::array<std::uint32_t, 4> lightingMaterial{};
 };
 
 struct WorldLinePushConstants final {
@@ -199,6 +201,10 @@ static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay und
 static_assert(sizeof(ContactShadowPushConstants) <= 128, "Contact shadow push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldBoxPushConstants) <= 128, "World box push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldMeshPushConstants) <= 128, "World mesh push constants must stay under the Vulkan minimum limit");
+static_assert(offsetof(WorldMeshPushConstants, normalRotation) == 80);
+static_assert(offsetof(WorldMeshPushConstants, inverseScale) == 96);
+static_assert(offsetof(WorldMeshPushConstants, sunDirection) == 108);
+static_assert(offsetof(WorldMeshPushConstants, lightingMaterial) == 112);
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under the Vulkan minimum limit");
 
@@ -275,16 +281,6 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
         direction.y,
         direction.z,
         std::clamp(lighting.ambientIntensity, 0.02F, 0.95F),
-    };
-}
-
-[[nodiscard]] std::array<float, 4> packedFillLighting(const RenderWorldLighting& lighting) {
-    const auto direction = normalized(lighting.fillDirection);
-    return {
-        direction.x,
-        direction.y,
-        direction.z,
-        std::clamp(lighting.fillIntensity, 0.0F, 1.0F),
     };
 }
 
@@ -449,16 +445,26 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 [[nodiscard]] WorldMeshPushConstants pushConstantsForMesh(
     const Mat4& viewProjection,
     const RenderMesh3D& mesh,
+    const detail::MeshNormalTransform& normalTransform,
     const RenderWorldLighting& lighting,
     std::array<float, 4> color,
     const assets::GltfMaterialData* gltfMaterial) {
     const auto worldViewProjection = multiply(viewProjection, modelMatrixForMesh(mesh));
+    const auto response = packedMaterialResponse(lighting, mesh.material, gltfMaterial);
     return WorldMeshPushConstants{
         worldViewProjection.value,
         color,
-        packedLighting(lighting),
-        packedFillLighting(lighting),
-        packedMaterialResponse(lighting, mesh.material, gltfMaterial),
+        normalTransform.rotation,
+        normalTransform.inverseScale,
+        detail::packLightDirection(lighting.sunDirection),
+        {
+            detail::packLightDirection(lighting.fillDirection),
+            detail::packUnitPair(
+                std::clamp(lighting.ambientIntensity, 0.02F, 0.95F),
+                std::clamp(lighting.fillIntensity, 0.0F, 1.0F)),
+            detail::packUnitPair(response[0], response[1]),
+            detail::packUnitPair(response[2], response[3]),
+        },
     };
 }
 
@@ -727,6 +733,7 @@ struct VulkanBackend::Impl final {
     std::size_t lastUiTextCount = 0;
     bool frameActive = false;
     bool loggedSkySubmission = false;
+    bool loggedInvalidMeshTransform = false;
     bool loggedContactShadowSubmission = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
@@ -2904,6 +2911,15 @@ struct VulkanBackend::Impl final {
             if (mesh.layer != layer || !mesh.mesh.isValid()) {
                 continue;
             }
+            const auto normalTransform = detail::meshNormalTransform(mesh);
+            if (!normalTransform) {
+                if (!loggedInvalidMeshTransform) {
+                    core::logWarning(
+                        "render", "Mesh draw skipped: non-finite rotation or singular/non-finite instance scale");
+                    loggedInvalidMeshTransform = true;
+                }
+                continue;
+            }
 
             const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
             if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
@@ -2936,6 +2952,7 @@ struct VulkanBackend::Impl final {
                 const auto constants = pushConstantsForMesh(
                     viewProjection,
                     mesh,
+                    *normalTransform,
                     frame.lighting,
                     primitiveColor,
                     gltfMaterial);
@@ -3302,6 +3319,7 @@ struct VulkanBackend::Impl final {
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
         loggedSkySubmission = false;
+        loggedInvalidMeshTransform = false;
         loggedContactShadowSubmission = false;
         loggedWorldDrawSubmission = false;
         loggedWorldLineSubmission = false;
@@ -3658,6 +3676,7 @@ void VulkanBackend::shutdown() {
     impl_->lastUiTextCount = 0;
     impl_->frameActive = false;
     impl_->loggedSkySubmission = false;
+    impl_->loggedInvalidMeshTransform = false;
     impl_->loggedWorldDrawSubmission = false;
     impl_->loggedWorldLineSubmission = false;
     impl_->loggedWorldMeshSubmission = false;

@@ -250,6 +250,42 @@ Current implementation:
 
 ## Phase 4 visual targets and evidence
 
+### Instance normal foundation (R1)
+
+The world mesh vertex shader applies the render instance inverse transpose to
+normals: for `T * Ry * Rx * Rz * S`, this is the unit rotation quaternion times
+the reciprocal scale. Normals and key/fill directions meet in world space and
+the fragment shader renormalizes interpolated normals. Instance translation
+does not affect shading; rotating a mesh by 180 degrees changes the surface's
+orientation toward the fixed world light. A singular/non-finite instance scale
+or non-finite rotation skips the draw with a once-per-session diagnostic.
+
+The push block remains 128 bytes without adding GPU buffers/descriptors:
+WVP and RGBA retain float precision, rotation/reciprocal scale use floats,
+the two unit light directions use octahedral unorm16 pairs, and six bounded
+light/material factors use unorm16 pairs (absolute scalar error at most
+approximately 7.7e-6). CPU tests bound the directional error below 0.01 degree.
+Invalid non-finite scalar factors become zero before integer conversion;
+finite values preserve their existing clamp intervals.
+
+Only the submitted `RenderMesh3D` instance transform is applied here. The glTF
+importer or CPU skinning has already produced input vertices/normals; no node
+transform is applied again by this change. An independent existing importer
+defect remains: `GltfDocument.cpp::applyNodeTransform` currently transforms
+baked normals with the linear node matrix instead of its inverse transpose.
+R1 cannot repair those already incorrect inputs. A separate importer followup
+needs a slanted triangle with mixed parent/child TRS, nonuniform scale and a
+normal perpendicular to both transformed tangents, plus preserved skin/node
+behavior. Identity-instance preservation tests do not establish importer
+correctness under baked nonuniform scale.
+
+The current material shader still uses a fixed world view vector for specular
+and rim approximation. Camera-relative specular/Fresnel, real texture normal
+maps, BRDF/IBL, cast shadows and reflections remain separate R2-R4 work; R1
+does not claim physically based or complete material response.
+
+### Reference criteria
+
 The supplied reference archive is an art/technical review board. Its actual
 downloaded S01-S03, M01-M02, P01-P02 and L01-L03 images were inspected locally.
 No reference image is imported into runtime assets or redistributed in this
@@ -277,10 +313,13 @@ builds and are not a matched baseline.
 
 Capture a level view toward sun azimuth 25 degrees, yaw +/-45 degrees, pitch
 -30/0/20/70 degrees and roll 0/+15/-15 degrees. Pair translation with unchanged
-angles; compare VFOV 40/74/110 and 1280x720/720x1280/1920x1080 extents. The sun
+angles; compare game VFOV 55/74/105 and 1280x720/720x1280/1920x1080 extents. The sun
 must project at the world direction, the horizon must rotate with camera roll,
 and changing FOV/aspect must produce the same projection as world geometry.
 Changing FOV is expected to change the disc's pixel size, not its angular size.
+Nemisis render tuning clamps FOV to 55..105 degrees. The separate engine CPU
+and sandbox math cases at 40/110 remain valid but must not be labelled actual
+Nemisis capture settings; the original R0 matrix used those engine cases.
 
 R1's separate matrix keeps camera/light/materials fixed while rotating the same
 mesh through 0/90/180 degrees and applying identity/nonuniform instance scales
