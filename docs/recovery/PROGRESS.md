@@ -51,3 +51,24 @@ existing tests; do not promote a no-GPU run into graphics validation.
   Windows-2025 could not resolve a Visual Studio 2022 instance at configure time.
   Selected the explicitly documented Windows-2022 / VS2022 runner instead;
   no tests or compiler checks were disabled. Fresh validation pending.
+
+## Phase 0 validation complete
+
+- Rules: f769998 / tracking 28dca6f, PR #7.
+- CI: 49740d4 plus runner correction 9c87ef2, PR
+  https://github.com/YoungJibbit95/Novacore-Engine/pull/8 (base: recovery/00-agent-rules).
+- Fresh hosted run at 9c87ef2 passed on both platforms:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39120124857.
+  Ubuntu 24.04 / Clang 18.1.3: complete build, 5/5 suites pass.
+  Windows 2022 / MSVC 19.44: complete build, 5/5 suites pass.
+- Windows-2025 had resolved to windows-2025-vs2026, explaining the first
+  VS2022-generator configure failure. Windows-2022 matches the existing toolchain.
+- Actionlint and the final diff whitespace check pass. No merge performed.
+- No GPU/visual validation performed. No runtime API or code changed; Nemisis CI
+  continues to validate the identical published runtime at dbdfc38.
+
+Next executable step: classify each existing test contract, then correct
+`docs/13_TESTING_ACCEPTANCE.md` so weapon TTK/objective scoring/spawn safety are
+Nemisis acceptance. Do this as a separate bounded PR after the CI stack. Keep
+all existing coverage until its replacement/ownership is verified. Renderer,
+importer and KCC extractions remain deferred behind real product needs.
