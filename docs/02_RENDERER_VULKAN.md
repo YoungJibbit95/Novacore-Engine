@@ -514,6 +514,18 @@ The first upload uses the existing graphics queue with a synchronous idle wait;
 asynchronous streaming/performance optimization remains open. UI descriptors,
 pixel geometry, last-in-pass order and teardown are unchanged.
 
+A successful upload submit followed by an unconfirmed idle wait retains its
+command, staging buffer and image in one inline pending entry. No further image
+upload is started; preparation retries completion even when texturing is OFF.
+Only SUCCESS or DEVICE_LOST permits release. Before any backend recreation or
+teardown destroys children, a private guard retries three times; persistent
+unconfirmed completion terminates without unwinding the pending resources.
+See [queue completion](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueWaitIdle.html)
+and [command-buffer lifetime](https://docs.vulkan.org/refpages/latest/refpages/source/vkFreeCommandBuffers.html).
+This is a source-reviewed lifetime fix; actual GPU OOM fault injection remains
+open. Unsupported materials also retain finite nonnegative emissive factors in
+the real fallback UBO, covered by the CPU regression test.
+
 CPU tests cover exact PNG channels/straight alpha/row order, JPEG tolerance,
 invalid/truncated/oversized inputs, three image source forms, normalized UV1,
 texture/sampler linkage, material metadata, unsupported transforms/alpha,

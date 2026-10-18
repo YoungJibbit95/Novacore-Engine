@@ -480,3 +480,21 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   head is 9ff8ea038c2f21f242bd8af9920bc78c7123b420. The separate integration
   branch must combine the physics APIs before a full Nemisis consumer gate;
   public glTF/renderer aggregate changes require a full consumer rebuild.
+- Independent source review found and closed two R3 issues: 6e150e910e58f2d2b44e1b1bb497b63375aa19fa
+  preserves finite nonnegative factor emission in unsupported-material UBOs;
+  b65cbf61103589891c58d0c0b39fc2caec3a313f retains a submitted command/staging/image
+  after unconfirmed queue waits. One inline pending entry needs no error-path
+  allocation. Preparation retries even when disabled; recreation/shutdown
+  guards run before any child destruction. Only SUCCESS/DEVICE_LOST permits
+  release; three unconfirmed teardown waits terminate without unwinding.
+  Review of the corrected lifetime placement found no remaining actionable
+  issue. Actual GPU OOM injection remains unrun.
+- At final runtime head b65cbf6, complete incremental headless build and all
+  9/9 CPU suites pass (1.30 seconds), as does the actual Vulkan library build.
+  The 27 shader binaries are unchanged from the prior validated R3 build;
+  all 23 prior R2 modules are byte-identical. Reinstalled own R3 packages now
+  have lib SHA-256 headless 37e0fa6aadfc4945dd3b8e2bb602d4e4e5e8210f5ebbb69b7a57688950bedcdc
+  and Vulkan 6e664ad38f3182466a53ba8b2f28ce5df625bfe914a20f31a1c36a95e2e1b691.
+  These supersede the initial candidate hashes above. No frozen earlier build
+  or game executable was changed. Full combined consumer and real-device gates
+  remain with the integration lead; hosted checks run on the final PR head.
