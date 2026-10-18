@@ -76,6 +76,15 @@ and skinned mesh-local data are complementary contracts.
 
 ## Networking functions
 
+Phase 2 addition to the glTF import suite (baseline main a727930):
+`testAuthoredSocketHierarchy`, `testAnimatedSocketAndIntermediate`,
+`testSocketHierarchyDiagnostics` and `testNonJointBetweenSkinJoints` are
+CONTRACT/INTEGRATION, KEEP / H. They compare exact authored socket matrices in
+bind/animated poses, retain original skin slots, exercise non-joint ancestors and
+channels, and reject invalid/ambiguous hierarchy rather than binding by name.
+The fixture uses the existing generated GLB writer. Result: 59 called functions
+(55 after Phase 1 plus four), still five CTest suites.
+
 Source: [`tests/netcode_tests.cpp`](../../tests/netcode_tests.cpp).
 
 | Function | Category | Protected invariant | Decision / risk |

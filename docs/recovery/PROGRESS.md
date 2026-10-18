@@ -1,5 +1,42 @@
 # Recovery progress
 
+## 2026-10-18 Phase 2 authored socket hierarchy
+
+- GitHub rechecked: recovery PRs #7/#8/#9 merged; current main is
+  a727930568bb5e5e60830dad6fe52ba2d7d3c074. Nemisis #7 through #11 merged;
+  main 741aeae2edeb2df67564ae0b2379ab06a3df5505 still pins dbdfc38.
+- Separate worktree F:/Coding/Project/recovery/phase2/Novacore-Engine; original
+  dirty user checkout and previous recovery worktrees are preserved.
+- Confirmed two bridge bugs: name-hint socket attachment discarded authored local
+  TRS, and nearest-skin-joint parenting omitted non-joint ancestor transforms.
+  Actual Nemisis FP arms and the selected chr_project_male1 both have a required
+  non-joint Y180 ancestor. Do not compensate with new per-weapon Euler repairs.
+- Bridge now follows node parentage. Static sockets retain authored local TRS;
+  missing selected-skin ancestry produces an explicit warning and no guessed
+  attachment. Invalid/multiple parents, duplicate node IDs and cycles diagnose.
+- Non-deforming ancestors/intermediates are appended to the existing pose as
+  ordinary joints. Original skin palette slots/JOINTS_0 and inverse binds remain
+  first and unchanged; helper inverse binds are identity and unused by weights.
+  Node animation channels, including animated socket nodes, use this one runtime.
+  Animated socket locals live in their pose node rather than being applied twice.
+  No public signature, new animation runtime or renderer/KCC change.
+- Added four small functions in existing glTF import tests: exact authored socket
+  translation/rotation/scale in bind and animated poses, misleading socket names,
+  scene ancestors, matrix/TRS intermediates between sockets AND skin joints,
+  animated non-joint/socket channels, instance order and malformed ancestry.
+  Existing binary writer reused; no checked-in GLB or test framework added.
+- Fresh baseline complete GCC 13.2/Ninja headless build: 5/5 suites pass. Complete
+  post-change build and 5/5 suites also pass. No existing function/assertion removed.
+- Cross-repo validation and published PR/CI evidence follow below. No GUI actions
+  or GPU visual validation: previous physical Escape boundary remains in force.
+
+Next: build/test Nemisis against the exact committed engine revision, including
+real arms/selected-character bind-socket parity. Pin only that validated revision
+in a dependent game PR. Then solve hand contact after animation and before final
+skinning; the existing whole-mesh average translation is not IK. ozz TwoBoneIK is
+a candidate for that separate game blocker; parser migration does not fix this
+bridge bug. Preserve the user's chosen chr_project_male1 and unmodified GLBs.
+
 ## 2026-10-18 baseline and rules
 
 - Published baseline: dbdfc38d092e018952ead43d9cb669333ebf70bc.

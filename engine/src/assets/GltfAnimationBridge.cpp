@@ -5,8 +5,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
-#include <initializer_list>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace novacore::assets {
@@ -39,39 +39,6 @@ namespace {
         return static_cast<char>(std::tolower(character));
     });
     return result;
-}
-
-[[nodiscard]] animation::JointIndex findJointByHints(
-    const animation::Skeleton& skeleton,
-    std::initializer_list<std::string_view> hints) {
-    for (animation::JointIndex index = 0; index < skeleton.joints.size(); ++index) {
-        const auto name = lowercase(skeleton.joints[index].name);
-        for (const auto hint : hints) {
-            if (name.find(lowercase(hint)) != std::string::npos) {
-                return index;
-            }
-        }
-    }
-    return animation::invalidJointIndex;
-}
-
-[[nodiscard]] animation::JointIndex socketJoint(
-    const animation::Skeleton& skeleton,
-    std::string_view socketName) {
-    const auto name = lowercase(socketName);
-    if (name.find("hand_r") != std::string::npos || name.find("weapon") != std::string::npos) {
-        return findJointByHints(skeleton, {"hand.r", "hand_r", "r_hand", "righthand"});
-    }
-    if (name.find("hand_l") != std::string::npos) {
-        return findJointByHints(skeleton, {"hand.l", "hand_l", "l_hand", "lefthand"});
-    }
-    if (name.find("camera") != std::string::npos || name.find("head") != std::string::npos) {
-        return findJointByHints(skeleton, {"head", "neck"});
-    }
-    if (name.find("vfx") != std::string::npos) {
-        return findJointByHints(skeleton, {"chest", "spine.002", "spine_02", "spine"});
-    }
-    return skeleton.joints.empty() ? animation::invalidJointIndex : 0U;
 }
 
 [[nodiscard]] float lengthSquared(math::Vec3 value) {
@@ -198,40 +165,141 @@ GltfAnimationBridgeResult buildGltfAnimationAsset(
     outAsset.skeleton.name = skin.name.empty()
         ? "gltf_skin_" + std::to_string(skin.skinIndex)
         : skin.name;
-    outAsset.skeleton.joints.reserve(skin.joints.size());
-    outAsset.inverseBindMatrices.reserve(skin.joints.size());
-    outAsset.jointNodeIndices.reserve(skin.joints.size());
+    std::unordered_map<std::size_t, const GltfNodeData*> nodeByIndex;
+    for (const auto& node : source.nodes) {
+        if (!nodeByIndex.emplace(node.nodeIndex, &node).second) {
+            result.errors.push_back("Duplicate glTF node index " + std::to_string(node.nodeIndex));
+        }
+    }
+    // Cross-check the public hierarchy too: callers can construct animation data
+    // directly rather than going through the glTF parser's parent validation.
+    std::unordered_map<std::size_t, std::size_t> parentByChild;
+    for (const auto& node : source.nodes) {
+        if (node.parentNodeIndex < -1 || (node.parentNodeIndex >= 0 &&
+            !nodeByIndex.contains(static_cast<std::size_t>(node.parentNodeIndex)))) {
+            result.errors.push_back("Invalid parent of glTF node '" + node.name + "'");
+        }
+        for (const auto child : node.children) {
+            const auto found = nodeByIndex.find(child);
+            if (found == nodeByIndex.end() || !parentByChild.emplace(child, node.nodeIndex).second ||
+                found->second->parentNodeIndex != static_cast<int>(node.nodeIndex)) {
+                result.errors.push_back("Ambiguous or inconsistent parent of glTF child node " + std::to_string(child));
+            }
+        }
+    }
+    if (!result.ok()) {
+        return result;
+    }
 
+    // Keep skin palette slots first and unchanged. Non-deforming ancestor nodes
+    // follow them as ordinary pose joints, preserving TRS products (including
+    // animated intermediates) without lossy matrix decomposition or a new API.
     std::unordered_map<std::size_t, animation::JointIndex> jointByNode;
-    jointByNode.reserve(skin.joints.size());
     for (std::size_t index = 0; index < skin.joints.size(); ++index) {
-        jointByNode.emplace(skin.joints[index].nodeIndex, static_cast<animation::JointIndex>(index));
+        const auto node = skin.joints[index].nodeIndex;
+        if (!nodeByIndex.contains(node) || !jointByNode.emplace(node, static_cast<animation::JointIndex>(index)).second) {
+            result.errors.push_back("Missing or duplicate glTF skin joint node " + std::to_string(node));
+        }
+        outAsset.jointNodeIndices.push_back(node);
     }
-
-    for (std::size_t index = 0; index < skin.joints.size(); ++index) {
-        const auto& joint = skin.joints[index];
-        outAsset.skeleton.joints.push_back(animation::Joint{
-            joint.name.empty() ? "joint_" + std::to_string(index) : joint.name,
-            joint.parentJointIndex,
-            toTransform(joint.localTransform),
-        });
-        outAsset.inverseBindMatrices.push_back(toAnimationMatrix(joint.inverseBindMatrix));
-        outAsset.jointNodeIndices.push_back(joint.nodeIndex);
+    if (!result.ok()) {
+        return result;
     }
-
+    const auto includeAncestors = [&](std::size_t start) {
+        std::unordered_set<std::size_t> visited;
+        auto cursor = start;
+        for (;;) {
+            if (!visited.insert(cursor).second) {
+                result.errors.push_back("Cycle in glTF ancestry of node " + std::to_string(start));
+                return;
+            }
+            if (!jointByNode.contains(cursor)) {
+                jointByNode.emplace(cursor, static_cast<animation::JointIndex>(outAsset.jointNodeIndices.size()));
+                outAsset.jointNodeIndices.push_back(cursor);
+            }
+            const auto parent = nodeByIndex.at(cursor)->parentNodeIndex;
+            if (parent < 0) {
+                return;
+            }
+            cursor = static_cast<std::size_t>(parent);
+        }
+    };
+    for (const auto& joint : skin.joints) {
+        includeAncestors(joint.nodeIndex);
+    }
+    std::unordered_set<std::size_t> animatedNodes;
+    for (const auto& clip : source.animations) {
+        for (const auto& channel : clip.channels) {
+            animatedNodes.insert(channel.targetNodeIndex);
+        }
+    }
+    std::vector<const GltfNodeData*> sockets;
     for (const auto& node : source.nodes) {
         if (!lowercase(node.name).starts_with("socket_")) {
             continue;
         }
-        const auto joint = socketJoint(outAsset.skeleton, node.name);
-        if (joint == animation::invalidJointIndex) {
-            result.warnings.push_back("Could not bind glTF socket node '" + node.name + "' to a joint");
+        auto cursor = node.nodeIndex;
+        std::unordered_set<std::size_t> visited;
+        bool attached = false;
+        for (;;) {
+            if (!visited.insert(cursor).second) {
+                result.errors.push_back("Cycle in glTF socket ancestry of '" + node.name + "'");
+                break;
+            }
+            const auto joint = jointByNode.find(cursor);
+            if (joint != jointByNode.end() && joint->second < skin.joints.size()) {
+                attached = true;
+                break;
+            }
+            const auto parent = nodeByIndex.at(cursor)->parentNodeIndex;
+            if (parent < 0) {
+                break;
+            }
+            cursor = static_cast<std::size_t>(parent);
+        }
+        if (!attached) {
+            result.warnings.push_back("Socket '" + node.name + "' has no ancestor joint in the selected skin; not bound by name");
             continue;
         }
+        sockets.push_back(&node);
+        // A directly animated socket is represented in the pose itself. Static
+        // sockets retain their authored local TRS on animation::Socket.
+        if (animatedNodes.contains(node.nodeIndex) || jointByNode.contains(node.nodeIndex)) {
+            includeAncestors(node.nodeIndex);
+        } else {
+            includeAncestors(static_cast<std::size_t>(node.parentNodeIndex));
+        }
+    }
+    if (!result.ok()) {
+        return result;
+    }
+    std::unordered_set<std::string> jointNames;
+    for (const auto& joint : skin.joints) {
+        jointNames.insert(joint.name);
+    }
+    for (std::size_t index = 0; index < outAsset.jointNodeIndices.size(); ++index) {
+        const auto& node = *nodeByIndex.at(outAsset.jointNodeIndices[index]);
+        std::string name = index < skin.joints.size() ? skin.joints[index].name : "gltf_node_" + std::to_string(node.nodeIndex);
+        if (index >= skin.joints.size()) {
+            while (jointNames.contains(name)) {
+                name += '_';
+            }
+            jointNames.insert(name);
+        }
+        outAsset.skeleton.joints.push_back(animation::Joint{
+            name.empty() ? "joint_" + std::to_string(index) : name,
+            node.parentNodeIndex < 0 ? -1 : static_cast<int>(jointByNode.at(static_cast<std::size_t>(node.parentNodeIndex))),
+            toTransform(node.localTransform),
+        });
+        outAsset.inverseBindMatrices.push_back(index < skin.joints.size()
+            ? toAnimationMatrix(skin.joints[index].inverseBindMatrix) : animation::Mat4{});
+    }
+    for (const auto* node : sockets) {
+        const auto poseNode = jointByNode.find(node->nodeIndex);
         outAsset.skeleton.sockets.push_back(animation::Socket{
-            node.name,
-            joint,
-            {},
+            node->name,
+            poseNode != jointByNode.end() ? poseNode->second : jointByNode.at(static_cast<std::size_t>(node->parentNodeIndex)),
+            poseNode != jointByNode.end() ? animation::Transform{} : toTransform(node->localTransform),
         });
     }
 
