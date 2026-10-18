@@ -386,3 +386,34 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   recovery/phase5-shadow-maps at 4e31fd461a7d13558caee5548146b39d5856132e;
   it is unbuilt, unregistered and unpublished. Camera/content correctness takes
   precedence. R2 lifecycle/backend work and R3 textures have not been started.
+
+## 2026-10-19 Phase 5 R2 source candidate
+
+- Isolated branch recovery/phase5-directional-shadows starts at RH camera
+  f4d7c99b0c522ae872ae05a6eb42818629b16607 (stacked on UI base 5518818).
+  Preserved the earlier math-only WIP as 4e31fd4 and cherry-picked it as 96da1c5.
+- Implemented the real source path: lazy per-frame-slot depth maps, depth-only
+  mesh/box caster pass, world receiver shader variants, 3x3 comparison PCF,
+  finite configurable bias/resolution/distance, conservative light-frustum
+  culling and per-slot bounds from successful dynamic vertex-buffer writes.
+  Explicit cast/receive flags include World-layer first-person opt-out. Legacy
+  ViewModel stays on its existing camera/pipeline; UI hooks and resources remain
+  unchanged. No new queue, submission, fence or render graph ownership.
+- Default disabled creates no shadow Vulkan handles. World push blocks stay
+  128 bytes; the private aligned shadow UBO is 160 bytes. Resource replacement
+  waits for idle; ordinary updates follow the existing slot fence. Stats count
+  recorded depth draws and current dynamic caster draws.
+- Standalone GCC 13.2 C++23 shadow math suite passes: finite inputs, world-sun
+  depth, whole receiver-sphere coverage, texel stability, off-camera casters,
+  six-plane conservative culling, RH camera reconstruction across FOV/aspect/
+  rotation/roll, signed nonuniform instance bounds and changed skinned bounds.
+  Six new shader modules compile with SDK 1.4.350.0 glslc and pass Vulkan 1.0
+  spirv-val. Small outputs are in C:/Users/Administrator/.codex/tmp/phase5-render-r2.
+- Full C++ backend/library, engine suites, hosted MSVC/Clang and exact-revision
+  Nemisis integration are pending coordinated build resources. The frozen
+  Phase 4 and Phase 5 camera shader directories have not been modified. This
+  source candidate is not a production pin or a completed GPU/visual gate.
+- Renderer docs define matched L01/L03/S02 visual criteria and an explicit
+  validation-layer/resize/two-slot matrix. No GUI permission or graphical launch
+  exists. R3 actual textures and subsequent PBR/reflection/LOD work remain next
+  bounded packages after R2 technical and integration checks.

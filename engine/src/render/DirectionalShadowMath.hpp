@@ -20,6 +20,13 @@ namespace novacore::render::detail {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
+[[nodiscard]] inline bool validShadowReceiverCamera(const RenderCamera3D& camera) {
+    return finiteShadowPoint(camera.position) && std::isfinite(camera.yawDegrees) &&
+           std::isfinite(camera.pitchDegrees) && std::isfinite(camera.rollDegrees) &&
+           std::isfinite(camera.verticalFovDegrees) && std::isfinite(camera.nearPlane) &&
+           std::isfinite(camera.farPlane);
+}
+
 [[nodiscard]] inline bool validDirectionalShadowSettings(std::uint32_t resolution, float distance, float depthBias,
                                                          float normalBias) {
     return (resolution == 256 || resolution == 512 || resolution == 1024 || resolution == 2048) &&
@@ -124,6 +131,35 @@ struct ShadowMeshBounds final {
     }
 };
 
+struct ShadowSphere final {
+    math::Vec3 center{};
+    float radius = 0;
+};
+
+// Transform the cooked/current skinned AABB once by the render instance. Eight
+// corners retain a conservative bound for rotation and signed/nonuniform scale.
+[[nodiscard]] inline std::optional<ShadowSphere> transformedShadowBounds(const ShadowMeshBounds& bounds,
+                                                                         const Mat4& model) {
+    if (!bounds.valid) {
+        return std::nullopt;
+    }
+    const auto localCenter = bounds.minimum * 0.5F + bounds.maximum * 0.5F;
+    const auto center = shadowProjectPoint(model, localCenter);
+    float radius = 0;
+    for (unsigned mask = 0; mask < 8; ++mask) {
+        const math::Vec3 corner{(mask & 1U) ? bounds.maximum.x : bounds.minimum.x,
+                                (mask & 2U) ? bounds.maximum.y : bounds.minimum.y,
+                                (mask & 4U) ? bounds.maximum.z : bounds.minimum.z};
+        const auto delta = shadowProjectPoint(model, corner) - center;
+        const auto length = std::hypot(delta.x, delta.y, delta.z);
+        if (!finiteShadowPoint(delta) || !std::isfinite(length)) {
+            return std::nullopt;
+        }
+        radius = std::max(radius, length);
+    }
+    return ShadowSphere{center, radius};
+}
+
 // std140 layout, shared with shadow_data.glsl. Camera rays reconstruct world
 // position from clip.x/y/w without an inverse-depth divide or another model
 // transform, preserving the existing 128-byte instance push block.
@@ -137,6 +173,12 @@ struct DirectionalShadowUniforms final {
     std::array<float, 4> towardSun{};
 };
 static_assert(sizeof(DirectionalShadowUniforms) == 160);
+static_assert(offsetof(DirectionalShadowUniforms, cameraRight) == 64);
+static_assert(offsetof(DirectionalShadowUniforms, cameraDown) == 80);
+static_assert(offsetof(DirectionalShadowUniforms, cameraForward) == 96);
+static_assert(offsetof(DirectionalShadowUniforms, cameraPositionDistance) == 112);
+static_assert(offsetof(DirectionalShadowUniforms, parameters) == 128);
+static_assert(offsetof(DirectionalShadowUniforms, towardSun) == 144);
 
 [[nodiscard]] inline DirectionalShadowUniforms
 directionalShadowUniforms(const DirectionalShadowCamera& light, const RenderCamera3D& camera, std::uint32_t width,

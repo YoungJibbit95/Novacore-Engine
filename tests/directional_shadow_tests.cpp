@@ -26,6 +26,15 @@ bool near(Vec3 a, Vec3 b, float tolerance = 0.00005F) {
 }
 
 void testSettingsAndInvalidInputs() {
+    const render::RenderFrameInfo defaults{};
+    expect(!defaults.directionalShadows.enabled, "existing frame extraction keeps shadow resources opt-in");
+    expect(render::RenderMesh3D{}.castsShadow && render::RenderMesh3D{}.receivesShadow &&
+               render::RenderBox3D{}.castsShadow && render::RenderBox3D{}.receivesShadow,
+           "ordinary world geometry participates unless the extractor explicitly opts out");
+    auto camera = defaults.camera3D;
+    expect(detail::validShadowReceiverCamera(camera), "default receiver camera is finite");
+    camera.rollDegrees = std::numeric_limits<float>::quiet_NaN();
+    expect(!detail::validShadowReceiverCamera(camera), "non-finite camera orientation cannot poison shadow UBOs");
     for (const unsigned resolution : {256U, 512U, 1024U, 2048U}) {
         expect(detail::validDirectionalShadowSettings(resolution, 35, 0.0007F, 0.002F),
                "supported bounded resolution and finite bias/distance are accepted");
@@ -45,6 +54,51 @@ void testSettingsAndInvalidInputs() {
     expect(!detail::directionalShadowCamera({}, {}, 35, 1024), "zero sun direction is rejected");
     expect(!detail::directionalShadowCamera({0, std::numeric_limits<float>::infinity(), 0}, {0, 1, 0}, 35, 1024),
            "non-finite camera position is rejected");
+}
+
+void testInstanceBoundsAndIndependentOcclusion() {
+    detail::ShadowMeshBounds bounds{};
+    bounds.include({-2, -1, -3});
+    bounds.include({4, 5, 7});
+    // Independently written affine instance: Y +90 degrees, scale (2,.5,-3),
+    // translation (10,20,30). Its world center is (-6+10,1+20,-2+30).
+    auto instance = detail::identity();
+    instance.at(0, 0) = 0;
+    instance.at(0, 2) = -3;
+    instance.at(1, 1) = 0.5F;
+    instance.at(2, 0) = -2;
+    instance.at(2, 2) = 0;
+    instance.at(0, 3) = 10;
+    instance.at(1, 3) = 20;
+    instance.at(2, 3) = 30;
+    const auto sphere = detail::transformedShadowBounds(bounds, instance);
+    expect(sphere && near(sphere->center, {4, 21, 28}) && near(sphere->radius, std::sqrt(263.25F)),
+           "caster bounds transform cooked positions once with rotation, signed/nonuniform scale and translation");
+    expect(!detail::transformedShadowBounds({}, instance), "empty primitives produce no phantom caster bounds");
+    // A moving CPU-skinned surface must move its conservative bound, rather
+    // than retaining the bind-pose AABB. The backend updates each safe slot
+    // together with the corresponding successful vertex-buffer write.
+    detail::ShadowMeshBounds animated{};
+    animated.include({-2, -1, -3});
+    animated.include({4, 15, 7});
+    const auto moved = detail::transformedShadowBounds(animated, instance);
+    expect(moved && sphere && moved->center.y > sphere->center.y && moved->radius > sphere->radius,
+           "animated current positions expand and move the caster bound");
+    instance.at(0, 0) = std::numeric_limits<float>::infinity();
+    expect(!detail::transformedShadowBounds(bounds, instance), "invalid affine transforms cannot enter caster culling");
+
+    // Sun at +Y: the horizontal occluder y=4 is closer to the light than the
+    // receiver y=0. Verify numeric depth independently of the helper's basis.
+    const auto light = detail::directionalShadowCamera({}, {0, 1, 0}, 35, 1024);
+    expect(light.has_value(), "independent planar occlusion fixture has a valid light camera");
+    if (light) {
+        const auto receiver = detail::shadowProjectPoint(light->viewProjection, {0, 0, 0});
+        const auto occluder = detail::shadowProjectPoint(light->viewProjection, {0, 4, 0});
+        expect(near(receiver.z, 0.5F) && near(occluder.z, 0.5F - 4 / (4 * light->radius)),
+               "light depth follows world sun elevation with a known four-metre blocker");
+        expect(occluder.z < receiver.z - 0.0007F && receiver.z <= receiver.z + 0.0007F,
+               "LESS_OR_EQUAL comparison shadows behind the blocker and keeps the front surface lit");
+    }
 }
 
 void testWorldLightProjectionAndCoverage() {
@@ -177,5 +231,6 @@ int main() {
     testWorldLightProjectionAndCoverage();
     testTexelStabilityAndConservativeCasterCulling();
     testWorldReconstructionAndUniformContract();
+    testInstanceBoundsAndIndependentOcclusion();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

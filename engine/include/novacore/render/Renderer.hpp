@@ -94,6 +94,10 @@ struct RenderBackendFrameStats final {
     std::size_t lastUiTextCount = 0;
     bool swapchainReady = false;
     bool debugLabelsAvailable = false;
+    bool directionalShadowsReady = false;
+    std::uint32_t directionalShadowResolution = 0;
+    std::size_t lastDirectionalShadowCasterDrawCount = 0;
+    std::size_t lastDirectionalShadowDynamicCasterDrawCount = 0;
 };
 
 struct MeshResourceView final {
@@ -229,6 +233,8 @@ struct RenderBox3D final {
     math::Vec3 center{};
     math::Vec3 halfExtents{0.5F, 0.5F, 0.5F};
     std::array<float, 4> color{0.72F, 0.82F, 0.86F, 1.0F};
+    bool castsShadow = true;
+    bool receivesShadow = true;
 };
 
 struct RenderLine3D final {
@@ -249,6 +255,9 @@ struct RenderMesh3D final {
     RenderMaterialFallback material{};
     RenderMaterialBinding materialBinding{};
     RenderMeshLayer layer = RenderMeshLayer::World;
+    // Explicit flags also apply to camera-attached geometry in the World layer.
+    bool castsShadow = true;
+    bool receivesShadow = true;
 };
 
 struct RenderContactShadow3D final {
@@ -258,6 +267,15 @@ struct RenderContactShadow3D final {
     float casterHeight = 0.0F;
     float opacity = 1.0F;
     float softness = 1.0F;
+};
+
+struct RenderDirectionalShadows final {
+    // Opt in only after the consuming scene's GPU/visual validation.
+    bool enabled = false;
+    std::uint32_t resolution = 1024; // 256, 512, 1024 or 2048
+    float distance = 35.0F; // Camera-centred receiver sphere, 1..150 metres.
+    float depthBias = 0.0007F; // Normalized light depth, 0..0.05.
+    float normalBias = 0.002F; // Additional slope-dependent depth bias, 0..0.05.
 };
 
 struct RenderFrameInfo final {
@@ -273,6 +291,7 @@ struct RenderFrameInfo final {
     std::vector<DebugLine> debugLines;
     std::vector<DebugText> debugTexts;
     UiDrawData ui;
+    RenderDirectionalShadows directionalShadows{};
 };
 
 class Renderer final {

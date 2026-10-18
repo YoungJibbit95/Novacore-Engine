@@ -86,6 +86,7 @@ add_library(novacore_engine
     engine/src/render/Mesh.cpp
     engine/src/render/UiDrawData.cpp
     engine/src/render/VulkanUiRenderer.cpp
+    engine/src/render/VulkanDirectionalShadowMap.cpp
     engine/src/render/Renderer.cpp
     engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
@@ -172,6 +173,12 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_mesh.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_box.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_shadowed.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_shadowed.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_shadowed.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_shadowed.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_rect.vert"
@@ -185,6 +192,12 @@ if(NOVACORE_ENABLE_VULKAN)
                     COMMAND ${CMAKE_COMMAND} -E make_directory "${NOVACORE_SHADER_BINARY_DIR}"
                     COMMAND "${Vulkan_GLSLC_EXECUTABLE}" -O "${shader_source}" -o "${shader_output}"
                     DEPENDS "${shader_source}"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/box_geometry.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_vert.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_vert.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_frag.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_data.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_sampling.glsl"
                     VERBATIM
                 )
                 list(APPEND NOVACORE_SHADER_SPV_FILES "${shader_output}")
@@ -234,6 +247,11 @@ if(NOVACORE_BUILD_TESTS)
     target_link_libraries(novacore_render_projection_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_render_projection_tests)
     add_test(NAME novacore_render_projection_tests COMMAND novacore_render_projection_tests)
+
+    add_executable(novacore_directional_shadow_tests tests/directional_shadow_tests.cpp)
+    target_link_libraries(novacore_directional_shadow_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_directional_shadow_tests)
+    add_test(NAME novacore_directional_shadow_tests COMMAND novacore_directional_shadow_tests)
 
     add_executable(novacore_smoke_tests tests/novacore_smoke_tests.cpp)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
