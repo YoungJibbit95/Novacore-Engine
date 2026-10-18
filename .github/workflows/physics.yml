@@ -1,0 +1,51 @@
+name: NovaCore optional rigid-body CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: novacore-physics-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  jolt:
+    name: Jolt ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu Clang
+            os: ubuntu-24.04
+            preset: ci-headless-linux
+          - name: Windows MSVC
+            os: windows-2022
+            preset: ci-headless-windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure optional CPU solver
+        run: cmake --preset ${{ matrix.preset }} -DNOVACORE_ENABLE_JOLT=ON
+      - name: Build engine, server, sandbox and physics tests
+        run: cmake --build --preset ${{ matrix.preset }} --parallel 2
+      - name: Test original suites and optional rigid bodies
+        run: ctest --preset ${{ matrix.preset }} --output-junit test-results.xml
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: novacore-jolt-${{ matrix.preset }}-failure
+          path: |
+            test-results.xml
+            build/**/Testing/Temporary/**
+            build/**/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 7
+          if-no-files-found: warn
