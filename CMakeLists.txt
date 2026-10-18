@@ -219,6 +219,8 @@ endif()
 
 enable_testing()
 
+include(cmake/Physics.cmake)
+
 if(NOVACORE_BUILD_TESTS)
     add_executable(novacore_render_normal_tests tests/render_normal_tests.cpp)
     target_link_libraries(novacore_render_normal_tests PRIVATE novacore_engine)

@@ -1,5 +1,43 @@
 # Recovery progress
 
+## 2026-10-19 Phase 5 optional rigid-body adoption
+
+- Isolated `recovery/phase5-physics-adoption` starts at exact main
+  `38e718bad65001879b482f8039bff338855e5f0b`. No original dirty worktree,
+  character/KCC source, renderer/UI source or existing tests changed.
+- PH-1 gate adopts MIT Jolt 5.6.0 at immutable
+  `e77f175595e64cb44218cc9d9d56fc365ad0e36a` for optional CPU dynamics.
+  See [capability audit and authority contract](PHYSICS_ADOPTION.md).
+- New public PIMPL `RigidBodyWorld` supports real boxes/spheres/capsules,
+  oriented boxes, mass/inertia/angular motion, gravity, contact friction,
+  restitution/damping, sleeping/waking, CCD, generation/world-owned handles,
+  static/kinematic/dynamic modes, symmetrical 8-layer masks and closest rays.
+  Canonical blocking boxes/four ramp wedges derive from existing StaticCollider
+  data; unchanged fixtures persist, changed/removed support wakes nearby bodies.
+  A real kinematic capsule pushes dynamic props without applying impulses to
+  the unchanged competitive motor. Prop-blocked KCC movement is not implemented.
+- Complete local GCC 13.2/O2 default-off 8/8 pass in 1.67 s and Jolt-on 8/8 pass in 2.74 s.
+  Existing 720-tick KCC replay hash remains 17925562298706474255 in both configs
+  and after dynamic-world simulation. Jolt default 2 cm slop caused measured
+  two-box penetration 0.229792/0.709549 m; explicit 5 mm slop improves centres to
+  0.244805/0.739578 m without weakening the original 2.5 cm test assertion.
+- Single-thread 60 Hz CPU benchmark (30 warmup/270 samples), median/p95 us:
+  32 props 6.2/76.9, 128 props 87.7/431.1, 256 props 726.2/1184.5. One local run;
+  no GPU/frame-time or cross-platform determinism claim.
+- Installed public CMake consumer actually builds/links/runs a dropped box
+  using only NovaCore headers/target (Y=0.245 m, sleeping). Jolt static dependency
+  and MIT notice install correctly. Hosted default-off plus opt-in MSVC/Clang
+  workflows, exact Nemisis Dev Range integration and visual review remain gates.
+- Final trigger-kind exclusion retains the existing KCC's nonblocking semantics
+  even for inconsistent trigger flags; closest-ray regression covers this.
+  Complete final Jolt-on 8/8 suites pass in 5.03 s. Final disabled adapter also
+  compiles/runs without linking Jolt. No existing suite/assertion was removed.
+- No GUI launched. Next executable step: publish Draft engine PR, run both
+  platform matrices, then main-agent exact-pin Dev Range integration/tests;
+  preserve default-off adoption until accepted. Trigger events, shape casts,
+  two-way KCC contact, materials/impact event tags and prop replication remain
+  explicit later slices. No general solver/constraint engine was reinvented.
+
 ## 2026-10-18 Phase 2B dynamic mesh frame slots
 
 - Published DRAFT https://github.com/YoungJibbit95/Novacore-Engine/pull/11;
