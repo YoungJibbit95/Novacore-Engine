@@ -236,6 +236,14 @@ Current implementation:
 * Swapchain image views, render pass, depth resources, framebuffers, world pipelines, and UI primitive pipelines are recreated as one dependent-resource group.
 * Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, last world box/mesh/line counts, and last UI rect/line/text counts are exposed through renderer backend stats for game-side diagnostics.
 * The sky pass is camera-oriented and renders a configurable sun disc, atmospheric haze, horizon response, and light procedural cloud breakup.
+  Its world-space ray basis shares the world camera's vertical FOV, swapchain
+  aspect, yaw/pitch/roll and Vulkan projection Y flip. Camera translation is
+  omitted from sky rays. `RenderWorldLighting::sunDirection` points from the
+  shaded surface toward the sun; both diffuse lighting and the sky disc consume
+  this same normalized direction. It is not the direction in which photons travel.
+  `RenderSky::horizonHeight` remains an artistic gradient control, not a screen
+  coordinate or a replacement for the world horizon. The sky push block is
+  exactly 128 bytes and needs no descriptor or GPU-resource lifetime changes.
 * Soft sun-aligned contact shadows are submitted as a dedicated blended depth-tested pass and reported through backend frame statistics.
 * World meshes upload cooked UV0 data and use per-fragment metallic/roughness response with deterministic micro-surface variation.
 * Viewmodel meshes use an isolated short-range projection and depth clear so held weapons and arms do not disappear into world geometry.
