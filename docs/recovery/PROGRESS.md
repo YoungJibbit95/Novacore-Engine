@@ -234,3 +234,46 @@ cook/catalog migration. Preserve active offline fixups and both GLBs until CPU
 contracts plus hip/held ADS/muzzle/grips/scale/procedural-motion review pass.
 The documented authored glTF socket-offset gap needs a separate engine fixture/
 fix and exact cross-repo validation if pursued; do not mix it into this audit.
+
+## 2026-10-18 Phase 4 R0 sky/sun projection
+
+- Isolated renderer worktree starts from clean engine main d4eee3a. Its runtime
+  matches Nemisis's a687c88 pin; the intervening changes are merged history/docs.
+  Original dirty checkouts and the pinned engine worktrees remain untouched.
+- Root causes: sky rays used fixed 0.92/0.58 projection factors, opposite vertical
+  screen convention to the world projection, and only yaw/pitch. The old world
+  look-at also omitted camera roll and was singular at exactly vertical pitch.
+- World view/projection and sky rays now share one private camera math helper:
+  actual FOV, swapchain aspect, analytic yaw/pitch/roll basis and Vulkan Y flip.
+  Appended optional RenderCamera3D::rollDegrees defaults to zero. No projection
+  handedness, model coordinates or mesh transforms are changed.
+- Sky uses the same normalized world-space toward-sun vector as existing world
+  lighting/contact shadows. Translation does not enter its 128-byte push block.
+  No shadow map, material/PBR or texture changes are mixed into R0.
+- Proposed isolated Nemisis config handoff: sun direction
+  (0.397131, 0.342020, 0.851651), approximately azimuth 25/elevation 20 degrees.
+  The old vector's 62.7-degree elevation is outside a level 74-degree VFOV;
+  correcting projection alone cannot make that sun visible at horizontal pitch.
+- Added CPU sky/world pixel round trips across translation, yaw, vertical pitch,
+  roll, portrait/landscape/zero extents and three FOVs; explicit world-sun,
+  low-elevation, light-direction and Vulkan depth conventions are covered.
+- Validation results and exact implementation revision follow after execution.
+  No new GUI authorization exists after the user's physical Escape stop: no
+  Vulkan pixels, GPU timings or visual acceptance are claimed for this step.
+- Executed GCC 13.2 / Ninja Release dependency-light full build (engine,
+  dedicated server, sandbox and tests): pass. All 6/6 CTest suites pass in
+  1.49 seconds, including the new projection suite. Existing unused sandbox
+  buildSummary warning is unchanged. Public headless package installed for
+  exact-revision Nemisis validation. Vulkan compilation is recorded next.
+- Compiled the actual SDL3/Vulkan backend object with Vulkan SDK 1.4.350.0 and
+  all 15 GLSL shaders with glslc. All 15 modules pass spirv-val for Vulkan 1.0;
+  sky push-member offsets are 0/16/32/48/64/80/96/112 (128 bytes total).
+  No Vulkan device was started; visual/GPU acceptance remains pending.
+- User's later visual-reference addon incorporated without restarting work:
+  inspected actual local S01-S03, M01-M02, P01-P02 and L01-L03 images, the
+  README, reference JSON and original board. Renderer docs now identify original
+  source URLs, concrete targets, package boundaries and a reproducible R0/R1
+  before/after matrix. Reference binaries remain outside the repository/assets.
+- Full SDL3/Vulkan Release static library also built and installed successfully.
+  Both public candidate packages have runtime f0c90b7. The following commit is
+  documentation-only; cross-repo and visual evidence are still separate gates.
