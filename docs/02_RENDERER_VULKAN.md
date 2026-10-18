@@ -592,11 +592,14 @@ single sRGB output conversion contracts are unchanged. No new renderer API,
 UBO, push layout, descriptor, upload, pipeline owner, asset or queue is added.
 
 The new private GLSL include is the only additional CMake shader dependency.
-An initial standalone SDK compile/spirv-val gate passes all 27 modules: all
+The complete fresh SDK compile/spirv-val gate passes all 27 modules: all
 23 baseline modules and both textured vertex modules are byte-identical to
-frozen R3; only the two textured fragment modules change. Full new-directory
-engine CPU/Vulkan builds, hosted checks, combined consumer and real GPU
-numerical/visual gates remain to be recorded.
+frozen R3; only the two textured fragment modules change. At exact runtime
+92394956a26d74dd18c9bb2e00292bc02ea169ad, complete new-directory Release
+headless engine/server/sandbox and all 9/9 CPU suites pass (1.38 seconds).
+The complete separate actual SDL3/Vulkan engine/server/sandbox build/install
+also passes. Hosted checks, the combined consumer and real GPU numerical/visual
+gates remain separate.
 
 Independent CPU design calculations use Smith's lambda form rather than the
 shader's visibility expression. For unit front-facing light/view, base red 0.5
@@ -607,6 +610,7 @@ Rough metal has a broader lobe than sharp metal, and the grazing/zero-vector
 reference cases remain finite. These are reference calculations only: no C++
 formula copy or source-pattern check is registered as a shader execution test.
 Actual GPU evaluation/readback is still open.
+Comparisons must account for the existing UNORM16 roughness/metallic packing.
 
 After the combined R3 gate, matched captures should hold light/material/exposure
 fixed while moving the eye: highlights must follow eye and roughness, not world
