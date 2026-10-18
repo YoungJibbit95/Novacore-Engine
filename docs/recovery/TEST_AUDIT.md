@@ -40,6 +40,7 @@ Source: [`tests/novacore_smoke_tests.cpp`](../../tests/novacore_smoke_tests.cpp)
 | `testGltfMeshAndMarkersShareNestedTransform` (new) | CONTRACT | Parent quaternion/TRS, child column-major matrix, nonuniform scale and normalized marker basis share one mesh/marker space | KEEP / H; closes a composition/direction gap |
 | `testGltfMetadataAndMeshCatalog` | INTEGRATION | Metadata validation, GLB chunks/counts/decoding, imported handles and provenance | KEEP / H |
 | `testRendererMeshResourceRegistry` | CONTRACT | Invalid/deduplicated mesh registration, counts, release, generation reuse, dynamic topology/handles | KEEP / H; CPU resource state only |
+| `testDynamicMeshPoseReachesEveryFrameSlot` (Phase 2B) | REGRESSION | Actual Vulkan update scheduler consumes latest position/normal payload on both safe slots without another simulation tick; coalescing, no redundant writes, residency/write retries and generation release | KEEP / H; CPU upload callback, no GPU execution |
 | `testPhysicsCharacterControllerSurfaces` | CONTRACT + REGRESSION | Ground/step/ramp/snap policy, contacts, no stale support, fast sweeps, wall slide, mantle geometry | KEEP / H |
 | `testPhysicsSystemCharacterMotor` | INTEGRATION | Motor/sandbox colliders, tick/sweep/ground telemetry, support carry/jump inheritance and replay | KEEP / H |
 | `testEngineSandboxRunsStandalone` | INTEGRATION | Headless scenario selection/ticks, explicit exit status, telemetry suppression, missing IDs and text/JSON output | KEEP / H |
