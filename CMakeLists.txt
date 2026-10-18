@@ -59,6 +59,7 @@ add_library(novacore_engine
     engine/src/assets/GltfAnimationBridge.cpp
     engine/src/assets/GltfDocument.cpp
     engine/src/assets/GltfMetadata.cpp
+    engine/src/assets/ImageDecoder.cpp
     engine/src/assets/AssetManifest.cpp
     engine/src/assets/AssetRegistry.cpp
     engine/src/assets/AssetStreamer.cpp
@@ -87,6 +88,7 @@ add_library(novacore_engine
     engine/src/render/UiDrawData.cpp
     engine/src/render/VulkanUiRenderer.cpp
     engine/src/render/VulkanDirectionalShadowMap.cpp
+    engine/src/render/VulkanMaterialTextures.cpp
     engine/src/render/Renderer.cpp
     engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
@@ -100,6 +102,7 @@ target_include_directories(novacore_engine
 )
 
 target_compile_features(novacore_engine PUBLIC cxx_std_23)
+target_include_directories(novacore_engine SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
 add_library(Novacore::Engine ALIAS novacore_engine)
 set_target_properties(novacore_engine PROPERTIES EXPORT_NAME Engine)
 
@@ -179,6 +182,10 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_shadowed.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_shadowed.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_shadowed.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_shadowed.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_shadowed.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_rect.vert"
@@ -198,6 +205,8 @@ if(NOVACORE_ENABLE_VULKAN)
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_frag.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_data.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_sampling.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_frame.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_textures.glsl"
                     VERBATIM
                 )
                 list(APPEND NOVACORE_SHADER_SPV_FILES "${shader_output}")
@@ -253,6 +262,11 @@ if(NOVACORE_BUILD_TESTS)
     novacore_copy_mingw_runtime(novacore_directional_shadow_tests)
     add_test(NAME novacore_directional_shadow_tests COMMAND novacore_directional_shadow_tests)
 
+    add_executable(novacore_gltf_material_texture_tests tests/gltf_material_texture_tests.cpp)
+    target_link_libraries(novacore_gltf_material_texture_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_gltf_material_texture_tests)
+    add_test(NAME novacore_gltf_material_texture_tests COMMAND novacore_gltf_material_texture_tests)
+
     add_executable(novacore_smoke_tests tests/novacore_smoke_tests.cpp)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_smoke_tests)
@@ -280,6 +294,7 @@ if(NOVACORE_BUILD_TESTS)
 endif()
 
 include(CMakePackageConfigHelpers)
+install(FILES third_party/stb/LICENSE third_party/stb/README.md DESTINATION share/Novacore/licenses/stb)
 
 install(
     TARGETS novacore_engine

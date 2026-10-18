@@ -4,6 +4,7 @@
 #include "DynamicMeshUpdates.hpp"
 #include "MeshLighting.hpp"
 #include "VulkanDirectionalShadowMap.hpp"
+#include "VulkanMaterialTextures.hpp"
 #include "VulkanUiRenderer.hpp"
 
 #include "novacore/core/Log.hpp"
@@ -198,8 +199,9 @@ struct VulkanMeshVertex final {
     float position[3]{};
     float normal[3]{0.0F, 1.0F, 0.0F};
     float texcoord[2]{};
+    float texcoord1[2]{};
 };
-static_assert(sizeof(VulkanMeshVertex) == 8 * sizeof(float)); // Directional depth pass position-only input.
+static_assert(sizeof(VulkanMeshVertex) == 10 * sizeof(float)); // Directional depth pass position-only input.
 
 static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(ContactShadowPushConstants) <= 128, "Contact shadow push constants must stay under the Vulkan minimum limit");
@@ -521,6 +523,7 @@ struct GpuMeshPrimitive final {
     int materialIndex = -1;
     bool dynamicVertices = false;
     std::vector<math::Vec2> texcoords;
+    std::vector<math::Vec2> texcoords1;
 };
 
 struct GpuMeshAsset final {
@@ -528,6 +531,9 @@ struct GpuMeshAsset final {
     std::string assetId;
     std::vector<GpuMeshPrimitive> primitives;
     std::vector<assets::GltfMaterialData> materials;
+    std::shared_ptr<const assets::GltfMeshData> textureSource;
+    std::shared_ptr<VulkanMaterialTextures::Asset> materialTextures;
+    bool attemptedMaterialUpload = false;
     std::size_t vertexCount = 0;
     std::size_t indexCount = 0;
     MeshResourceUsage usage = MeshResourceUsage::Static;
@@ -695,6 +701,18 @@ struct VulkanBackend::Impl final {
     VkPipelineLayout worldMeshPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldMeshPipeline = VK_NULL_HANDLE;
     VulkanDirectionalShadowMap directionalShadowMap;
+    VulkanMaterialTextures materialTextureOwner;
+    bool materialTextureOwnerInitialized = false;
+    bool materialTexturesPrepared = false;
+    bool materialTexturesReady = false;
+    bool attemptedMaterialPipelines = false;
+    bool attemptedShadowMaterialPipelines = false;
+    VkPipeline worldMeshTexturedPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout worldMeshTexturedPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldMeshTexturedShadowedPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout worldMeshTexturedShadowedPipelineLayout = VK_NULL_HANDLE;
+    std::size_t lastMaterialTextureDrawCount = 0;
+    std::size_t lastMaterialFallbackDrawCount = 0;
     VkPipelineLayout worldMeshShadowedPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldMeshShadowedPipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldBoxShadowedPipelineLayout = VK_NULL_HANDLE;
@@ -1885,15 +1903,18 @@ struct VulkanBackend::Impl final {
         return success;
     }
 
-    [[nodiscard]] bool createWorldMeshPipeline(bool shadowed = false) {
-        auto& outputLayout = shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout;
-        auto& outputPipeline = shadowed ? worldMeshShadowedPipeline : worldMeshPipeline;
+    [[nodiscard]] bool createWorldMeshPipeline(bool shadowed = false, bool textured = false) {
+        auto& outputLayout =
+            textured ? (shadowed ? worldMeshTexturedShadowedPipelineLayout : worldMeshTexturedPipelineLayout)
+                     : (shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout);
+        auto& outputPipeline = textured ? (shadowed ? worldMeshTexturedShadowedPipeline : worldMeshTexturedPipeline)
+                                        : (shadowed ? worldMeshShadowedPipeline : worldMeshPipeline);
         beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
-        const auto vertexShaderBytes =
-            readBinaryFile(shaderDirectory / (shadowed ? "world_mesh_shadowed.vert.spv" : "world_mesh.vert.spv"));
-        const auto fragmentShaderBytes =
-            readBinaryFile(shaderDirectory / (shadowed ? "world_mesh_shadowed.frag.spv" : "world_mesh.frag.spv"));
+        const std::string stem = textured ? (shadowed ? "world_mesh_textured_shadowed" : "world_mesh_textured")
+                                          : (shadowed ? "world_mesh_shadowed" : "world_mesh");
+        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / (stem + ".vert.spv"));
+        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / (stem + ".frag.spv"));
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
             skipPipelineCreate();
             core::logWarning("render", "Vulkan world mesh pipeline skipped because shader binaries are missing");
@@ -1932,7 +1953,7 @@ struct VulkanBackend::Impl final {
         vertexBinding.stride = sizeof(VulkanMeshVertex);
         vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 3> vertexAttributes{};
+        std::array<VkVertexInputAttributeDescription, 4> vertexAttributes{};
         vertexAttributes[0].binding = 0;
         vertexAttributes[0].location = 0;
         vertexAttributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1945,12 +1966,13 @@ struct VulkanBackend::Impl final {
         vertexAttributes[2].location = 2;
         vertexAttributes[2].format = VK_FORMAT_R32G32_SFLOAT;
         vertexAttributes[2].offset = offsetof(VulkanMeshVertex, texcoord);
+        vertexAttributes[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(VulkanMeshVertex, texcoord1)};
 
         VkPipelineVertexInputStateCreateInfo vertexInput{};
         vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
         vertexInput.vertexBindingDescriptionCount = 1;
         vertexInput.pVertexBindingDescriptions = &vertexBinding;
-        vertexInput.vertexAttributeDescriptionCount = static_cast<std::uint32_t>(vertexAttributes.size());
+        vertexInput.vertexAttributeDescriptionCount = textured ? 4U : 3U;
         vertexInput.pVertexAttributeDescriptions = vertexAttributes.data();
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -2021,9 +2043,10 @@ struct VulkanBackend::Impl final {
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        const auto descriptorLayout = directionalShadowMap.receiverLayout();
-        pipelineLayoutInfo.setLayoutCount = shadowed ? 1U : 0U;
-        pipelineLayoutInfo.pSetLayouts = shadowed ? &descriptorLayout : nullptr;
+        const std::array layouts{shadowed ? directionalShadowMap.receiverLayout() : materialTextureOwner.emptyLayout(),
+                                 materialTextureOwner.layout()};
+        pipelineLayoutInfo.setLayoutCount = textured ? 2U : (shadowed ? 1U : 0U);
+        pipelineLayoutInfo.pSetLayouts = textured || shadowed ? layouts.data() : nullptr;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
         if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outputLayout),
@@ -2458,10 +2481,12 @@ struct VulkanBackend::Impl final {
             const auto texcoord = index < primitive.texcoords.size()
                 ? primitive.texcoords[index]
                 : novacore::math::Vec2{position.x, position.z};
+            const auto uv1 = index < primitive.texcoords1.size() ? primitive.texcoords1[index] : math::Vec2{};
             vertices.push_back(VulkanMeshVertex{
                 {position.x, position.y, position.z},
                 {normal.x, normal.y, normal.z},
                 {texcoord.x, texcoord.y},
+                {uv1.x, uv1.y},
             });
         }
         return vertices;
@@ -2485,6 +2510,7 @@ struct VulkanBackend::Impl final {
         outPrimitive.dynamicVertices = usage == MeshResourceUsage::DynamicVertices;
         outPrimitive.materialIndex = source.materialIndex;
         outPrimitive.texcoords = source.texcoords;
+        outPrimitive.texcoords1 = source.texcoords1;
         if (outPrimitive.texcoords.size() != source.positions.size()) {
             outPrimitive.texcoords.clear();
             outPrimitive.texcoords.reserve(source.positions.size());
@@ -2541,6 +2567,8 @@ struct VulkanBackend::Impl final {
             primitive.indexCount = 0;
         }
         asset.primitives.clear();
+        asset.materialTextures.reset();
+        asset.textureSource.reset();
         asset.materials.clear();
         asset.vertexCount = 0;
         asset.indexCount = 0;
@@ -2642,6 +2670,7 @@ struct VulkanBackend::Impl final {
         asset.usage = upload.resource.usage;
         asset.primitives.reserve(upload.resource.meshData->primitives.size());
         asset.materials = upload.resource.meshData->materials;
+        asset.textureSource = upload.resource.meshData;
         asset.state = GpuMeshState::PendingUpload;
         asset.lastTouchedFrame = frameSerial;
 
@@ -2655,7 +2684,7 @@ struct VulkanBackend::Impl final {
             }
             asset.vertexCount += primitiveData.positions.size();
             asset.indexCount += primitiveData.indices.size();
-            asset.primitives.push_back(gpuPrimitive);
+            asset.primitives.push_back(std::move(gpuPrimitive));
         }
 
         if (asset.primitives.empty()) {
@@ -2745,10 +2774,13 @@ struct VulkanBackend::Impl final {
                     const auto texcoord = vertexIndex < destination.texcoords.size()
                         ? destination.texcoords[vertexIndex]
                         : math::Vec2{position.x, position.z};
+                    const auto uv1 = vertexIndex < destination.texcoords1.size() ? destination.texcoords1[vertexIndex]
+                                                                                 : math::Vec2{};
                     vertices.push_back(VulkanMeshVertex{
                         {position.x, position.y, position.z},
                         {normal.x, normal.y, normal.z},
                         {texcoord.x, texcoord.y},
+                        {uv1.x, uv1.y},
                     });
                 }
                 const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
@@ -2962,6 +2994,48 @@ struct VulkanBackend::Impl final {
             worldBoxShadowedPipeline != VK_NULL_HANDLE && worldMeshShadowedPipeline != VK_NULL_HANDLE;
     }
 
+    void prepareMaterialTextures(const RenderFrameInfo& frame) {
+        materialTexturesPrepared = materialTextureOwner.prepare(currentFrame, frame, swapchainExtent, swapchainFormat,
+                                                                commandPool, graphicsQueue);
+        materialTexturesReady = false;
+        lastMaterialTextureDrawCount = 0;
+        lastMaterialFallbackDrawCount = 0;
+        if (!materialTexturesPrepared) {
+            return;
+        }
+        if (!attemptedMaterialPipelines) {
+            attemptedMaterialPipelines = true;
+            (void)createWorldMeshPipeline(false, true);
+        }
+        if (directionalShadowsPrepared && !attemptedShadowMaterialPipelines) {
+            attemptedShadowMaterialPipelines = true;
+            (void)createWorldMeshPipeline(true, true);
+        }
+        materialTexturesPrepared = worldMeshTexturedPipeline != VK_NULL_HANDLE &&
+                                   (!directionalShadowsPrepared || worldMeshTexturedShadowedPipeline != VK_NULL_HANDLE);
+        if (!materialTexturesPrepared) {
+            return;
+        }
+        for (const auto& mesh : frame.worldMeshes) {
+            if (mesh.layer != RenderMeshLayer::World || !mesh.mesh.isValid()) {
+                continue;
+            }
+            const auto found = gpuMeshes.find(resourceKey(mesh.mesh));
+            if (found == gpuMeshes.end() || found->second.state != GpuMeshState::Resident) {
+                continue;
+            }
+            auto& asset = found->second;
+            if (!asset.attemptedMaterialUpload && asset.textureSource) {
+                asset.attemptedMaterialUpload = true;
+                asset.materialTextures = materialTextureOwner.upload(*asset.textureSource, commandPool, graphicsQueue);
+                if (!asset.materialTextures) {
+                    core::logWarning("render",
+                                     "Mesh material upload failed; retaining factor rendering for " + asset.assetId);
+                }
+            }
+        }
+    }
+
     void recordDirectionalShadows(VkCommandBuffer command, const RenderFrameInfo& frame) {
         directionalShadowsReady = false;
         lastDirectionalShadowCasterDrawCount = 0;
@@ -3020,9 +3094,6 @@ struct VulkanBackend::Impl final {
         RenderMeshLayer layer,
         const Mat4& viewProjection) {
         const bool shadowed = directionalShadowsPrepared && layer == RenderMeshLayer::World;
-        const auto layout = shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout;
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          shadowed ? worldMeshShadowedPipeline : worldMeshPipeline);
         for (const auto& mesh : frame.worldMeshes) {
             if (mesh.layer != layer || !mesh.mesh.isValid()) {
                 continue;
@@ -3042,6 +3113,14 @@ struct VulkanBackend::Impl final {
                 continue;
             }
             uploaded->second.lastTouchedFrame = frameSerial;
+            const bool textured =
+                materialTexturesPrepared && layer == RenderMeshLayer::World && uploaded->second.materialTextures;
+            const auto layout =
+                textured ? (shadowed ? worldMeshTexturedShadowedPipelineLayout : worldMeshTexturedPipelineLayout)
+                         : (shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout);
+            const auto pipeline = textured ? (shadowed ? worldMeshTexturedShadowedPipeline : worldMeshTexturedPipeline)
+                                           : (shadowed ? worldMeshShadowedPipeline : worldMeshPipeline);
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             if (shadowed) {
                 directionalShadowMap.bindReceiver(commandBuffer, layout, currentFrame, mesh.receivesShadow);
             }
@@ -3064,9 +3143,18 @@ struct VulkanBackend::Impl final {
                     for (std::size_t component = 0; component < primitiveColor.size(); ++component) {
                         primitiveColor[component] *= gltfMaterial->baseColorFactor[component];
                     }
-                    primitiveColor[0] = std::clamp(primitiveColor[0] + gltfMaterial->emissiveFactor.x * 0.35F, 0.0F, 1.0F);
-                    primitiveColor[1] = std::clamp(primitiveColor[1] + gltfMaterial->emissiveFactor.y * 0.35F, 0.0F, 1.0F);
-                    primitiveColor[2] = std::clamp(primitiveColor[2] + gltfMaterial->emissiveFactor.z * 0.35F, 0.0F, 1.0F);
+                    if (!textured) {
+                        primitiveColor[0] =
+                            std::clamp(primitiveColor[0] + gltfMaterial->emissiveFactor.x * 0.35F, 0.0F, 1.0F);
+                        primitiveColor[1] =
+                            std::clamp(primitiveColor[1] + gltfMaterial->emissiveFactor.y * 0.35F, 0.0F, 1.0F);
+                        primitiveColor[2] =
+                            std::clamp(primitiveColor[2] + gltfMaterial->emissiveFactor.z * 0.35F, 0.0F, 1.0F);
+                    }
+                }
+                if (textured) {
+                    materialTextureOwner.bind(commandBuffer, layout, *uploaded->second.materialTextures,
+                                              primitive.materialIndex, currentFrame);
                 }
                 const auto constants = pushConstantsForMesh(
                     viewProjection,
@@ -3083,11 +3171,24 @@ struct VulkanBackend::Impl final {
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
                 vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
                 vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
+                if (frame.materialTexturesEnabled && layer == RenderMeshLayer::World) {
+                    if (textured &&
+                        materialTextureOwner.hasTextures(*uploaded->second.materialTextures, primitive.materialIndex)) {
+                        ++lastMaterialTextureDrawCount;
+                    }
+                    if (!textured || materialTextureOwner.usesFallback(*uploaded->second.materialTextures,
+                                                                       primitive.materialIndex)) {
+                        ++lastMaterialFallbackDrawCount;
+                    }
+                }
             }
         }
     }
 
     void recordCommandBuffer(VkCommandBuffer commandBuffer, std::uint32_t imageIndex, const RenderFrameInfo& frame) {
+        lastMaterialTextureDrawCount = 0;
+        lastMaterialFallbackDrawCount = 0;
+        materialTexturesReady = false;
         lastSkyDrawCount = (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) ? 1U : 0U;
         lastContactShadowCount = contactShadowPipeline != VK_NULL_HANDLE && frame.lighting.contactShadowsEnabled
             ? frame.contactShadows.size()
@@ -3282,6 +3383,7 @@ struct VulkanBackend::Impl final {
         }
 
         endDebugRegion(commandBuffer);
+        materialTexturesReady = lastMaterialTextureDrawCount > 0;
         lastUiGeometryDrawCount = uiRenderer.record(commandBuffer, frame.ui, currentFrame, swapchainExtent);
         vkCmdEndRenderPass(commandBuffer);
 
@@ -3299,13 +3401,21 @@ struct VulkanBackend::Impl final {
         attemptedShadowReceiverPipelines = false;
         lastDirectionalShadowCasterDrawCount = 0;
         lastDirectionalShadowDynamicCasterDrawCount = 0;
-        for (auto* pipeline : {&worldMeshShadowedPipeline, &worldBoxShadowedPipeline}) {
+        attemptedMaterialPipelines = false;
+        attemptedShadowMaterialPipelines = false;
+        materialTexturesPrepared = false;
+        materialTexturesReady = false;
+        lastMaterialTextureDrawCount = 0;
+        lastMaterialFallbackDrawCount = 0;
+        for (auto* pipeline : {&worldMeshShadowedPipeline, &worldBoxShadowedPipeline, &worldMeshTexturedPipeline,
+                               &worldMeshTexturedShadowedPipeline}) {
             if (*pipeline != VK_NULL_HANDLE) {
                 vkDestroyPipeline(device, *pipeline, nullptr);
                 *pipeline = VK_NULL_HANDLE;
             }
         }
-        for (auto* layout : {&worldMeshShadowedPipelineLayout, &worldBoxShadowedPipelineLayout}) {
+        for (auto* layout : {&worldMeshShadowedPipelineLayout, &worldBoxShadowedPipelineLayout,
+                             &worldMeshTexturedPipelineLayout, &worldMeshTexturedShadowedPipelineLayout}) {
             if (*layout != VK_NULL_HANDLE) {
                 vkDestroyPipelineLayout(device, *layout, nullptr);
                 *layout = VK_NULL_HANDLE;
@@ -3435,6 +3545,10 @@ struct VulkanBackend::Impl final {
             return false;
         }
 
+        if (!materialTextureOwnerInitialized) {
+            materialTextureOwner.create(physicalDevice, device, kMaxFramesInFlight);
+            materialTextureOwnerInitialized = true;
+        }
         (void)directionalShadowMap.create(physicalDevice, device, kMaxFramesInFlight);
         (void)createSkyPipeline();
         (void)createWorldBoxPipeline();
@@ -3568,6 +3682,7 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
     impl_->processMeshUploadQueue(32);
     impl_->processDynamicMeshUpdates();
     impl_->prepareDirectionalShadows(frame);
+    impl_->prepareMaterialTextures(frame);
     (void)impl_->uiRenderer.prepare(frame.ui, impl_->currentFrame, impl_->commandPool, impl_->graphicsQueue);
 
     const VkResult acquireResult = vkAcquireNextImageKHR(
@@ -3732,6 +3847,13 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.lastUiTextCount = impl_->lastUiTextCount;
     stats.swapchainReady = impl_->isReady && impl_->swapchain != VK_NULL_HANDLE;
     stats.debugLabelsAvailable = impl_->debugLabelsAvailable;
+    stats.materialTexturesReady = impl_->materialTexturesReady;
+    stats.residentMaterialImageCount = impl_->materialTextureOwner.residentImageCount();
+    stats.residentMaterialImageBytes = impl_->materialTextureOwner.residentImageBytes();
+    stats.materialImageBudgetBytes = impl_->materialTextureOwner.imageBudgetBytes();
+    stats.materialImageBudgetRejectCount = impl_->materialTextureOwner.imageBudgetRejectCount();
+    stats.lastMaterialTextureDrawCount = impl_->lastMaterialTextureDrawCount;
+    stats.lastMaterialFallbackDrawCount = impl_->lastMaterialFallbackDrawCount;
     stats.directionalShadowsReady = impl_->directionalShadowsReady;
     stats.directionalShadowResolution = impl_->directionalShadowsReady ? impl_->directionalShadowMap.resolution() : 0;
     stats.lastDirectionalShadowCasterDrawCount = impl_->lastDirectionalShadowCasterDrawCount;
@@ -3750,6 +3872,8 @@ void VulkanBackend::shutdown() {
 
     impl_->destroySwapchainResources();
     impl_->destroyGpuMeshes();
+    impl_->materialTextureOwner.shutdown();
+    impl_->materialTextureOwnerInitialized = false;
 
     if (impl_->device != VK_NULL_HANDLE) {
         for (std::size_t index = 0; index < kMaxFramesInFlight; ++index) {

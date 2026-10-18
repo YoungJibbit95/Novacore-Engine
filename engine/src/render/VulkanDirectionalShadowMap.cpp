@@ -224,7 +224,7 @@ struct VulkanDirectionalShadowMap::Impl final {
         stage.module = shader;
         stage.pName = "main";
         // Same position/normal/UV vertex layout as the backend, position only.
-        const VkVertexInputBindingDescription binding{0, 8 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
+        const VkVertexInputBindingDescription binding{0, 10 * sizeof(float), VK_VERTEX_INPUT_RATE_VERTEX};
         const VkVertexInputAttributeDescription attribute{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0};
         VkPipelineVertexInputStateCreateInfo vertex{};
         vertex.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;

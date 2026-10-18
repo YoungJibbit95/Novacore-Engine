@@ -435,3 +435,43 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
 - Published [Draft PR #18](https://github.com/YoungJibbit95/Novacore-Engine/pull/18),
   stacked on recovery/phase5-camera-chirality. No remote merge. Integration lead
   owns the matching Nemisis extraction, exact engine pin and consumer gates.
+
+## 2026-10-19 Phase 5 R3 texture source candidate
+
+- Isolated recovery/phase5-gltf-material-textures starts at R2 75b27d140332378413ebcac587bc8839311eeaea.
+  Added a default-OFF real opaque glTF texture path, shared encoded payloads,
+  UV1 through skinning/dynamic uploads, authored samplers/mips, base color/MR/
+  normal/emissive sampling and explicit unsupported alpha/transform fallbacks.
+  UI ownership/order is unchanged; R2 set 0 and 128-byte push constants remain.
+- Vendored unchanged official pinned stb_image PNG/JPEG decoding in one private
+  translation unit with MIT provenance/hashes. Lazy material preparation avoids
+  decoding/upload when disabled. Per-image/scene/decode limits and a bounded
+  actual-allocation image budget protect CPU/VRAM use; content/color-space
+  identity shares GPU images across separately loaded mesh copies.
+- Early read-only audit of all 36 required Nemisis sources found one NCAR
+  KHR_texture_transform material. Its exact transform metadata is retained with
+  explicit material fallback, preserving default-OFF loading. Existing BLEND
+  character hair and FR17 glass/rubber remain visibly unsupported transparency.
+- Targeted initial importer/decoder tests passed before the final backend and
+  skin/budget additions. Complete fresh C: headless and Vulkan builds, all tests,
+  36 actual asset imports, shader validation, hosted CI and exact combined game
+  integration are pending. Frozen previous shaders/packages remain unchanged.
+  No device execution, GUI control or visual quality claim is made. Renderer
+  docs record M01/M02 criteria and the pending matched material capture matrix.
+- Completed fresh GCC 13.2 Release engine/server/sandbox and all 9/9 CPU
+  suites (final run 5.76 seconds), then a separate complete actual SDL3/Vulkan
+  static-library build/install. All 27 generated modules pass Vulkan 1.0
+  spirv-val. Disassembly confirms set 1 material/frame offsets 0/16/32 and
+  0/16/32/48/64, R2 set 0 offsets through 144, and the unchanged 128-byte push
+  block. Only the inherited unused sandbox helper warning remains.
+- Sequential actual-game probe using this new library loaded all 36 required
+  asset paths and decoded all 79 retained images without failure, retaining UV1
+  in 39 primitives and the one NCAR texture transform. No game assets changed.
+  This is an importer/decoder compatibility check, not a complete game build.
+- Separate packages are C:/Users/Administrator/.codex/tmp/phase5-render-r3/
+  package-headless and package-vulkan. lib/libnovacore_engine.a SHA-256:
+  headless e06937dd1e79ec45f181e3ce4971e43367078c6baef45bb49d1b9b46fa3836f8;
+  Vulkan 2acc2a9bcc056d50fc0730e4cc7a61494bb972782a29d644348e2e59cc059933.
+  Previous frozen packages/builds were not overwritten. Hosted CI, the exact
+  combined physics/UI/camera/R2/R3 consumer and actual device/visual gates remain
+  pending integration ownership. The material flag stays default OFF.
