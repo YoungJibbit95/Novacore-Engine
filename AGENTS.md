@@ -1,401 +1,97 @@
 # AGENTS.md
 
-## Primary Directive
+NovaCore is a reusable C++23 engine consumed by Nemisis. New engine features
+require a current game blocker or concrete stability need.
 
-NovaCore is a modular C++23 engine repository for a modern multiplayer FPS.
+## Ownership
 
-Work implementation-first. Maximize useful code, tests, validation, and durable engine progress per session. Minimize conversational output.
+Dependency direction is always `Nemisis -> NovaCore`. NovaCore owns runtime and
+fixed-step simulation, configuration/logging, platform/input, math, ECS, rendering
+and GPU resources, generic assets/import/streaming, physics/KCC mechanics,
+animation runtime, networking primitives, and headless server runtime.
 
-At task start:
-- maximum one sentence
-- no bullets unless the user asks for a plan
-- immediately inspect files and implement
+Nemisis owns movement policy/tuning, weapons/damage/TTK, teams/matches/scoring,
+spawn rules, gameplay UI, maps, asset mounts, input tuning, and presentation.
+Do not add Nemisis headers, content, balance data, or per-asset axis repairs.
 
-Spend tokens in this order:
+Public API lives in `engine/include/novacore`; implementation in `engine/src`.
+Keep headers dependency-light, use forward declarations when practical, and do
+not leak private headers or Vulkan/SDL internals into game-facing APIs. Preserve
+working APIs unless a current need justifies changing them. No new render graph.
 
-1. Inspect existing code.
-2. Modify or add code.
-3. Build and run relevant tests.
-4. Fix failures.
-5. Update documentation only when needed.
-6. Report briefly.
+## Contracts to preserve
 
-Do not spend tokens on obvious explanations, repeated summaries, tutorials, or speculative architecture discussion unless explicitly requested.
+* Deterministic fixed-step simulation, explicit ticks, headless/dedicated-server
+  support without window/audio/GPU dependencies, and shared simulation behavior.
+* Explicit ownership and stable handles; generation/liveness validation, deferred
+  entity destruction, data components, behavior systems, and no actor inheritance.
+* Camera presentation separate from authoritative physics; capsule sweeps,
+  contacts, grounding, slopes, step/snap, moving supports, and mantle geometry.
+  Game-specific ability policy stays in Nemisis.
+* GPU synchronization, destruction order, deferred release, dynamic meshes, and
+  swapchain recreation. Rendering consumes extracted data, not ECS/game state.
+  Keep CPU assets separate from GPU resources and retain null/tool render paths.
+* Standards-correct glTF/GLB hierarchy, TRS/matrix, accessors, skins, and animation.
+  Assets flow manifest -> registry -> CPU load -> GPU upload -> stable handle.
+  Keep source/cooked/metadata distinct; invalid required data must report errors.
+* Strict deterministic packet serialization, bounds checks, sequence invariants,
+  and existing prediction/reconciliation. Clients never decide authoritative
+  damage, score, spawns, objectives, or match results. Transport paths share logic.
 
-## Agent Operating Mode
+After engine implementation changes, build/test Nemisis against the exact changed
+engine revision and record it. Tests for TTK, weapon tuning, objective scoring,
+and spawn safety belong in Nemisis.
+## Recovery workflow
 
-Primary behavior: produce a large, coherent implementation patch per task while keeping chat minimal.
+Prioritize stability, simplification, playability, and shipping. Prefer small to
+medium, coherent, validated changes with one responsibility per PR. Simplifying
+code and deleting unnecessary complexity are valuable outcomes. Historical
+feature lists are reference, not the active backlog.
 
-Hard rules:
+At every session start check Git status, branches/remotes, open PRs, and
+`docs/recovery/PROGRESS.md` plus `ROADMAP.md` when present. Preserve uncommitted
+user changes and isolate work in a separate worktree when needed.
 
-* Spend most context on repository inspection, code edits, tests, and fixes.
-* Do not stop after a small cleanup unless the user explicitly requested a small cleanup.
-* Do not choose the smallest safe slice by default.
-* If the task is broad, implement the largest coherent slice that can be safely built and tested in the session.
-* Prefer 5-15 meaningful file edits over 1-3 tiny edits when the task scope allows it.
-* Prefer complete gameplay/render/UI/asset systems over cosmetic cleanup.
-* Remove dead code only when it is part of enabling a larger feature or requested directly.
-* Do not add filler, dead code, duplicate systems, artificial abstractions, or line-count padding.
-* Do not optimize for raw line count. Optimize for meaningful shipped functionality.
-* Do not narrate routine edits.
-* Do not summarize every file after changing it.
-* Stay quiet during work unless blocked, a command fails, or user input is required.
+* Preserve behavior during refactoring; avoid full rewrites.
+* Reuse existing structures before adding files/classes or interfaces.
+* Add abstractions only for real, current ownership boundaries. Do not create
+  managers, registries, frameworks, service locators, event buses, or generic
+  interfaces for one-off problems.
+* Add features only for a current product need or concrete stability blocker.
+* After implementation, search for obsolete code, duplicate paths, workarounds,
+  tests, and documentation. Verify replacements before removing old behavior.
+* Do not combine broad renderer, KCC, networking, assets, and gameplay changes.
+* Give concise progress updates for meaningful findings; keep routine edits quiet.
 
-At task start, output at most 2 short bullets:
-* implementation target
-* expected validation
+## Validation and Git discipline
 
-During work:
-* continue implementing until the largest coherent slice is complete
-* when one file is changed, immediately inspect adjacent systems and finish the connected feature path
-* do not stop at cleanup if a playable/rendered/testable improvement is possible
-* run build/tests, fix failures, and keep going if time/context remains
-
-Final response must be short and contain only:
-* files changed
-* build/test/playable validation commands run
-* result
-* real blockers or skipped validation, if any
-
-## Silence Policy
-
-During implementation, do not send status updates.
-
-Allowed messages:
-1. One initial message before tool use, maximum one sentence.
-2. One blocking message if user input is required.
-3. One final report after build/test.
-
-Forbidden during implementation:
-* "I am checking..."
-* "I will now..."
-* "Next I will..."
-* "I found..."
-* "I am going to..."
-* progress summaries
-* per-file summaries
-* reasoning updates
-* Kanban/GitHub/project-board narration
-* repeated validation plans
-
-Use tool calls silently instead of describing tool calls.
-
-## Work Output Standard
-
-A successful session should usually produce one substantial outcome, such as:
-
-* a playable Dev Range improvement
-* a complete movement mechanic slice
-* a complete weapon/HUD interaction slice
-* a renderable asset or scene pipeline improvement
-* a test-covered gameplay system
-* a real UI/settings/loadout flow
-* a bug fix plus regression test plus cleanup of the affected path
-
-Avoid ending a session with only:
-
-* dead-code deletion
-* comment/doc edits
-* tiny cosmetic changes
-* one isolated helper function
-* refactors that do not unlock visible or testable behavior
-
-Small patches are acceptable only when the user explicitly asks for a small fix or the repository state makes a larger safe change impossible.
-
-## Project Boundary
-
-NovaCore owns reusable engine technology only:
-
-* Core runtime
-* Platform abstraction
-* Input
-* Math
-* ECS
-* Renderer
-* Vulkan backend
-* Asset registry and streaming foundation
-* Networking primitives
-* Dedicated server runtime
-* Engine tests
-* Engine documentation
-* Engine tools
-
-Game-specific content belongs in Nemisis, not NovaCore.
-
-NovaCore must not include:
-
-* Nemisis headers
-* Nemisis assets
-* Weapon tuning
-* Movement tuning
-* Match rules
-* Game UI screens
-* Game-specific balance data
-
-Dependency direction is always:
-
-```text
-Nemisis -> NovaCore
-```
-
-Never introduce a dependency from NovaCore back to Nemisis.
-
-## Engineering Quality Bar
-
-NovaCore is the long-term technical foundation for a game targeting high-quality graphics, performance, networking, tooling, and FPS feel.
-
-Treat this as an engineering standard:
-
-* build durable systems instead of throwaway prototypes
-* keep APIs reusable from Nemisis without importing Nemisis concepts
-* prefer explicit ownership and stable handles
-* preserve deterministic fixed-step simulation where gameplay or networking may depend on it
-* keep server/headless compatibility intact
-* keep public headers small and dependency-light
-* avoid hidden global state and silent fallbacks
-* avoid large abstractions unless they protect a real boundary
-* avoid prototype-only architecture that requires a future rewrite
-
-## Public and Private Code
-
-Public engine API lives under:
-
-```text
-engine/include/novacore
-```
-
-Private implementation lives under:
-
-```text
-engine/src
-```
-
-Rules:
-
-* Keep public headers minimal.
-* Prefer forward declarations where practical.
-* Do not expose Vulkan, SDL, or other backend internals unless intentionally part of the public API.
-* Do not include private headers from game-facing public headers.
-
-## Build Targets
-
-Important targets:
-
-* `novacore_engine`
-* `Novacore::Engine`
-* `novacore_server`
-* `novacore_smoke_tests`
-
-The server target must remain buildable without renderer, audio, or window dependencies.
-
-## Build and Test Commands
-
-Use a dependency-light build first when touching core systems:
+Start with the dependency-light build:
 
 ```powershell
-cmake --preset windows-vs2022-no-deps
-cmake --build --preset windows-vs2022-no-deps
-ctest --test-dir build/windows-vs2022-no-deps -C Debug --output-on-failure
+cmake --preset local-debug-no-deps
+cmake --build --preset local-debug-no-deps
+ctest --test-dir build/local-debug-no-deps --output-on-failure
 ```
 
-For normal visible Windows development:
+On MSVC use `windows-vs2022-no-deps` and CTest with `-C Debug`. For visible
+Windows validation use `windows-msvc-debug`; use `windows-ninja-vcpkg-debug`
+only when its toolchain is available. Missing GPU/SDK support is not a successful
+Vulkan test. Preserve graphics code when the environment cannot validate it.
 
-```powershell
-cmake --preset windows-msvc-debug
-cmake --build --preset windows-msvc-debug --config Debug
-ctest --test-dir build/windows-msvc-debug -C Debug --output-on-failure
-```
+Run relevant existing tests and the available full build. Add/update tests for
+new behavior or real bugs, not merely to justify an AI-generated workaround.
+Refactors retain behavior coverage. Before deleting/substantially changing a
+test, record its original contract, current validity, and replacement coverage.
+Never disable failures merely to obtain green CI. Separate passed, failed before
+the change, not run, and environment-blocked checks in reports.
 
-For Vulkan/vcpkg work:
+Work on focused recovery branches, never directly on `main`. When authorized,
+commit, push, and open PRs with validation evidence. Never auto-merge, force-push
+protected branches, rewrite history, or delete irreplaceable source assets
+without separate explicit authorization. Do not message others or update project
+boards without authorization.
 
-```powershell
-cmake --preset windows-ninja-vcpkg-debug
-cmake --build --preset windows-ninja-vcpkg-debug
-ctest --test-dir build/windows-ninja-vcpkg-debug --output-on-failure
-```
-
-If Vulkan SDK is unavailable, do not remove Vulkan code. Keep graceful fallback paths and report the missing dependency clearly.
-
-## Testing Rules
-
-After engine changes, run the most relevant build and tests available.
-
-Always add or update tests when fixing bugs or adding reusable behavior.
-
-Run smoke or targeted tests after changes to:
-
-* ECS
-* Config
-* Input
-* Net packet primitives
-* Asset registry
-* glTF/GLB loading
-* Mesh catalog
-* Renderer backend selection
-* Platform/headless behavior
-* Server/headless runtime behavior
-
-Do not claim a feature works unless it was built and validated, or clearly state that validation was skipped.
-
-## Renderer Rules
-
-The renderer must remain explicit, debuggable, and suitable for Vulkan-first growth.
-
-Current high-value renderer priorities:
-
-1. GPU upload for extracted GLB mesh data.
-2. Vertex/index buffer ownership.
-3. Mesh draw submission through `MeshCatalog`.
-4. Depth buffer.
-5. Camera matrix path.
-6. Swapchain resize/recreate.
-7. First in-world greybox rendering.
-
-Rules:
-
-* Do not let rendering own gameplay state.
-* Do not read ECS directly during draw submission.
-* Use extracted render data.
-* Separate CPU asset data from GPU resources.
-* Keep SDL debug renderer available as a fallback/tool path.
-* Keep null/headless renderer support.
-* Grow material, lighting, resource residency, shader, and draw-submission systems as engine systems, not game-specific hacks.
-* Grow UI/text infrastructure toward font rendering, layout, batching, clipping, scaling, and input navigation instead of relying on debug text paths.
-
-## Asset Rules
-
-Assets flow through NovaCore systems:
-
-```text
-Manifest -> Registry -> CPU Load -> GPU Upload -> Runtime Handle
-```
-
-Rules:
-
-* Gameplay code should use stable handles.
-* Do not load authoring files directly from gameplay code.
-* Preserve manifest and registry ownership boundaries.
-* Missing assets should fail loudly but gracefully.
-* Invalid metadata must not be silently ignored.
-* Keep source assets, cooked assets, metadata, CPU assets, GPU resources, and runtime handles conceptually separate.
-
-## ECS Rules
-
-Entities are identifiers only.
-
-Components contain data.
-
-Systems contain behavior.
-
-Rules:
-
-* Validate entity liveness.
-* Preserve generation-based stale ID detection.
-* Prefer component views over scanning all entities.
-* Prefer deferred destruction during simulation ticks.
-* Keep transform, movement, and physics paths ready for future packed storage.
-* Avoid actor-style inheritance.
-
-## Networking Rules
-
-Networking is server-authoritative.
-
-Rules:
-
-* Use deterministic packet serialization.
-* Keep packet readers strict.
-* Reject overreads.
-* Keep simulation tick numbers explicit.
-* Do not let clients authoritatively decide damage, score, spawns, objectives, or match results.
-* Loopback and future UDP paths should share protocol logic.
-
-High-value networking priorities:
-
-1. UDP transport.
-2. Input command packets.
-3. Snapshot generation.
-4. Prediction buffer.
-5. Reconciliation.
-6. Interpolation.
-7. Lag compensation.
-
-## Server Rules
-
-Dedicated server must remain headless.
-
-Rules:
-
-* No renderer dependency.
-* No window dependency.
-* No audio dependency.
-* Shared simulation code between listen and dedicated server.
-* Server owns authoritative movement, damage, objectives, spawns, and match state.
-
-## Movement and Physics Rules
-
-Movement and physics engine code must support deterministic FPS gameplay.
-
-Rules:
-
-* Use fixed timestep simulation.
-* Prefer capsule-based character controller foundations.
-* Keep camera presentation separate from physics state.
-* Support ground detection, sliding, step-up, step-down, jumping, sprinting, crouching, and air control as explicit systems when implemented in engine code.
-* Design movement for future client prediction, reconciliation, replay, and server validation.
-* Keep character controller code deterministic, debuggable, and suitable for later capsule sweeps, moving platforms, contact manifolds, and server replay checks.
-* Do not implement FPS movement as a camera-only transform hack.
-
-Game-specific movement tuning belongs in Nemisis.
-
-## Documentation Rules
-
-Update documentation only when architecture, public APIs, build/test flow, or actual project status changes.
-
-Important docs:
-
-* `docs/00_Repository_Architecture.md`
-* `docs/01_Engine_Architecture.md`
-* `docs/02_Renderer_Vulkan.md`
-* `docs/03_ECS_Entities.md`
-* `docs/08_Netcode.md`
-* `docs/09_Server_Architecture.md`
-* `docs/12_Asset_Pipeline_Streaming.md`
-* `docs/13_Testing_Acceptance.md`
-* `docs/14_IDE_And_Toolchain_Runbook.md`
-* `docs/PROJECT_STATUS.md`
-
-Keep `PROJECT_STATUS.md` focused on actual current state and next concrete engine blocks.
-
-Do not document aspirational features as implemented.
-
-## Commit Discipline
-
-For large work:
-
-1. Inspect existing code first.
-2. Implement one coherent block.
-3. Build.
-4. Run relevant tests.
-5. Fix failures.
-6. Update docs/status if required.
-
-Do not mix unrelated renderer, ECS, netcode, tooling, and documentation changes in one patch unless explicitly requested.
-
-Do not commit, push, or update GitHub Projects unless explicitly requested.
-
-## Current Highest-Value Next Steps
-
-Prefer visible, playable, or reusable engine progress:
-
-1. GPU upload for extracted GLB mesh data.
-2. Vertex/index buffer ownership.
-3. Mesh draw submission.
-4. Depth buffer.
-5. Camera matrix path.
-6. Swapchain resize/recreate.
-7. First in-world greybox.
-8. Capsule character controller.
-9. UDP transport.
-10. Prediction/reconciliation.
-
-Avoid spending long sessions expanding infrastructure without producing a validated engine capability.
+Update the lightweight recovery record with commits/PRs, exact engine revisions,
+validation, baseline failures, blockers, and the next executable step. Keep
+ownership, architecture, and build instructions accurate. Do not describe plans
+as implemented or add large competing documentation systems.
