@@ -271,6 +271,195 @@ void testRemovedSupportWakesSleepingBody() {
     steps(stack,floorWorld(),361,480);
     expect(stack.body(top) && near(stack.body(top)->position.y,0.25F),"removing dynamic support wakes and drops upper body");
 }
+bool involves(const RigidBodySensorEvent& event, RigidBodyHandle handle) {
+    return event.first.handle == handle || event.second.handle == handle;
+}
+void testSensorLifecycleTagsAndReuse() {
+    RigidBodyWorld world;
+    RigidBodyWorldConfig config; config.gravity = {}; config.maxContactEvents = 64;
+    if (!init(world,config)) return;
+    RigidBodyDesc sensor; sensor.id = "zone"; sensor.motion = RigidBodyMotion::Kinematic;
+    sensor.isSensor = true; sensor.halfExtents = {1,1,1}; sensor.filter = {3,0x06};
+    sensor.materialId = 7; sensor.surfaceId = 17;
+    const auto zone = add(world,sensor);
+    RigidBodyDesc desc; desc.id = "player"; desc.motion = RigidBodyMotion::Kinematic;
+    desc.position = {-3,0,0}; desc.filter = {2,1U<<3U}; desc.materialId = 8; desc.surfaceId = 18;
+    const auto player = add(world,desc);
+    desc.id = "excluded"; desc.position = {}; desc.filter.mask = 0;
+    (void)add(world,desc);
+    expect(world.step({},1).sensorEvents.empty(),"outside player and asymmetric excluded mask never enter sensor");
+    expect(world.moveKinematic(player,{},{}),"kinematic player enters sensor using bounded native target");
+    const auto movingIn = world.step({},2);
+    expect(movingIn.stepped && movingIn.sensorEvents.empty(),"discrete sensor does not invent a swept entry before the target pose is sampled");
+    const auto entered = world.step({},3);
+    expect(entered.stepped && entered.sensorEvents.size() == 1 && entered.contacts.size() == 1 &&
+        entered.sensorEvents[0].phase == RigidBodySensorPhase::Enter && involves(entered.sensorEvents[0],player),
+        "native kinematic sensor detects a kinematic player exactly once without physical response");
+    expect(world.body(player) && world.body(player)->position.lengthSquared() < 1.0e-6F &&
+        world.body(zone) && world.body(zone)->position.lengthSquared() < 1.0e-6F,"sensor overlap leaves both coincident kinematic poses unchanged");
+    const auto state = world.body(zone);
+    expect(state && state->isSensor && state->materialId == 7 && state->surfaceId == 17,
+        "snapshot exposes application material/surface IDs and sensor flag");
+    expect(!world.raycast({-3,0,0},{6,0,0},1U<<3U),"ordinary shot ray excludes sensors by default");
+    const auto sensorHit = world.raycast({-3,0,0},{6,0,0},1U<<3U,true);
+    expect(sensorHit && sensorHit->handle == zone && sensorHit->isSensor && sensorHit->materialId == 7 && sensorHit->surfaceId == 17,
+        "explicit sensor ray returns native volume intersection and owned tags");
+    expect(world.setBodyTags(zone,9,19) && world.setBodyTags(player,10,20),"live tags may change without altering response coefficients");
+    const auto stayed = world.step({},4);
+    expect(stayed.stepped && stayed.sensorEvents.size() == 1 && stayed.sensorEvents[0].phase == RigidBodySensorPhase::Stay &&
+        stayed.sensorEvents[0].second.materialId == 9 && stayed.sensorEvents[0].second.surfaceId == 19 &&
+        stayed.contacts.size() == 1 && stayed.contacts[0].first.materialId == 10 && stayed.contacts[0].tick == 4,
+        "metadata edits update tagged contact and Stay without fake lifecycle changes");
+    expect(world.moveKinematic(player,{3,0,0},{}),"player moves outside discrete sensor");
+    const auto movingOut = world.step({},5);
+    expect(movingOut.stepped && movingOut.sensorEvents.size() == 1 && movingOut.sensorEvents[0].phase == RigidBodySensorPhase::Stay,
+        "moving target is still an occupant at this tick's pre-solve sample");
+    const auto left = world.step({},6);
+    expect(left.stepped && left.sensorEvents.size() == 1 && left.sensorEvents[0].phase == RigidBodySensorPhase::Exit &&
+        left.sensorEvents[0].exitReason == RigidBodySensorExitReason::Separated,
+        "native pair separation emits one owned Exit after the fixed tick");
+    expect(world.step({},7).sensorEvents.empty(),"separated pair never repeats Exit");
+    expect(world.moveKinematic(player,{},{}),"player returns to sensor");
+    expect(world.step({},8).sensorEvents.empty(),"returning target has not yet been sampled inside");
+    expect(world.step({},9).sensorEvents.size() == 1,"returning player enters again");
+    expect(world.removeBody(player) && !world.body(player) && !world.setBodyTags(player,1,1),"removal invalidates lookup and metadata edits immediately");
+    const auto rejected = world.step({},9);
+    expect(!rejected.stepped && rejected.sensorEvents.empty() && rejected.contacts.empty(),"rejected tick never drains queued Exit");
+    desc.id = "player"; desc.position = {}; desc.filter.mask = 1U<<3U;
+    const auto replacement = add(world,desc);
+    const auto reused = world.step({},10);
+    expect(replacement.index == player.index && replacement.generation != player.generation && reused.stepped && reused.sensorEvents.size() == 2,
+        "same ID/slot reuse preserves distinct engine generations in the event packet");
+    bool oldExit = false, newEnter = false;
+    for (const auto& event : reused.sensorEvents) {
+        oldExit |= involves(event,player) && event.phase == RigidBodySensorPhase::Exit &&
+            event.exitReason == RigidBodySensorExitReason::BodyRemoved && event.first.id == "player" && event.tick == 10;
+        newEnter |= involves(event,replacement) && event.phase == RigidBodySensorPhase::Enter;
+    }
+    expect(oldExit && newEnter,"deferred native removal cannot alias a new body or erase its Enter");
+    expect(world.removeBody(zone),"sensor may itself be removed");
+    expect(init(world,config),"reset with pending Exit reinitializes capture");
+    const auto resetResult = world.step({},1);
+    expect(resetResult.stepped && resetResult.sensorEvents.empty() && resetResult.contacts.empty() && !world.body(replacement),
+        "reset clears occupancy and queued stream instead of emitting stale-world exits");
+}
+void testSleepingSensorAndCanonicalMaterialTags() {
+    RigidBodyWorld world;
+    RigidBodyWorldConfig config; config.maxContactEvents = 64;
+    if (!init(world,config)) return;
+    auto source = floorWorld();
+    RigidBodyDesc sensor; sensor.id = "zone"; sensor.motion = RigidBodyMotion::Kinematic; sensor.isSensor = true;
+    sensor.position = {0,0.5F,0}; sensor.halfExtents = {1,1,1}; sensor.filter = {3,1U<<1U};
+    const auto zone = add(world,sensor);
+    RigidBodyDesc prop; prop.id = "prop"; prop.position = {0,0.5F,0}; prop.restitution = 0;
+    prop.materialId = 42; prop.surfaceId = 24;
+    const auto body = add(world,prop);
+    for (std::uint64_t tick=1; tick<=360; ++tick) {
+        const auto result = world.step(source,tick);
+        expect(result.stepped && result.sensorEvents.size() == 1 &&
+            result.sensorEvents[0].phase == (tick == 1 ? RigidBodySensorPhase::Enter : RigidBodySensorPhase::Stay),
+            "active kinematic sensor retains overlap through dynamic body sleeping");
+    }
+    expect(world.body(body) && world.body(body)->sleeping,"sensor never prevents its dynamic occupant from sleeping");
+    const auto floor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+    expect(floor && world.setBodyTags(floor->handle,100,200),"canonical collider may receive game-owned material tags");
+    const auto taggedFloor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+    expect(taggedFloor && taggedFloor->materialId == 100 && taggedFloor->surfaceId == 200,"static query reports assigned material/surface values");
+    expect(world.applyImpulse(body,{0,0.1F,0},{0,0.25F,0}),"tagged sleeping body wakes on real impulse");
+    const auto contacts = world.step(source,361);
+    bool taggedContact = false;
+    for (const auto& contact : contacts.contacts) if (contact.first.id == "floor" && contact.second.id == "prop") {
+        taggedContact = contact.first.materialId == 100 && contact.second.materialId == 42 && contact.first.surfaceId == 200 &&
+            contact.normal.y > 0.9F && std::isfinite(contact.penetrationDepth) && contact.tick == 361;
+    }
+    expect(contacts.stepped && taggedContact,"native pre-solve manifold has sorted tagged endpoints and correctly oriented normal");
+    source.clearStaticColliders();
+    source.addStaticCollider({"floor",SurfaceKind::Floor,{0,-0.5F,0},{49,0.5F,50},true});
+    expect(world.step(source,362).stepped,"changed canonical shape recreates native fixture");
+    const auto replacedFloor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+    expect(floor && replacedFloor && floor->handle != replacedFloor->handle && !world.body(floor->handle) &&
+        replacedFloor->materialId == 100 && replacedFloor->surfaceId == 200,"same canonical ID retains tags across generation-changing shape replacement");
+    expect(world.moveKinematic(zone,{5,0.5F,0},{}),"sensor moves away from sleeping-capable occupant");
+    expect(world.step(source,363).stepped,"sensor target integrates after discrete contact sampling");
+    const auto exit = world.step(source,364);
+    expect(exit.stepped && exit.sensorEvents.size() == 1 && exit.sensorEvents[0].phase == RigidBodySensorPhase::Exit,
+        "moving active sensor emits real separation Exit");
+    source.clearStaticColliders();
+    expect(world.step(source,365).stepped,"canonical material owner may be removed");
+    source = floorWorld();
+    expect(world.step(source,366).stepped,"truly removed canonical ID can return");
+    const auto returnedFloor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+    expect(returnedFloor && returnedFloor->materialId == 0 && returnedFloor->surfaceId == 0,"true canonical removal clears tags rather than inheriting recycled metadata");
+}
+void testContactCaptureBoundsAndSensorValidation() {
+    std::string error;
+    RigidBodyWorld world;
+    if (!init(world)) return;
+    RigidBodyDesc sensor; sensor.id = "sensor"; sensor.isSensor = true;
+    expect(!world.createBody(sensor,error).valid(),"dynamic sensor mode is rejected instead of changing native solver semantics");
+    sensor.motion = RigidBodyMotion::Static;
+    expect(!world.createBody(sensor,error).valid(),"static sensors cannot falsely exit when occupants sleep");
+    sensor.motion = RigidBodyMotion::Kinematic;
+    expect(!world.createBody(sensor,error).valid(),"sensor without explicit capture budget is rejected");
+    RigidBodyWorldConfig config; config.maxContactEvents = 65537;
+    expect(!world.initialize(config,error),"unbounded event budgets are rejected before allocation");
+    config.gravity = {}; config.maxContactEvents = 1;
+    if (!init(world,config)) return;
+    sensor.halfExtents = {2,2,2}; sensor.filter = {3,1U<<1U};
+    const auto zone = add(world,sensor);
+    RigidBodyDesc prop; prop.motion = RigidBodyMotion::Static; prop.filter = {1,1U<<3U}; prop.id = "a";
+    (void)add(world,prop); prop.id = "b"; prop.position = {1,0,0}; (void)add(world,prop);
+    const auto overflow = world.step({},1);
+    expect(!overflow.stepped && !overflow.error.empty() && overflow.contacts.empty() && overflow.sensorEvents.empty() &&
+        !world.initialized() && !world.body(zone),"callback overflow invalidates world and returns explicit error without a partial event packet");
+
+    // One old Exit plus one new Enter can exceed extraction capacity even when
+    // this tick's native callbacks fit; neither event may silently disappear.
+    if (!init(world,config)) return;
+    (void)add(world,sensor); prop.id = "old"; prop.position = {}; const auto old = add(world,prop);
+    expect(world.step({},1).stepped,"single native pair fits bounded capture");
+    expect(world.removeBody(old),"bounded capture queues old pair Exit");
+    prop.id = "new"; (void)add(world,prop);
+    const auto packetOverflow = world.step({},2);
+    expect(!packetOverflow.stepped && packetOverflow.contacts.empty() && packetOverflow.sensorEvents.empty() && !world.initialized(),
+        "combined pending exits and current enters fail closed at extracted packet limit");
+}
+void testCanonicalSensorReplacementAndSortedReplay() {
+    std::vector<std::pair<std::string,RigidBodySensorPhase>> firstEvents;
+    for (int repeat=0; repeat<2; ++repeat) {
+        RigidBodyWorld world;
+        RigidBodyWorldConfig config; config.gravity = {}; config.maxContactEvents = 32;
+        if (!init(world,config)) return;
+        RigidBodyDesc sensor; sensor.id = "zone"; sensor.isSensor = true; sensor.motion = RigidBodyMotion::Kinematic;
+        sensor.halfExtents = {2,2,2}; sensor.filter = {3,0x03};
+        (void)add(world,sensor);
+        RigidBodyDesc prop; prop.id = "zeta"; prop.motion = RigidBodyMotion::Static; prop.filter = {1,1U<<3U};
+        (void)add(world,prop); prop.id = "alpha"; prop.position = {1,0,0}; (void)add(world,prop);
+        auto source = floorWorld();
+        const auto first = world.step(source,1);
+        expect(first.stepped && first.sensorEvents.size() == 3 && first.sensorEvents[0].first.id == "alpha" &&
+            first.sensorEvents[1].first.id == "floor" && first.sensorEvents[2].first.id == "zeta",
+            "event extraction is application ID sorted despite native creation order");
+        auto floor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+        expect(floor && world.setBodyTags(floor->handle,123,456),"canonical sensor occupant receives application tags");
+        source.clearStaticColliders();
+        source.addStaticCollider({"floor",SurfaceKind::Floor,{0,-0.5F,0},{49,0.5F,50},true});
+        const auto replaced = world.step(source,2);
+        bool oldExit = false, newEnter = false;
+        for (const auto& event : replaced.sensorEvents) if (event.first.id == "floor") {
+            oldExit |= floor && event.first.handle == floor->handle && event.phase == RigidBodySensorPhase::Exit &&
+                event.exitReason == RigidBodySensorExitReason::ColliderReplaced && event.first.materialId == 123;
+            newEnter |= floor && event.first.handle != floor->handle && event.phase == RigidBodySensorPhase::Enter && event.first.surfaceId == 456;
+        }
+        expect(replaced.stepped && replaced.sensorEvents.size() == 4 && oldExit && newEnter,
+            "canonical shape replacement emits old generation Exit and tagged new generation Enter");
+        std::vector<std::pair<std::string,RigidBodySensorPhase>> events;
+        for (const auto& event : first.sensorEvents) events.emplace_back(event.first.id,event.phase);
+        for (const auto& event : replaced.sensorEvents) events.emplace_back(event.first.id,event.phase);
+        if (repeat == 0) firstEvents = events;
+        else expect(events == firstEvents,"same fixed inputs reproduce sorted sensor lifecycle independently of world token");
+    }
+}
 void testKccReplayIsUnchanged() {
     PhysicsWorld source;
     source.setBounds({12,8,12});
@@ -279,7 +468,8 @@ void testKccReplayIsUnchanged() {
     const auto script = makeSandboxMovementScript(720);
     const auto before = runCharacterMotorReplay(source,start,script);
     RigidBodyWorld world;
-    if (!init(world)) return;
+    RigidBodyWorldConfig config; config.maxContactEvents = 64;
+    if (!init(world,config)) return;
     RigidBodyDesc prop; prop.id = "replay_prop"; prop.position = {3,4,3};
     (void)add(world,prop);
     steps(world,source,1,720);
@@ -346,6 +536,8 @@ int main() {
         testShapesStackSleepAndImpulse(); testOwnershipLifetimeAndReset(); testCanonicalChangesAndRamps();
         testFiltersCcdAndValidation(); testKinematicProxyAndMovingSupport(); testOrientedShapeRestitutionAndCapacity();
         testRemovedSupportWakesSleepingBody(); testKccReplayIsUnchanged(); benchmarkAndReplay();
+        testSensorLifecycleTagsAndReuse(); testSleepingSensorAndCanonicalMaterialTags(); testContactCaptureBoundsAndSensorValidation();
+        testCanonicalSensorReplacementAndSortedReplay();
     }
     if (failures) { std::cerr << failures << " rigid-body test(s) failed\n"; return 1; }
     std::cout << "NovaCore rigid-body tests passed (backend=" << (RigidBodyWorld::backendAvailable() ? "Jolt5.6.0" : "disabled") << ")\n";

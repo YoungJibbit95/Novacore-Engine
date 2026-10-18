@@ -1,5 +1,32 @@
 # Recovery progress
 
+## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
+
+- Branch `recovery/phase5-physics-sensors` starts at immutable adoption head
+  `0da8ba32eed6617238c6a8f45553c7e5ec037c23`, stacked on Draft PR #17.
+  Only RigidBodyWorld, its tests and recovery records change; CMake, canonical
+  derivation, KCC, renderer and game source remain unchanged.
+- Append application material/surface IDs to descriptions/snapshots/rays; allow
+  live tag edits, retaining tags across canonical geometry replacement.
+  Game-owned presets still supply the explicit friction/restitution values.
+- Optional bounded extraction uses native Jolt Added/Persisted contact callbacks
+  and active kinematic sensor bodies. Extract sorted owned pre-solve contact
+  records and Enter/Stay/Exit after fixed Update. Sensor target poses are sampled
+  on the following tick; no continuous sensor/CCD or solved impulse is claimed.
+- Removal/replacement exits retain old world/generation identity, reset clears
+  queues, symmetric filters remain explicit, default rays skip sensors, and any
+  capture overflow invalidates the world without a partial successful packet.
+  Event capture remains disabled by default; no implicit canonical triggers.
+- Local GCC 13.2/O2 complete headless build plus 8/8 suites pass in 1.18 s,
+  including sleeping overlap, actual kinematic-player detection, removal/reuse,
+  tags, replacement/reset, stable ordering and both overflow paths. Final
+  Jolt-disabled adapter compiles/links/runs without Jolt. KCC720 hash remains
+  17925562298706474255 with capture off/on and after dynamics.
+- New C: variant public CMake package configures/builds/links/runs native sensor
+  Enter/Exit and tagged rays against unchanged installed Jolt. Earlier installed
+  artifacts remain untouched. Hosted CI and exact Nemisis combined revision are
+  pending; no graphical application was launched.
+
 ## 2026-10-19 Phase 5 optional rigid-body adoption
 
 - Published Draft [engine PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
