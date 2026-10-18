@@ -1,6 +1,7 @@
 #include "VulkanBackend.hpp"
 #include "VulkanUiRenderer.hpp"
 #include "CameraMath.hpp"
+#include "VulkanUiRenderer.hpp"
 #include "DynamicMeshUpdates.hpp"
 #include "MeshLighting.hpp"
 
