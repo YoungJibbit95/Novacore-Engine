@@ -2,6 +2,20 @@
 
 ## 2026-10-18 Phase 2B dynamic mesh frame slots
 
+- Published DRAFT https://github.com/YoungJibbit95/Novacore-Engine/pull/11;
+  implementation/published Nemisis pin a687c8816fbcc8a7f4d313cf092c6dc17a59f8f7.
+  Hosted MSVC and Clang full builds/5 suites pass at that exact runtime commit:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39139271352.
+  This following record-only commit does not change runtime or the tested pin.
+- Nemisis draft #16 https://github.com/YoungJibbit95/Nemisis/pull/16 implements
+  real-grip constraints at10610e7, stacked after shared-pose #15 and the exact
+  combined #12/#13/#14 base5baab6137dc5e0a3a81a2b0e9ec62ac4f8a78fa0.
+  Against exact engine a687c88: full opt-in build/37 CPU cases, default-off
+  build/34 cases and full real SDL3 3.2.22/Vulkan SDK1.4.350.0 conditional
+  backend/game compilation pass. Headless productive IK confirms4 samples,
+  constraints, skins and accepted vertex updates; no invalid/unreachable frames.
+  These CPU requests do not prove GPU execution. No graphical app was launched.
+
 - Separate worktree F:/Coding/Project/recovery/phase2b/dynamic-mesh/Novacore-Engine,
   branch recovery/06-dynamic-mesh-frames, based on exact engine PR #10 HEAD
   e22d39708f09a80472c185ab52cc59b90a3f8c14. Existing PRs and dirty original
@@ -32,14 +46,19 @@
   local-debug-no-deps --parallel 4`, `ctest --test-dir build/local-debug-no-deps
   --output-on-failure --timeout 120`. Existing unused sandbox helper warning
   remains visible. `git diff --check` passes.
-  Cross-repo validation must use the eventual exact committed engine revision;
-  Nemisis previously pinned 15c1b684a430bb70235ea9407f78106d958812b6 does not
-  contain this fix. Main integration will record the replacement revision.
+  Nemisis pin was updated only after exact a687c88 cross-repo validation;
+  its former 15c1b684a430bb70235ea9407f78106d958812b6 did not contain this fix.
 - No GUI automation, Vulkan execution or visual acceptance performed. Compile
   the SDL3/Vulkan path and run hosted MSVC/Clang checks before accepting the PR;
   actual GPU hand-contact acceptance remains a separate explicit gate.
 
-Next executable step: finish CPU tests, review/commit this focused engine change,
+Next executable step: recheck the published PR heads/hosted checks and the exact
+Nemisis pin, then perform the documented Vulkan image matrix only after actual
+manual evidence/fresh GUI authorization. Do not auto-merge or replace the game
+legacy/default-off gates without visual acceptance. The old next-step note below
+is superseded by the published/cross-validated state above:
+
+Historical pre-publication step: finish CPU tests, review/commit this focused engine change,
 build Nemisis hand constraints against that exact SHA, and compile its graphics
 target. Preserve legacy placement/default-off migration until visual acceptance.
 
