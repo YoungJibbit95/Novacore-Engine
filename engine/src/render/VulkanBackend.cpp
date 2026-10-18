@@ -3031,6 +3031,9 @@ struct VulkanBackend::Impl final {
                 if (!asset.materialTextures) {
                     core::logWarning("render",
                                      "Mesh material upload failed; retaining factor rendering for " + asset.assetId);
+                    // A pending upload may have suspended all new image work.
+                    // Leave later assets unattempted for the next safe prepare.
+                    break;
                 }
             }
         }

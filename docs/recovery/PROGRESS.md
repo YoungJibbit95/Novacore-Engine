@@ -498,3 +498,12 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   These supersede the initial candidate hashes above. No frozen earlier build
   or game executable was changed. Full combined consumer and real-device gates
   remain with the integration lead; hosted checks run on the final PR head.
+- The final caller follow-up stops mesh material preparation after a failed
+  asset upload, leaving later unattempted assets retryable after a pending
+  upload drains. Independent bounded review of all three corrections is closed
+  with no remaining actionable finding. Final incremental engine/server/sandbox
+  build, 9/9 CPU suites (1.34 seconds), actual Vulkan library build and both
+  package installs pass. Importer/decoder/shaders did not change in the fixes.
+  Final package lib hashes supersede the intermediate hashes above:
+  headless 566a5aba40c10b3f54a283966808e7fb9d7b05b2b749e084000ccbd0737f2f34;
+  Vulkan d493c60db46fdea131bb926b6190de7429b44e7d97517ea68b83e9b6073cd337.
