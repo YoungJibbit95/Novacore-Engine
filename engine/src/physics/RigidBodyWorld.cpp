@@ -22,7 +22,9 @@
 #include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -83,6 +85,13 @@ namespace {
     }
     error = "Invalid rigid-body shape dimensions";
     return false;
+}
+RigidBodyDesc queryDescription(const RigidBodyQueryShape& shape) {
+    RigidBodyDesc desc;
+    desc.id = "query";
+    desc.shape = shape.shape; desc.position = shape.position; desc.rotation = shape.rotation;
+    desc.halfExtents = shape.halfExtents; desc.radius = shape.radius; desc.capsuleHalfHeight = shape.capsuleHalfHeight;
+    return desc;
 }
 } // namespace
 
@@ -175,6 +184,28 @@ public:
     bool ShouldCollideLocked(const JPH::Body& body) const override { return includeSensors_ || !body.IsSensor(); }
 private:
     bool includeSensors_;
+};
+
+// Jolt invokes OnBody/OnBodyEnd around every target shape. Keep one deepest
+// native manifold per body and reserve the entire result bound before traversal.
+// No world mutation, locking interface call, or application callback occurs here.
+class BoundedOverlapCollector final : public JPH::CollideShapeCollector {
+public:
+    explicit BoundedOverlapCollector(std::uint32_t maximum) : maximum_(maximum) { hits.reserve(maximum); }
+    void OnBody(const JPH::Body&) override { current_.reset(); }
+    void AddHit(const JPH::CollideShapeResult& hit) override {
+        if (!current_ || hit.mPenetrationDepth > current_->mPenetrationDepth) current_ = hit;
+    }
+    void OnBodyEnd() override {
+        if (!current_) return;
+        if (hits.size() == maximum_) { overflow = true; ForceEarlyOut(); return; }
+        hits.push_back(*current_);
+    }
+    std::vector<JPH::CollideShapeResult> hits;
+    bool overflow = false;
+private:
+    std::uint32_t maximum_;
+    std::optional<JPH::CollideShapeResult> current_;
 };
 
 bool endpointLess(const RigidBodyContactEndpoint& a, const RigidBodyContactEndpoint& b) {
@@ -273,6 +304,13 @@ public:
     RigidBodyContactEndpoint endpoint(std::size_t index) const {
         const auto& slot = slots[index];
         return {handle(index),slot.desc.id,slot.desc.materialId,slot.desc.surfaceId,slot.desc.isSensor,slot.canonical};
+    }
+    std::optional<RigidBodyShapeHit> shapeHit(const JPH::CollideShapeResult& hit, math::Vec3 baseOffset,
+                                             float fraction, bool initialOverlap) const {
+        const auto index = static_cast<std::size_t>(system->GetBodyInterface().GetUserData(hit.mBodyID2));
+        if (index >= slots.size() || slots[index].native != hit.mBodyID2) return {};
+        return RigidBodyShapeHit{endpoint(index),baseOffset+vec(hit.mContactPointOn1),baseOffset+vec(hit.mContactPointOn2),
+            vec(-hit.mPenetrationAxis.NormalizedOr(JPH::Vec3::sZero())),fraction,hit.mPenetrationDepth,initialOverlap};
     }
     void capture(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold) {
         // SingleThreaded jobs only. Bodies are locked: read callback values,
@@ -717,5 +755,80 @@ std::optional<RigidBodyRayHit> RigidBodyWorld::raycast(math::Vec3 origin, math::
     (void)layerMask; (void)includeSensors;
 #endif
     return {};
+}
+RigidBodyShapeCastResult RigidBodyWorld::castShape(const RigidBodyQueryShape& shape, math::Vec3 displacement,
+                                                 std::uint8_t layerMask, bool includeSensors) const {
+    RigidBodyShapeCastResult result;
+    const auto desc = queryDescription(shape);
+    if (!validate(desc,result.error)) return result;
+    if (!bounded(displacement,100000.0F) || displacement.lengthSquared() <= 1.0e-12F ||
+        !bounded(shape.position+displacement,100000.0F)) {
+        result.error = "Invalid rigid-body shape cast displacement or endpoint";
+        return result;
+    }
+#if NOVACORE_HAS_JOLT
+    if (impl_) {
+        result.world = impl_->owner; result.tick = impl_->tick;
+        const auto native = makeShape(desc);
+        if (native.HasError()) { result.error = native.GetError().c_str(); return result; }
+        const auto pose = JPH::RMat44::sRotationTranslation(quat(shape.rotation),vec(shape.position));
+        const auto cast = JPH::RShapeCast::sFromWorldTransform(native.Get(),JPH::Vec3::sReplicate(1),pose,vec(displacement));
+        JPH::ShapeCastSettings settings;
+        settings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
+        settings.mReturnDeepestPoint = true;
+        JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+        impl_->system->GetNarrowPhaseQuery().CastShape(cast,settings,vec(shape.position),collector,{},
+            RayFilter(layerMask),RayBodyFilter(includeSensors));
+        if (collector.HadHit()) {
+            const auto& hit = collector.mHit;
+            result.hit = impl_->shapeHit(hit,shape.position,hit.mFraction,hit.mFraction == 0.0F);
+            if (!result.hit) { result.error = "Rigid-body shape cast returned a stale body identity"; return result; }
+        }
+        result.queried = true;
+        return result;
+    }
+#else
+    (void)layerMask; (void)includeSensors;
+#endif
+    result.error = "Rigid-body world is not initialized";
+    return result;
+}
+RigidBodyOverlapResult RigidBodyWorld::overlapShape(const RigidBodyQueryShape& shape, std::uint32_t maxHits,
+                                                   std::uint8_t layerMask, bool includeSensors) const {
+    RigidBodyOverlapResult result;
+    const auto desc = queryDescription(shape);
+    if (!validate(desc,result.error)) return result;
+    if (maxHits == 0 || maxHits > 8192) { result.error = "Rigid-body overlap maxHits must be 1..8192"; return result; }
+#if NOVACORE_HAS_JOLT
+    if (impl_) {
+        result.world = impl_->owner; result.tick = impl_->tick;
+        const auto native = makeShape(desc);
+        if (native.HasError()) { result.error = native.GetError().c_str(); return result; }
+        const auto pose = JPH::RMat44::sRotationTranslation(quat(shape.rotation),vec(shape.position))
+            .PreTranslated(native.Get()->GetCenterOfMass());
+        JPH::CollideShapeSettings settings;
+        settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+        BoundedOverlapCollector collector(maxHits);
+        impl_->system->GetNarrowPhaseQuery().CollideShape(native.Get(),JPH::Vec3::sReplicate(1),pose,settings,
+            vec(shape.position),collector,{},RayFilter(layerMask),RayBodyFilter(includeSensors));
+        if (collector.overflow) {
+            result.overflow = true; result.error = "Rigid-body overlap maxHits exceeded; no partial result returned";
+            return result;
+        }
+        result.hits.reserve(collector.hits.size());
+        for (const auto& hit : collector.hits) {
+            auto owned = impl_->shapeHit(hit,shape.position,0,true);
+            if (!owned) { result.hits.clear(); result.error = "Rigid-body overlap returned a stale body identity"; return result; }
+            result.hits.push_back(std::move(*owned));
+        }
+        std::sort(result.hits.begin(),result.hits.end(),[](const auto& a,const auto& b) { return endpointLess(a.body,b.body); });
+        result.queried = true;
+        return result;
+    }
+#else
+    (void)layerMask; (void)includeSensors;
+#endif
+    result.error = "Rigid-body world is not initialized";
+    return result;
 }
 } // namespace novacore::physics
