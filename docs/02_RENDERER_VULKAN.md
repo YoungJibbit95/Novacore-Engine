@@ -250,6 +250,47 @@ Current implementation:
 
 ## Phase 4 visual targets and evidence
 
+### Physical camera chirality (Phase 5)
+
+glTF scene coordinates are right handed. Its camera lens faces local -Z;
+camera-local +X describes screen right. See the
+[Khronos glTF coordinate/camera specification](https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html).
+Imported geometry and node transforms retain that scene convention.
+
+NovaCore keeps its logical look-direction API: zero yaw/pitch looks toward
+world +Z, positive yaw points toward +X, and positive pitch looks up. The
+physical camera frame now uses `(right, up, backward)` as a proper rotation
+with determinant +1, with `backward = -forward`. At zero yaw/pitch, physical
+right is world -X. View rows are right/up/backward; the standard RH perspective
+uses clip W = -view Z, Vulkan depth 0..1 and the existing framebuffer Y flip.
+Sky rays consume the same physical camera basis.
+
+The previous +Z-depth camera displayed right-handed scene geometry with the
+opposite horizontal chirality. A proper offline Y180 character rotation cannot
+repair that view/content mismatch. Correcting the camera preserves the
+anatomical sides and asymmetric thumb/index geometry without changing meshes,
+bone identities, sockets, normal transforms, asset scales or winding.
+
+Consumer migration is required before changing a production game pin:
+camera-relative placements/strafe must use the physical right basis, and
+human-right mouse/gamepad yaw input must account for logical positive yaw now
+turning physically left. Existing game-world look directions remain unchanged
+for the same supplied yaw/pitch. Input policy belongs to Nemisis. Pixel-space
+UI geometry and its final overlay pass do not use this 3D camera transform.
+
+The independent CPU fixture projects actual right/left wrists, medial thumbs,
+distal index points and front/rear markers through a proper source Y180
+rotation, comparing them with a separate standard glTF -Z-camera formula.
+It also checks both camera yaw directions, view determinant, poles/roll and
+existing sky/world/FOV/aspect/depth contracts. The untouched previous camera
+fails 112 assertions with this fixture; the RH camera passes the standalone
+suite. Full engine/cross-repo/Vulkan and visual gates are recorded separately.
+
+Future shadow receivers can still reconstruct world coordinates from clip
+X/Y/W and the shared physical ray basis: visible clip W remains the positive
+logical forward distance. The isolated R2 work is held behind this camera/game
+migration gate; no shadow map or texture feature is claimed by this fix.
+
 ### Instance normal foundation (R1)
 
 The world mesh vertex shader applies the render instance inverse transpose to
