@@ -236,9 +236,103 @@ Current implementation:
 * Swapchain image views, render pass, depth resources, framebuffers, world pipelines, and UI primitive pipelines are recreated as one dependent-resource group.
 * Submitted frames, skipped frames, recreate count, swapchain readiness, swapchain size, last world box/mesh/line counts, and last UI rect/line/text counts are exposed through renderer backend stats for game-side diagnostics.
 * The sky pass is camera-oriented and renders a configurable sun disc, atmospheric haze, horizon response, and light procedural cloud breakup.
+  Its world-space ray basis shares the world camera's vertical FOV, swapchain
+  aspect, yaw/pitch/roll and Vulkan projection Y flip. Camera translation is
+  omitted from sky rays. `RenderWorldLighting::sunDirection` points from the
+  shaded surface toward the sun; both diffuse lighting and the sky disc consume
+  this same normalized direction. It is not the direction in which photons travel.
+  `RenderSky::horizonHeight` remains an artistic gradient control, not a screen
+  coordinate or a replacement for the world horizon. The sky push block is
+  exactly 128 bytes and needs no descriptor or GPU-resource lifetime changes.
 * Soft sun-aligned contact shadows are submitted as a dedicated blended depth-tested pass and reported through backend frame statistics.
 * World meshes upload cooked UV0 data and use per-fragment metallic/roughness response with deterministic micro-surface variation.
 * Viewmodel meshes use an isolated short-range projection and depth clear so held weapons and arms do not disappear into world geometry.
+
+## Phase 4 visual targets and evidence
+
+### Instance normal foundation (R1)
+
+The world mesh vertex shader applies the render instance inverse transpose to
+normals: for `T * Ry * Rx * Rz * S`, this is the unit rotation quaternion times
+the reciprocal scale. Normals and key/fill directions meet in world space and
+the fragment shader renormalizes interpolated normals. Instance translation
+does not affect shading; rotating a mesh by 180 degrees changes the surface's
+orientation toward the fixed world light. A singular/non-finite instance scale
+or non-finite rotation skips the draw with a once-per-session diagnostic.
+
+The push block remains 128 bytes without adding GPU buffers/descriptors:
+WVP and RGBA retain float precision, rotation/reciprocal scale use floats,
+the two unit light directions use octahedral unorm16 pairs, and six bounded
+light/material factors use unorm16 pairs (absolute scalar error at most
+approximately 7.7e-6). CPU tests bound the directional error below 0.01 degree.
+Invalid non-finite scalar factors become zero before integer conversion;
+finite values preserve their existing clamp intervals.
+
+Only the submitted `RenderMesh3D` instance transform is applied here. The glTF
+importer or CPU skinning has already produced input vertices/normals; no node
+transform is applied again by this change. An independent existing importer
+defect remains: `GltfDocument.cpp::applyNodeTransform` currently transforms
+baked normals with the linear node matrix instead of its inverse transpose.
+R1 cannot repair those already incorrect inputs. A separate importer followup
+needs a slanted triangle with mixed parent/child TRS, nonuniform scale and a
+normal perpendicular to both transformed tangents, plus preserved skin/node
+behavior. Identity-instance preservation tests do not establish importer
+correctness under baked nonuniform scale.
+
+The current material shader still uses a fixed world view vector for specular
+and rim approximation. Camera-relative specular/Fresnel, real texture normal
+maps, BRDF/IBL, cast shadows and reflections remain separate R2-R4 work; R1
+does not claim physically based or complete material response.
+
+### Reference criteria
+
+The supplied reference archive is an art/technical review board. Its actual
+downloaded S01-S03, M01-M02, P01-P02 and L01-L03 images were inspected locally.
+No reference image is imported into runtime assets or redistributed in this
+repository. Reference appearance is a target, not evidence that NovaCore
+already implements the depicted rendering techniques.
+
+| References and original sources | Concrete review target | Current package boundary |
+| --- | --- | --- |
+| [S01 clear daylight](https://polyhaven.com/a/hausdorf_clear_sky) | A bounded sun disc/halo above a pale horizon, a deeper blue zenith, and a horizon tied to world up. Translating the camera must not drag any sky feature. | R0 corrects projection and world direction; existing artistic colors remain a separate visual review. |
+| [S02 low sun](https://polyhaven.com/a/bambanani_sunset) | The low disc is visible in a level view looking toward its azimuth; pitching/yawing moves its screen position without changing its world elevation. Warm low light/cool sky separation is a later artistic lighting target. | R0 proposes 20-degree elevation for the Dev Range; sunset color transport and HDRI lighting are not implemented here. |
+| [S03 clouds and haze](https://80.lv/articles/creating-clouds-in-horizon-zero-dawn) | Distant silhouettes remain legible through horizon haze; sky breakup stays world-oriented under camera movement. Large clouds should ultimately show depth and soft illumination. | R0 preserves the existing procedural cloud/haze approximation; volumetric clouds are deferred. |
+| [M01 concrete](https://polyhaven.com/textures/concrete), [M02 metal](https://polyhaven.com/textures/metal) | Concrete remains matte with resolved relief; painted metal, exposed metal and rust retain distinct surface response under rotation. Shading must follow the same world light on every instance. | R1 establishes correct instance normals. Actual albedo/normal/MR textures and detailed surfaces belong to R3. |
+| [P01 glTF metal/rough spheres](https://github.com/KhronosGroup/glTF-Sample-Viewer/issues/210), [P02 metal/rough chart](https://devforum.roblox.com/t/how-to-make-a-realistic-bubble/4029860) | A fixed metal/roughness grid separates dielectric from metal and broadens/dims highlights continuously with roughness. Rotating an object must not rotate the world light with it. | R1 validates the orientation foundation; physically based BRDF/IBL/reflections remain R4. P01's visible dark/faceted patches are not a quality target. |
+| [L01 character shadow](https://forums.unrealengine.com/t/dynamic-shadows-disappear-on-low-settings-look-ugly-on-medium/137375) | Character and box silhouettes project actual cast shadows onto the floor with a consistent world sun direction. | R2 target; existing analytic contact shadows do not satisfy this criterion. |
+| [L02 industrial lighting](https://en.gamegpu.com/test-gpu/test-video-cards/cyberpunk-2077-effekty-trassirovki-luchej-podderzhka-dlss-2-0-dostup-v-geforce-now), [L03 industrial interior](https://creativeshrimp.gumroad.com/l/Cinematic-Lighting-in-Blender) | Window/roof light produces coherent sunlit patches, readable shadowed structures and material-dependent dry/wet reflections, without washing out gameplay silhouettes. | Later R2-R4 targets; no ray tracing, wet reflections, indirect light or light shafts are claimed by R0/R1. |
+
+R0 comparison matrix after renewed GUI permission or user-supplied manual
+captures: record exact game/engine commits, executable SHA-256, render-config
+hash, camera pose/FOV, viewport, fixed scene/animation tick, GPU and backend.
+Use the same game/assets/config to compare engine main `d4eee3a` with the R0
+candidate; first keep the proposed 20-degree sun identical on both engines to
+isolate projection changes, then separately record the original 62.7-degree
+sun as a configuration control. Historical user screenshots span different
+builds and are not a matched baseline.
+
+Capture a level view toward sun azimuth 25 degrees, yaw +/-45 degrees, pitch
+-30/0/20/70 degrees and roll 0/+15/-15 degrees. Pair translation with unchanged
+angles; compare game VFOV 55/74/105 and 1280x720/720x1280/1920x1080 extents. The sun
+must project at the world direction, the horizon must rotate with camera roll,
+and changing FOV/aspect must produce the same projection as world geometry.
+Changing FOV is expected to change the disc's pixel size, not its angular size.
+Nemisis render tuning clamps FOV to 55..105 degrees. The separate engine CPU
+and sandbox math cases at 40/110 remain valid but must not be labelled actual
+Nemisis capture settings; the original R0 matrix used those engine cases.
+
+R1's separate matrix keeps camera/light/materials fixed while rotating the same
+mesh through 0/90/180 degrees and applying identity/nonuniform instance scales
+(2, 0.5, 3), with a baked glTF-node fixture and an animated mesh. The sun-facing
+surface must brighten and the opposite surface darken consistently; normals
+must remain perpendicular to transformed geometry without lighting snaps or
+applying baked node transforms twice. Material-grid/highlight observations are
+recorded as foundation checks, not as completion of R3/R4.
+
+CPU mathematics and compiled/validated SPIR-V are technical checks only. Before
+and after Vulkan images, real device validation, frame timings and final visual
+acceptance remain open until those captures are actually produced. No GUI was
+started for this Phase 4 renderer work after the previous physical Escape stop.
 
 ## Performance Goals
 

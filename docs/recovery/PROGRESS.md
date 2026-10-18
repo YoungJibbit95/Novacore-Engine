@@ -2,6 +2,20 @@
 
 ## 2026-10-18 Phase 2B dynamic mesh frame slots
 
+- Published DRAFT https://github.com/YoungJibbit95/Novacore-Engine/pull/11;
+  implementation/published Nemisis pin a687c8816fbcc8a7f4d313cf092c6dc17a59f8f7.
+  Hosted MSVC and Clang full builds/5 suites pass at that exact runtime commit:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39139271352.
+  This following record-only commit does not change runtime or the tested pin.
+- Nemisis draft #16 https://github.com/YoungJibbit95/Nemisis/pull/16 implements
+  real-grip constraints at10610e7, stacked after shared-pose #15 and the exact
+  combined #12/#13/#14 base5baab6137dc5e0a3a81a2b0e9ec62ac4f8a78fa0.
+  Against exact engine a687c88: full opt-in build/37 CPU cases, default-off
+  build/34 cases and full real SDL3 3.2.22/Vulkan SDK1.4.350.0 conditional
+  backend/game compilation pass. Headless productive IK confirms4 samples,
+  constraints, skins and accepted vertex updates; no invalid/unreachable frames.
+  These CPU requests do not prove GPU execution. No graphical app was launched.
+
 - Separate worktree F:/Coding/Project/recovery/phase2b/dynamic-mesh/Novacore-Engine,
   branch recovery/06-dynamic-mesh-frames, based on exact engine PR #10 HEAD
   e22d39708f09a80472c185ab52cc59b90a3f8c14. Existing PRs and dirty original
@@ -32,14 +46,19 @@
   local-debug-no-deps --parallel 4`, `ctest --test-dir build/local-debug-no-deps
   --output-on-failure --timeout 120`. Existing unused sandbox helper warning
   remains visible. `git diff --check` passes.
-  Cross-repo validation must use the eventual exact committed engine revision;
-  Nemisis previously pinned 15c1b684a430bb70235ea9407f78106d958812b6 does not
-  contain this fix. Main integration will record the replacement revision.
+  Nemisis pin was updated only after exact a687c88 cross-repo validation;
+  its former 15c1b684a430bb70235ea9407f78106d958812b6 did not contain this fix.
 - No GUI automation, Vulkan execution or visual acceptance performed. Compile
   the SDL3/Vulkan path and run hosted MSVC/Clang checks before accepting the PR;
   actual GPU hand-contact acceptance remains a separate explicit gate.
 
-Next executable step: finish CPU tests, review/commit this focused engine change,
+Next executable step: recheck the published PR heads/hosted checks and the exact
+Nemisis pin, then perform the documented Vulkan image matrix only after actual
+manual evidence/fresh GUI authorization. Do not auto-merge or replace the game
+legacy/default-off gates without visual acceptance. The old next-step note below
+is superseded by the published/cross-validated state above:
+
+Historical pre-publication step: finish CPU tests, review/commit this focused engine change,
 build Nemisis hand constraints against that exact SHA, and compile its graphics
 target. Preserve legacy placement/default-off migration until visual acceptance.
 
@@ -215,6 +234,7 @@ cook/catalog migration. Preserve active offline fixups and both GLBs until CPU
 contracts plus hip/held ADS/muzzle/grips/scale/procedural-motion review pass.
 The documented authored glTF socket-offset gap needs a separate engine fixture/
 fix and exact cross-repo validation if pursued; do not mix it into this audit.
+
 ## 2026-10-18 UI geometry adapter (UI-0)
 
 Separate worktree/branch `ui/00-overlay-adapter`, based on Nemisis' compatible
@@ -233,3 +253,106 @@ Validation: full GCC13.2 Release SDL3/Vulkan build, new shaders compiled by SDK
 1.4.350.0 glslc, all 5 engine suites pass, including malformed UI packet tests.
 Game integration and visual evidence are recorded in the dependent Nemisis UI
 PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
+
+
+## 2026-10-18 Phase 4 R0 sky/sun projection
+
+- Isolated renderer worktree starts from clean engine main d4eee3a. Its runtime
+  matches Nemisis's a687c88 pin; the intervening changes are merged history/docs.
+  Original dirty checkouts and the pinned engine worktrees remain untouched.
+- Root causes: sky rays used fixed 0.92/0.58 projection factors, opposite vertical
+  screen convention to the world projection, and only yaw/pitch. The old world
+  look-at also omitted camera roll and was singular at exactly vertical pitch.
+- World view/projection and sky rays now share one private camera math helper:
+  actual FOV, swapchain aspect, analytic yaw/pitch/roll basis and Vulkan Y flip.
+  Appended optional RenderCamera3D::rollDegrees defaults to zero. No projection
+  handedness, model coordinates or mesh transforms are changed.
+- Sky uses the same normalized world-space toward-sun vector as existing world
+  lighting/contact shadows. Translation does not enter its 128-byte push block.
+  No shadow map, material/PBR or texture changes are mixed into R0.
+- Proposed isolated Nemisis config handoff: sun direction
+  (0.397131, 0.342020, 0.851651), approximately azimuth 25/elevation 20 degrees.
+  The old vector's 62.7-degree elevation is outside a level 74-degree VFOV;
+  correcting projection alone cannot make that sun visible at horizontal pitch.
+- Added CPU sky/world pixel round trips across translation, yaw, vertical pitch,
+  roll, portrait/landscape/zero extents and three FOVs; explicit world-sun,
+  low-elevation, light-direction and Vulkan depth conventions are covered.
+- Validation results and exact implementation revision follow after execution.
+  No new GUI authorization exists after the user's physical Escape stop: no
+  Vulkan pixels, GPU timings or visual acceptance are claimed for this step.
+- Executed GCC 13.2 / Ninja Release dependency-light full build (engine,
+  dedicated server, sandbox and tests): pass. All 6/6 CTest suites pass in
+  1.49 seconds, including the new projection suite. Existing unused sandbox
+  buildSummary warning is unchanged. Public headless package installed for
+  exact-revision Nemisis validation. Vulkan compilation is recorded next.
+- Compiled the actual SDL3/Vulkan backend object with Vulkan SDK 1.4.350.0 and
+  all 15 GLSL shaders with glslc. All 15 modules pass spirv-val for Vulkan 1.0;
+  sky push-member offsets are 0/16/32/48/64/80/96/112 (128 bytes total).
+  No Vulkan device was started; visual/GPU acceptance remains pending.
+- User's later visual-reference addon incorporated without restarting work:
+  inspected actual local S01-S03, M01-M02, P01-P02 and L01-L03 images, the
+  README, reference JSON and original board. Renderer docs now identify original
+  source URLs, concrete targets, package boundaries and a reproducible R0/R1
+  before/after matrix. Reference binaries remain outside the repository/assets.
+- Full SDL3/Vulkan Release static library also built and installed successfully.
+  Both public candidate packages have runtime f0c90b7. The following commit is
+  documentation-only; cross-repo and visual evidence are still separate gates.
+
+## 2026-10-18 Phase 4 R1 render-instance normals
+
+- Separate branch recovery/phase4-instance-normals is based on R0 fa37f17.
+  World meshes previously uploaded instance WVP only and left normals in input
+  mesh space while key/fill lighting was world space. Rotation and nonuniform
+  instance scale therefore produced incorrect diffuse orientation.
+- Implemented actual world-space inverse-transpose instance normals using the
+  existing T*Ry*Rx*Rz*S contract, quaternion rotation and reciprocal scale.
+  Imported/skinned node transforms are not repeated. Invalid singular/non-finite
+  instance scales/rotations skip draws with a bounded diagnostic.
+- Kept the 128-byte minimum push block and existing GPU lifetimes: WVP/RGBA and
+  normal transforms remain float; world key/fill directions use octahedral
+  unorm16 pairs, six bounded intensity/material factors use unorm16 pairs.
+  Non-finite scalar factors are replaced before integer conversion; finite
+  values retain prior clamp behavior. Tests bound quantization, independent
+  transformed-tangent orthogonality, rotation/180-degree lighting and identity
+  instance preservation of already-baked normals.
+- Scoped limitations: importer applyNodeTransform still incorrectly uses its
+  linear node matrix for baked nonuniform normal transforms; document and fix
+  separately with an independent slanted-triangle hierarchy regression. The
+  fragment shader's fixed view-vector specular/rim approximation is retained
+  and explicitly deferred to R4. No PBR/shadow/texture completion is claimed.
+- Inspected reference criteria and original S/M/P/L source URLs are retained in
+  renderer docs. R1 matched visual matrix holds camera/light fixed while mesh
+  rotation/scales change; historical screenshots are not a matched baseline.
+- Validation pending coordinated heavy slot; R0 generated shader binaries and
+  both installed R0 packages remain unchanged for exact game integration.
+- Final tiny-scale robustness check: accept finite nonzero scales without an
+  arbitrary epsilon, reject a non-finite reciprocal, and remove common normal
+  magnitude in the vertex shader before rotation/normalization to avoid overflow.
+- Executed final complete incremental Release build and 7/7 engine CTest suites
+  (1.63 seconds), including NaN/Inf/FE_INVALID, tiny scale and independent
+  nonuniform transformed-tangent checks. Across 9,260 sampled directions,
+  maximum packed light error is 0.00371697 degrees; across 10,001 factor pairs,
+  maximum scalar error is 7.62939e-06. All 45 public headers hash-identical to R0.
+- Actual SDL3/Vulkan backend object and all 15 GLSL shaders compile in the separate
+  phase4-r1-vulkan directory. All 15 modules pass Vulkan 1.0 spirv-val. World-mesh
+  push offsets are 0/64/80/96/108/112 and size remains 128 bytes, matching C++
+  offset assertions. R0 generated shader files remain frozen and untouched.
+- Full R1 Vulkan static library/install and exact-revision Nemisis checks follow;
+  no device launch, GPU timing or visual acceptance is claimed.
+- Completed full separate SDL3/Vulkan Release static-library build and public
+  package install for implementation a68ea79de2c97b8b46e773da856d12f8886593e2.
+  Package: recovery/phase4/engine-r1-vulkan; library SHA-256:
+  92cf9b49a03d4fed0020bb3e722e1ccd4557a7524abaf33cf1e7f115b5a58428.
+  Headless package: recovery/phase4/engine-r1-headless; library SHA-256:
+  18361aa242c768e27042fc74086b6a603822f7f299d611e01b62c0b78fd64952.
+  Existing unused sandbox helper warning remains; no warnings/tests disabled.
+- Clarified visual capture matrix: Nemisis clamps FOV to 55..105 degrees, so
+  actual game comparisons use 55/74/105; engine CPU/sandbox cases 40/110 are
+  additional math coverage, not reported game camera settings.
+- Main-agent R0 cross-repo evidence: complete Nemisis build and 45/45 CPU suites
+  pass against exact R0 fa37f17 (133.77 seconds); engine R0 PR #12 Windows/MSVC
+  and Ubuntu/Clang checks pass, run 39166870602. This is CPU/compilation evidence.
+- R1 cross-repo integration/hosted CI and both packages' actual matched Vulkan
+  screenshots remain separate next gates. No GUI permission or device launch
+  occurred in this rendering subagent. Main owns publication/game pin changes;
+  no R2 resources or further rendering features started.

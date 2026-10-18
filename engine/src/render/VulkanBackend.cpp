@@ -1,6 +1,8 @@
 #include "VulkanBackend.hpp"
 #include "VulkanUiRenderer.hpp"
+#include "CameraMath.hpp"
 #include "DynamicMeshUpdates.hpp"
+#include "MeshLighting.hpp"
 
 #include "novacore/core/Log.hpp"
 #include "novacore/render/Renderer.hpp"
@@ -138,17 +140,9 @@ template <typename Handle>
     return buffer;
 }
 
-struct Mat4 final {
-    std::array<float, 16> value{};
-
-    [[nodiscard]] float& at(std::size_t row, std::size_t column) {
-        return value[(column * 4U) + row];
-    }
-
-    [[nodiscard]] float at(std::size_t row, std::size_t column) const {
-        return value[(column * 4U) + row];
-    }
-};
+using detail::Mat4;
+using detail::identity;
+using detail::multiply;
 
 struct SkyPushConstants final {
     std::array<float, 4> zenithColor{};
@@ -156,7 +150,9 @@ struct SkyPushConstants final {
     std::array<float, 4> groundColor{};
     std::array<float, 4> parameters{};
     std::array<float, 4> sunDirectionSize{};
-    std::array<float, 4> atmosphereCamera{};
+    std::array<float, 4> rayForwardHaze{};
+    std::array<float, 4> rayRightCloud{};
+    std::array<float, 4> rayDown{};
 };
 
 struct ContactShadowPushConstants final {
@@ -177,9 +173,10 @@ struct WorldBoxPushConstants final {
 struct WorldMeshPushConstants final {
     std::array<float, 16> worldViewProjection{};
     std::array<float, 4> color{};
-    std::array<float, 4> lightDirectionAmbient{};
-    std::array<float, 4> fillDirectionIntensity{};
-    std::array<float, 4> materialResponse{};
+    std::array<float, 4> normalRotation{};
+    std::array<float, 3> inverseScale{};
+    std::uint32_t sunDirection = 0;
+    std::array<std::uint32_t, 4> lightingMaterial{};
 };
 
 struct WorldLinePushConstants final {
@@ -205,6 +202,10 @@ static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay und
 static_assert(sizeof(ContactShadowPushConstants) <= 128, "Contact shadow push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldBoxPushConstants) <= 128, "World box push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(WorldMeshPushConstants) <= 128, "World mesh push constants must stay under the Vulkan minimum limit");
+static_assert(offsetof(WorldMeshPushConstants, normalRotation) == 80);
+static_assert(offsetof(WorldMeshPushConstants, inverseScale) == 96);
+static_assert(offsetof(WorldMeshPushConstants, sunDirection) == 108);
+static_assert(offsetof(WorldMeshPushConstants, lightingMaterial) == 112);
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under the Vulkan minimum limit");
 
@@ -284,16 +285,6 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     };
 }
 
-[[nodiscard]] std::array<float, 4> packedFillLighting(const RenderWorldLighting& lighting) {
-    const auto direction = normalized(lighting.fillDirection);
-    return {
-        direction.x,
-        direction.y,
-        direction.z,
-        std::clamp(lighting.fillIntensity, 0.0F, 1.0F),
-    };
-}
-
 [[nodiscard]] std::array<float, 4> packedMaterialResponse(
     const RenderWorldLighting& lighting,
     const RenderMaterialFallback& material,
@@ -305,41 +296,6 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
         gltfMaterial == nullptr ? 0.08F : std::clamp(gltfMaterial->metallicFactor, 0.0F, 1.0F),
         gltfMaterial == nullptr ? 0.72F : std::clamp(gltfMaterial->roughnessFactor, 0.04F, 1.0F),
     };
-}
-
-[[nodiscard]] float dot(novacore::math::Vec3 a, novacore::math::Vec3 b) {
-    return (a.x * b.x) + (a.y * b.y) + (a.z * b.z);
-}
-
-[[nodiscard]] novacore::math::Vec3 cross(novacore::math::Vec3 a, novacore::math::Vec3 b) {
-    return novacore::math::Vec3{
-        (a.y * b.z) - (a.z * b.y),
-        (a.z * b.x) - (a.x * b.z),
-        (a.x * b.y) - (a.y * b.x),
-    };
-}
-
-[[nodiscard]] Mat4 identity() {
-    Mat4 result{};
-    result.at(0, 0) = 1.0F;
-    result.at(1, 1) = 1.0F;
-    result.at(2, 2) = 1.0F;
-    result.at(3, 3) = 1.0F;
-    return result;
-}
-
-[[nodiscard]] Mat4 multiply(const Mat4& lhs, const Mat4& rhs) {
-    Mat4 result{};
-    for (std::size_t row = 0; row < 4; ++row) {
-        for (std::size_t column = 0; column < 4; ++column) {
-            float value = 0.0F;
-            for (std::size_t k = 0; k < 4; ++k) {
-                value += lhs.at(row, k) * rhs.at(k, column);
-            }
-            result.at(row, column) = value;
-        }
-    }
-    return result;
 }
 
 [[nodiscard]] Mat4 translation(novacore::math::Vec3 value) {
@@ -408,65 +364,8 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
     return multiply(translation(mesh.position), multiply(meshRotation(mesh), scale(mesh.scale)));
 }
 
-[[nodiscard]] Mat4 perspectiveVulkan(float verticalFovDegrees, float aspect, float nearPlane, float farPlane) {
-    const float safeAspect = std::max(0.001F, aspect);
-    const float safeNear = std::max(0.001F, nearPlane);
-    const float safeFar = std::max(safeNear + 0.001F, farPlane);
-    const float f = 1.0F / std::tan(degreesToRadians(verticalFovDegrees) * 0.5F);
-
-    Mat4 result{};
-    result.at(0, 0) = f / safeAspect;
-    result.at(1, 1) = -f;
-    result.at(2, 2) = safeFar / (safeFar - safeNear);
-    result.at(2, 3) = -(safeNear * safeFar) / (safeFar - safeNear);
-    result.at(3, 2) = 1.0F;
-    return result;
-}
-
-[[nodiscard]] Mat4 lookAtLeftHanded(novacore::math::Vec3 eye, novacore::math::Vec3 forward) {
-    constexpr novacore::math::Vec3 kWorldUp{0.0F, 1.0F, 0.0F};
-    const auto zAxis = normalized(forward);
-    auto xAxis = normalized(cross(kWorldUp, zAxis));
-    if (xAxis.lengthSquared() <= 0.000001F) {
-        xAxis = novacore::math::Vec3{1.0F, 0.0F, 0.0F};
-    }
-    const auto yAxis = cross(zAxis, xAxis);
-
-    Mat4 result = identity();
-    result.at(0, 0) = xAxis.x;
-    result.at(0, 1) = xAxis.y;
-    result.at(0, 2) = xAxis.z;
-    result.at(0, 3) = -dot(xAxis, eye);
-
-    result.at(1, 0) = yAxis.x;
-    result.at(1, 1) = yAxis.y;
-    result.at(1, 2) = yAxis.z;
-    result.at(1, 3) = -dot(yAxis, eye);
-
-    result.at(2, 0) = zAxis.x;
-    result.at(2, 1) = zAxis.y;
-    result.at(2, 2) = zAxis.z;
-    result.at(2, 3) = -dot(zAxis, eye);
-    return result;
-}
-
-[[nodiscard]] novacore::math::Vec3 cameraForward(const RenderCamera3D& camera) {
-    const float yaw = degreesToRadians(camera.yawDegrees);
-    const float pitch = degreesToRadians(camera.pitchDegrees);
-    const float cosPitch = std::cos(pitch);
-    return normalized(novacore::math::Vec3{
-        std::sin(yaw) * cosPitch,
-        std::sin(pitch),
-        std::cos(yaw) * cosPitch,
-    });
-}
-
 [[nodiscard]] Mat4 viewProjectionForCamera(const RenderCamera3D& camera, VkExtent2D extent) {
-    const float aspect = static_cast<float>(std::max<std::uint32_t>(extent.width, 1U)) /
-        static_cast<float>(std::max<std::uint32_t>(extent.height, 1U));
-    const auto projection = perspectiveVulkan(camera.verticalFovDegrees, aspect, camera.nearPlane, camera.farPlane);
-    const auto view = lookAtLeftHanded(camera.position, cameraForward(camera));
-    return multiply(projection, view);
+    return detail::cameraViewProjection(camera, extent.width, extent.height);
 }
 
 [[nodiscard]] WorldBoxPushConstants pushConstantsForBox(
@@ -490,8 +389,10 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 [[nodiscard]] SkyPushConstants pushConstantsForSky(
     const RenderSky& sky,
     const RenderCamera3D& camera,
-    const RenderWorldLighting& lighting) {
+    const RenderWorldLighting& lighting,
+    VkExtent2D extent) {
     const auto sun = normalized(lighting.sunDirection);
+    const auto rays = detail::skyRayBasis(camera, extent.width, extent.height);
     return SkyPushConstants{
         sky.zenithColor,
         sky.horizonColor,
@@ -508,12 +409,9 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
             sun.z,
             degreesToRadians(std::clamp(sky.sunAngularRadiusDegrees, 0.05F, 12.0F)),
         },
-        {
-            std::clamp(sky.hazeStrength, 0.0F, 1.0F),
-            std::clamp(sky.cloudStrength, 0.0F, 1.0F),
-            degreesToRadians(camera.yawDegrees),
-            degreesToRadians(camera.pitchDegrees),
-        },
+        {rays.forward.x, rays.forward.y, rays.forward.z, std::clamp(sky.hazeStrength, 0.0F, 1.0F)},
+        {rays.right.x, rays.right.y, rays.right.z, std::clamp(sky.cloudStrength, 0.0F, 1.0F)},
+        {rays.down.x, rays.down.y, rays.down.z, 0.0F},
     };
 }
 
@@ -548,16 +446,26 @@ static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under
 [[nodiscard]] WorldMeshPushConstants pushConstantsForMesh(
     const Mat4& viewProjection,
     const RenderMesh3D& mesh,
+    const detail::MeshNormalTransform& normalTransform,
     const RenderWorldLighting& lighting,
     std::array<float, 4> color,
     const assets::GltfMaterialData* gltfMaterial) {
     const auto worldViewProjection = multiply(viewProjection, modelMatrixForMesh(mesh));
+    const auto response = packedMaterialResponse(lighting, mesh.material, gltfMaterial);
     return WorldMeshPushConstants{
         worldViewProjection.value,
         color,
-        packedLighting(lighting),
-        packedFillLighting(lighting),
-        packedMaterialResponse(lighting, mesh.material, gltfMaterial),
+        normalTransform.rotation,
+        normalTransform.inverseScale,
+        detail::packLightDirection(lighting.sunDirection),
+        {
+            detail::packLightDirection(lighting.fillDirection),
+            detail::packUnitPair(
+                std::clamp(lighting.ambientIntensity, 0.02F, 0.95F),
+                std::clamp(lighting.fillIntensity, 0.0F, 1.0F)),
+            detail::packUnitPair(response[0], response[1]),
+            detail::packUnitPair(response[2], response[3]),
+        },
     };
 }
 
@@ -829,6 +737,7 @@ struct VulkanBackend::Impl final {
     std::size_t lastUiTextCount = 0;
     bool frameActive = false;
     bool loggedSkySubmission = false;
+    bool loggedInvalidMeshTransform = false;
     bool loggedContactShadowSubmission = false;
     bool loggedWorldDrawSubmission = false;
     bool loggedWorldLineSubmission = false;
@@ -3006,6 +2915,15 @@ struct VulkanBackend::Impl final {
             if (mesh.layer != layer || !mesh.mesh.isValid()) {
                 continue;
             }
+            const auto normalTransform = detail::meshNormalTransform(mesh);
+            if (!normalTransform) {
+                if (!loggedInvalidMeshTransform) {
+                    core::logWarning(
+                        "render", "Mesh draw skipped: non-finite rotation or singular/non-finite instance scale");
+                    loggedInvalidMeshTransform = true;
+                }
+                continue;
+            }
 
             const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
             if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
@@ -3038,6 +2956,7 @@ struct VulkanBackend::Impl final {
                 const auto constants = pushConstantsForMesh(
                     viewProjection,
                     mesh,
+                    *normalTransform,
                     frame.lighting,
                     primitiveColor,
                     gltfMaterial);
@@ -3097,7 +3016,7 @@ struct VulkanBackend::Impl final {
                 loggedSkySubmission = true;
             }
             beginDebugRegion(commandBuffer, "Sky", {0.08F, 0.32F, 0.92F, 1.0F});
-            const auto constants = pushConstantsForSky(frame.sky, frame.camera3D, frame.lighting);
+            const auto constants = pushConstantsForSky(frame.sky, frame.camera3D, frame.lighting, swapchainExtent);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, skyPipeline);
             vkCmdPushConstants(
                 commandBuffer,
@@ -3407,6 +3326,7 @@ struct VulkanBackend::Impl final {
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
         loggedSkySubmission = false;
+        loggedInvalidMeshTransform = false;
         loggedContactShadowSubmission = false;
         loggedWorldDrawSubmission = false;
         loggedWorldLineSubmission = false;
@@ -3766,6 +3686,7 @@ void VulkanBackend::shutdown() {
     impl_->lastUiTextCount = 0;
     impl_->frameActive = false;
     impl_->loggedSkySubmission = false;
+    impl_->loggedInvalidMeshTransform = false;
     impl_->loggedWorldDrawSubmission = false;
     impl_->loggedWorldLineSubmission = false;
     impl_->loggedWorldMeshSubmission = false;

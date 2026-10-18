@@ -141,9 +141,12 @@ struct RenderCamera3D final {
     float verticalFovDegrees = 74.0F;
     float nearPlane = 0.03F;
     float farPlane = 1000.0F;
+    float rollDegrees = 0.0F;
 };
 
 struct RenderWorldLighting final {
+    // World-space vector from the shaded surface toward the sun. The sky disc
+    // uses this same direction; incoming sunlight travels in the opposite one.
     math::Vec3 sunDirection{0.35F, 0.85F, 0.28F};
     float ambientIntensity = 0.32F;
     math::Vec3 fillDirection{-0.45F, 0.35F, -0.62F};

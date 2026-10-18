@@ -9,6 +9,7 @@ layout(location = 5) in vec4 v_material_response;
 layout(location = 0) out vec4 out_color;
 
 void main() {
+    // Vertex normals, key direction and fill direction all use world space.
     vec3 normal = normalize(v_normal);
     vec3 lightDir = normalize(v_light_direction_ambient.xyz);
     vec3 fillDir = normalize(v_fill_direction_intensity.xyz);
