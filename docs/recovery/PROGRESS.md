@@ -541,3 +541,7 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   These are standalone R3/R4 packages; the integration lead combines physics
   before the full consumer gate. Actual shader numerical/device execution,
   visual response and GPU timing remain open after the paused GUI gate.
+- Published [Draft PR #25](https://github.com/YoungJibbit95/Novacore-Engine/pull/25),
+  stacked on R3 recovery/phase5-gltf-material-textures. Exact tested runtime is
+  92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
+  evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
