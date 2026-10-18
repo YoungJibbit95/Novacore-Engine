@@ -3567,6 +3567,7 @@ struct VulkanBackend::Impl final {
         }
 
         frameActive = false;
+        materialTextureOwner.finishPendingUpload();
         vkDeviceWaitIdle(device);
         destroySwapchainResources();
         loggedSkySubmission = false;
@@ -3867,6 +3868,7 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
 void VulkanBackend::shutdown() {
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
     if (impl_->device != VK_NULL_HANDLE) {
+        impl_->materialTextureOwner.finishPendingUpload();
         vkDeviceWaitIdle(impl_->device);
     }
 

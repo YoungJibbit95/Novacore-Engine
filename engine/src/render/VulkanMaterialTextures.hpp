@@ -14,6 +14,9 @@ class VulkanMaterialTextures final {
     VulkanMaterialTextures();
     ~VulkanMaterialTextures();
     void create(VkPhysicalDevice physical, VkDevice device, std::uint32_t slots);
+    // Call before backend teardown/recreation destroys any Vulkan resources.
+    // Unconfirmed completion after bounded retries is terminal, never cleanup.
+    void finishPendingUpload();
     void shutdown(); // after device idle and every mesh/deferred Asset release
     bool prepare(std::uint32_t slot, const RenderFrameInfo& frame, VkExtent2D extent, VkFormat outputFormat,
                  VkCommandPool pool, VkQueue queue);

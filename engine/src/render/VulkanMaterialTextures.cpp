@@ -5,7 +5,9 @@
 #include "MaterialTextureMath.hpp"
 #include "novacore/core/Log.hpp"
 #include <bit>
+#include <cstdio>
 #include <cstring>
+#include <exception>
 #include <map>
 
 namespace novacore::render {
@@ -53,6 +55,13 @@ struct TextureImage final {
             (void)budget->release(reservedBytes);
         }
     }
+};
+struct PendingTextureUpload final {
+    VkCommandPool pool{};
+    VkQueue queue{};
+    VkCommandBuffer command{};
+    std::unique_ptr<TextureBuffer> staging;
+    std::shared_ptr<TextureImage> image;
 };
 bool mipmapped(const assets::GltfSamplerData& sampler) {
     return sampler.minFilter >= 9984 && sampler.minFilter <= 9987;
@@ -130,6 +139,22 @@ struct VulkanMaterialTextures::Impl final {
     bool ready = false;
     bool loggedOutputFormat = false;
     std::shared_ptr<detail::MaterialImageBudget> budget;
+    // Inline storage already exists before submission: retaining a failed-wait
+    // upload performs no host allocation while the device may still use it.
+    std::optional<PendingTextureUpload> pendingUpload;
+
+    bool retirePendingUpload() {
+        if (!pendingUpload) {
+            return true;
+        }
+        const auto completion = vkQueueWaitIdle(pendingUpload->queue);
+        if (completion != VK_SUCCESS && completion != VK_ERROR_DEVICE_LOST) {
+            return false;
+        }
+        vkFreeCommandBuffers(device, pendingUpload->pool, 1, &pendingUpload->command);
+        pendingUpload.reset();
+        return true;
+    }
 
     std::optional<std::uint32_t> memoryType(std::uint32_t mask, VkMemoryPropertyFlags flags) const {
         VkPhysicalDeviceMemoryProperties properties{};
@@ -177,6 +202,9 @@ struct VulkanMaterialTextures::Impl final {
     std::shared_ptr<TextureImage> uploadPixels(std::uint32_t width, std::uint32_t height,
                                                std::span<const std::uint8_t> pixels, VkFormat format, bool generateMips,
                                                VkCommandPool pool, VkQueue queue) {
+        if (pendingUpload) {
+            return {};
+        }
         VkFormatProperties properties{};
         vkGetPhysicalDeviceFormatProperties(physical, format, &properties);
         auto required = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
@@ -220,7 +248,7 @@ struct VulkanMaterialTextures::Impl final {
             vkBindImageMemory(device, result->image, result->memory, 0) != VK_SUCCESS) {
             return {};
         }
-        const auto staging = buffer(pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        auto staging = buffer(pixels.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
         if (!staging) {
             return {};
         }
@@ -292,8 +320,17 @@ struct VulkanMaterialTextures::Impl final {
                 submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                 submit.commandBufferCount = 1;
                 submit.pCommandBuffers = &command;
-                success = vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS &&
-                          vkQueueWaitIdle(queue) == VK_SUCCESS;
+                success = vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS;
+                if (success) {
+                    const auto completion = vkQueueWaitIdle(queue);
+                    success = completion == VK_SUCCESS;
+                    if (!success && completion != VK_ERROR_DEVICE_LOST) {
+                        pendingUpload.emplace(PendingTextureUpload{pool, queue, command, std::move(staging), result});
+                        core::logWarning("render", "Material upload completion unconfirmed; retaining "
+                                                   "command/staging/image until queue completion");
+                        return {};
+                    }
+                }
             }
         }
         vkFreeCommandBuffers(device, pool, 1, &command);
@@ -342,7 +379,7 @@ struct VulkanMaterialTextures::Impl final {
 
     std::shared_ptr<TextureImage> image(const assets::GltfImageData& source, VkFormat format, bool mips,
                                         VkCommandPool pool, VkQueue queue) {
-        if (!source.encodedBytes || source.encodedBytes->empty()) {
+        if (pendingUpload || !source.encodedBytes || source.encodedBytes->empty()) {
             return {};
         }
         const auto hash = detail::imageContentHash(*source.encodedBytes);
@@ -431,10 +468,24 @@ void VulkanMaterialTextures::create(VkPhysicalDevice physical, VkDevice device, 
     impl_->budget = std::make_shared<detail::MaterialImageBudget>();
     impl_->budget->limit = std::min<VkDeviceSize>(1024ULL * 1024ULL * 1024ULL, largestLocalHeap / 4);
 }
+void VulkanMaterialTextures::finishPendingUpload() {
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        if (impl_->retirePendingUpload()) {
+            return;
+        }
+    }
+    // Keep every submitted object alive if the driver cannot confirm completion.
+    // Do not unwind into RAII destruction of possibly pending Vulkan resources.
+    std::fputs("Fatal: material upload completion unconfirmed after three teardown waits; retaining resources and "
+               "terminating.\n",
+               stderr);
+    std::terminate();
+}
 void VulkanMaterialTextures::shutdown() {
     if (!impl_->device) {
         return;
     }
+    finishPendingUpload();
     impl_->defaults = {};
     impl_->cache.clear();
     impl_->frames.clear();
@@ -452,6 +503,9 @@ void VulkanMaterialTextures::shutdown() {
 
 bool VulkanMaterialTextures::prepare(std::uint32_t slot, const RenderFrameInfo& frame, VkExtent2D extent,
                                      VkFormat outputFormat, VkCommandPool pool, VkQueue queue) {
+    if (!impl_->retirePendingUpload()) {
+        return false;
+    }
     if (!frame.materialTexturesEnabled || !frame.camera3D.enabled || slot >= impl_->slotCount ||
         !detail::validShadowReceiverCamera(frame.camera3D)) {
         return false;
@@ -483,7 +537,7 @@ bool VulkanMaterialTextures::prepare(std::uint32_t slot, const RenderFrameInfo& 
 
 std::shared_ptr<VulkanMaterialTextures::Asset> VulkanMaterialTextures::upload(const assets::GltfMeshData& mesh,
                                                                               VkCommandPool pool, VkQueue queue) {
-    if (!impl_->ready || mesh.materials.size() > 4096) {
+    if (!impl_->ready || impl_->pendingUpload || mesh.materials.size() > 4096) {
         return {};
     }
     const auto count = mesh.materials.size() + 1;
@@ -567,6 +621,9 @@ std::shared_ptr<VulkanMaterialTextures::Asset> VulkanMaterialTextures::upload(co
                         impl_->image(mesh.images[static_cast<std::size_t>(texture.imageIndex)],
                                      slot == 0 || slot == 3 ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM,
                                      mipmapped(samplerSource), pool, queue);
+                    if (impl_->pendingUpload) {
+                        return {}; // Roll back descriptors; keep the submitted upload alive in Impl.
+                    }
                     const auto sampler = image ? impl_->sampler(samplerSource, image->mipLevels) : VK_NULL_HANDLE;
                     if (!image || !sampler) {
                         failed = true;
