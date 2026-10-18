@@ -26,7 +26,7 @@ jobs:
             os: ubuntu-24.04
             preset: ci-headless-linux
           - name: Windows MSVC
-            os: windows-2025
+            os: windows-2022
             preset: ci-headless-windows
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,3 +52,4 @@ jobs:
             build/**/CMakeFiles/CMakeConfigureLog.yaml
           retention-days: 7
           if-no-files-found: warn
+

@@ -46,3 +46,8 @@ existing tests; do not promote a no-GPU run into graphics validation.
 - Hosted MSVC/Clang results pending publication; GPU rendering intentionally not
   covered by this CPU-only workflow. Do not mark Phase 0 complete until results
   are recorded. Next: inspect hosted runs, then classify tests/ownership in Phase 1.
+- Hosted first run: Ubuntu/Clang builds and all 5 suites pass
+  (https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39120015726).
+  Windows-2025 could not resolve a Visual Studio 2022 instance at configure time.
+  Selected the explicitly documented Windows-2022 / VS2022 runner instead;
+  no tests or compiler checks were disabled. Fresh validation pending.
