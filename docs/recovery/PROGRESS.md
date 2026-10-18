@@ -1,5 +1,21 @@
 # Recovery progress
 
+## 2026-10-19 Combined material-texture candidate
+
+- R3 final `22a421010d2e1329db54329464e1775f3f3b9f57` is integrated with #21's
+  sensor/contact stack and refreshed upstream main `06d813f`. GitHub now shows
+  engine #14..#18 merged externally; #19/#20/#21/#22 remain open Drafts.
+  The main merge duplicated one UI include; retain its existing single include.
+- Independent source review found and closed two real R3 defects: valid emission
+  disappeared on unsupported-material fallback; failed upload waits could free
+  pending resources. Retention now precedes child teardown, only confirmed
+  completion/device loss permits release, and unattempted assets remain retryable.
+  Real OOM injection, GPU resize/validation and performance remain open gates.
+- The initial combined runtime `a54050e` builds engine/server/sandbox completely
+  and passes all10 CPU suites in1.05s. The final upstream/caller-recovery delta is
+  undergoing fresh headless and separate Vulkan builds before game pin migration.
+  Existing frozen `cca45a41` shader/runtime paths are not changed.
+
 ## 2026-10-19 Combined public sensor package
 
 - Local combined runtime `130c4fdadd05d7cb0e7d8f808deeec35f29f10fa` adds the
