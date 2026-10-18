@@ -1,5 +1,18 @@
 # Recovery progress
 
+## 2026-10-19 Combined public sensor package
+
+- Local combined runtime `130c4fdadd05d7cb0e7d8f808deeec35f29f10fa` adds the
+  reviewed #20 API to #19's UI, proper camera, R2 and Jolt integration. The merge
+  retains both recovery records; no runtime conflict resolution was needed.
+- Complete Release headless engine/server/sandbox build and all nine CPU suites
+  pass in 1.91s. A separate installed public package builds/runs the real Nemisis
+  sensor/material/impact fixture: six props, tagged floor contacts, native player
+  Enter/Exit, physical closest-hit tags, reset and a 1.21828m walked crate push.
+  Full game regression is running. This record-only commit changes no API/runtime.
+- The prior `cca45a41` Vulkan runtime/shader/package paths remain frozen during
+  user inspection. No new sensor Vulkan build or GPU acceptance is claimed.
+
 ## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
 
 - Published Draft [engine PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20),
