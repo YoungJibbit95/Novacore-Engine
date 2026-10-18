@@ -205,11 +205,6 @@ void testRenderMaterialFallbackFrameData() {
     expect(valid.sanitized.contrastScale == mesh.material.contrastScale, "render material validation preserves legal contrast scale");
     expect(valid.sanitized.saturationScale == mesh.material.saturationScale, "render material validation preserves legal saturation scale");
 
-    expect(mesh.material.rimScale > 1.0F, "render mesh material fallback can boost rim response");
-    expect(mesh.material.specularScale > 1.0F, "render mesh material fallback can boost specular response");
-    expect(mesh.material.contrastScale > 1.0F, "render mesh material fallback can shape contrast");
-    expect(mesh.material.saturationScale < 1.0F, "render mesh material fallback can desaturate neutral blockouts");
-
     const auto invalid = novacore::render::validateRenderMaterialFallback({
         -2.0F,
         9.0F,

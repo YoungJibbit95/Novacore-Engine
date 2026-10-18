@@ -21,7 +21,7 @@ option(NOVACORE_FETCH_SDL3 "Fetch and build SDL3 when no installed SDL3 package 
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
 option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
 option(NOVACORE_BUILD_SANDBOX "Build the standalone NovaCore engine sandbox executable" ON)
-option(NOVACORE_BUILD_TESTS "Build NovaCore smoke tests" ON)
+option(NOVACORE_BUILD_TESTS "Build NovaCore contract and integration test suites" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
 set(NOVACORE_SHADER_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/novacore/shaders")

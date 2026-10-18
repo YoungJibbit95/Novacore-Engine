@@ -1,390 +1,115 @@
-# 13 Testing & Acceptance
+# 13 Testing and Acceptance
+
+NovaCore tests protect reusable engine behavior. Nemisis owns game acceptance.
+This document distinguishes executed CPU coverage from requirements that still
+need dedicated tests, a usable graphics environment, or game-side validation.
+The function-level inventory and cleanup decisions are in
+[TEST_AUDIT.md](recovery/TEST_AUDIT.md).
+
+## Ownership
+
+| NovaCore contracts | Nemisis acceptance |
+| --- | --- |
+| Fixed-step runtime, entity/component lifetime, configuration and input edges | Movement feel, coyote/jump-buffer tuning, camera response |
+| Configurable collision/KCC mechanisms, support motion and mantle geometry | Ability activation, movement-mode policy and authored traversal |
+| Strict packets, sequences, snapshot encoding and generic reconciliation plans | Game commands, combat authority, player snapshots and correction policy |
+| Standards-correct glTF/GLB data and generic mesh/skeleton/animation behavior | Canonical cooked content, required game sockets, weapon mounts and artistic poses |
+| GPU resource ownership, draw submission and headless runtime | TTK, pellet distribution, recoil, ammo/reload/swap, damage/falloff |
+| Generic sessions, ticks, snapshots and queries | Objectives, score, teams, spawn safety, respawn and complete-match flow |
+
+Weapon validation, hit outcomes and damage application are game policy even when
+implemented using engine raycasts, history or packet primitives. Engine fixture
+names such as `weapons.ar_01` are generic parser input, not balance acceptance.
+See the [Nemisis recovery milestone](https://github.com/YoungJibbit95/Nemisis/blob/main/docs/recovery/ROADMAP.md)
+for the two-player match criteria. Do not expand NovaCore to satisfy an obsolete
+engine-completeness or debug-dashboard checklist.
+
+## Current automated coverage
+
+`NOVACORE_BUILD_TESTS=ON` registers five CTest suites, each calling its test
+functions unconditionally. They require no SDL3 or Vulkan development dependency.
+
+| Suite | Verified CPU scope |
+| --- | --- |
+| `novacore_smoke_tests` | Entity lifetime, fixed-step accumulation, loopback, bounded sequence/interpolation buffers, bitstream primitives, input edges, file/config reload, manifest/registry/streaming, static glTF transforms and metadata, mesh handles/dynamic updates, material validation, KCC basics and sandbox orchestration |
+| `novacore_animation_runtime_tests` | Quaternion/TRS math, hierarchy and sockets, validation, clip sampling, blending/masks, root motion, crossfades and layers |
+| `novacore_gltf_animation_import_tests` | GLB skin/joint/channel/material import, mesh-local skinned vertices, inverse binds, external text-glTF buffers and malformed references |
+| `novacore_netcode_tests` | Packet envelopes/checksums/bounds, sequence rollover/ACK windows, canonical snapshots/deltas/baselines, fractional interpolation, bounded extrapolation, reconciliation plans and tick estimation |
+| `novacore_physics_kcc_tests` | Deterministic contact manifolds, rounded sweeps, step clearance, slopes, moving supports/jump inheritance, landing/snap replay and configurable coyote/jump-buffer mechanisms |
+
+The runtime probe checks loader/summary behavior; it does not create a drawable
+Vulkan backend. Swapchain extent validation checks a CPU recreation decision,
+not an actual resize. CPU mesh-resource counters do not prove GPU residency or
+deferred GPU destruction. Animation runtime tests and imported skin tests protect
+different boundaries and must not be collapsed merely because they share terms.
+
+## Reproducing the dependency-light baseline
+
+Use one configure/build/test preset name throughout:
+
+```text
+cmake --preset ci-headless-linux
+cmake --build --preset ci-headless-linux --parallel 2
+ctest --preset ci-headless-linux
+```
+
+Use `ci-headless-windows` for Windows/MSVC or `ci-headless` for local Ninja.
+The CI workflow builds the engine, dedicated server, sandbox and all five suites
+on Ubuntu/Clang and Windows/MSVC. It explicitly does not claim graphics coverage.
+Record the actual compiler, revision, commands and results in the recovery log.
+After an engine runtime/API change, build and test Nemisis against that exact
+revision; a documentation/test-only change does not require moving the game pin.
+
+## Requirements and current coverage gaps
+
+Retain these reusable requirements; do not describe them as verified merely
+because a similarly named smoke passes:
+
+* ECS generation/stale-ID rejection, deferred destruction and ordinary ECS
+  transform propagation need explicit coverage beyond the current lifetime test.
+* Configuration reload errors must preserve a useful diagnostic and valid state;
+  current registry coverage demonstrates successful reload only.
+* Protocol unit cases reject malformed data, duplicate/stale ACKs and bad
+  baselines. They do not simulate an impaired transport or a two-client match.
+* A reconciliation plan is not an executed command replay, smooth presentation
+  correction, or recovery from real packet loss. Validate those consumer seams
+  when the product uses them.
+* KCC tests preserve reusable collision/support/snap mechanisms and deterministic
+  replay. Nemisis separately owns movement tuning and ability acceptance.
+* Asset tests preserve hierarchy/TRS, buffer/index validation, joint data and
+  stable handles. Cook determinism, unload behavior and real pipeline integration
+  require their own evidence. Zone-preload queue population is already tested.
+* Headless sandbox scenarios exercise ticks and orchestration. Building the server
+  target alone does not establish live session/disconnect or match behavior.
+
+Add coverage when a real boundary or regression requires it. Do not introduce a
+new test framework, generic fixture layer, performance gate or telemetry panel
+merely to fill this list.
+
+## Graphics validation boundary
+
+With a suitable SDK, windowing environment and usable GPU, validate device and
+swapchain creation/recreation, indexed upload/draw, depth, world/UI submission,
+dynamic mesh updates, synchronized deferred destruction, resize/minimize and
+shutdown. Preserve explicit resource ownership and useful failure diagnostics.
+An unavailable backend is environment-blocked, not a successful graphics test.
+
+Keep null/headless behavior separately testable. KCC grounding, steps, slopes,
+contacts and mantle geometry are physics contracts, not renderer acceptance.
+Performance claims need a recorded workload and environment; CPU counters alone
+do not establish GPU frame time, memory residency or visual correctness.
+
+## Regression and deletion policy
 
-## Testing Goal
+Preserve fixed-step, lifetime, packet, glTF, animation, GPU-lifecycle and collision
+contracts. For a serious bug, add a focused behavioral regression when coverage
+is missing. Refactoring should preserve behavior through existing coverage.
 
-NovaCore testing protects correctness, performance, game feel, networking stability, and long-term engine maintainability.
+Before deleting or substantially changing a test, record its old invariant,
+why it is obsolete/redundant, remaining coverage and removal risk in TEST_AUDIT.
+Keep uncertain tests until their protection is understood. Repeated setup or
+similar subsystem names alone do not establish redundant behavior.
 
-The project must not only test whether code compiles. It must also verify whether movement, recoil, networking, rendering, asset loading, and server simulation behave consistently across changes.
-
-For an FPS engine, feel is a technical requirement. Movement, prediction, recoil, hit validation, frame pacing, and replication must be measurable.
-
-## Testing Principles
-
-* Every core system should have automated coverage.
-* Gameplay feel should be protected through replayable scenarios.
-* Network behavior must be tested under bad conditions.
-* Renderer tests should verify stability before visual complexity.
-* Server and client simulation must share validation paths.
-* Smoke tests should remain dependency-light and fast.
-* Regression tests should be added for every serious bug.
-
-## Test Layers
-
-NovaCore uses multiple test layers:
-
-1. Build tests
-2. Unit tests
-3. Smoke tests
-4. Replay tests
-5. Integration tests
-6. Runtime debug validation
-7. Performance benchmarks
-8. Acceptance scenarios
-
-Each layer has a different purpose and should not replace the others.
-
-## Build Tests
-
-Supported build targets:
-
-* Windows MSVC
-* Linux Clang
-* macOS later
-
-Build validation includes:
-
-* Configure project
-* Build engine
-* Build game
-* Build dedicated server
-* Build tools
-* Compile shaders
-* Run smoke tests
-
-A build is not accepted if one platform path silently fails or disables required systems without reporting diagnostics.
-
-## Unit Tests
-
-Initial unit coverage:
-
-* Entity ID generation
-* Entity liveness checks
-* Component attach/remove
-* Deferred entity destruction
-* Transform hierarchy updates
-* Fixed timestep accumulator
-* Config parsing
-* Config reload errors
-* Packet sequence math
-* Packet bitstream serialization
-* Packet overread rejection
-* Input action state transitions
-* Asset manifest parsing
-* Asset registry lookup
-* Streaming request coalescing
-
-Unit tests should be deterministic and should not require a GPU.
-
-## Existing Smoke Test Target
-
-`novacore_smoke_tests` validates:
-
-* Entity lifetime
-* Fixed-step accumulation
-* Loopback packet flow
-* Packet bitstream roundtrips
-* Headless relative-mouse fallback
-* Input action transitions
-* File change tracking
-* Config parsing
-* Config registry reloads
-* glTF metadata loading
-* GLB scene-info loading
-* GLB triangle mesh extraction
-* Vulkan runtime probe stability
-* Mesh-handle registration
-* Renderer backend frame stats default state
-
-This target should stay fast enough to run frequently during development.
-
-## Movement Replay Tests
-
-Movement must be tested through deterministic replay files.
-
-A movement replay records:
-
-* Initial player state
-* Input command stream
-* Tick rate
-* Movement configuration
-* Expected final state
-* Allowed tolerance
-* Optional intermediate checkpoints
-
-Test scenarios:
-
-* Walk
-* Sprint
-* Crouch
-* Slide
-* Slide jump
-* Air control
-* Jump buffering
-* Coyote timing
-* Step-up
-* Step-down
-* Slope walking
-* Slope sliding
-* Mantle
-* Controller analog movement
-* Advanced movement timing
-
-Replay tests should catch changes that make movement slower, floatier, less responsive, or inconsistent.
-
-## Movement Acceptance Metrics
-
-Movement tests should measure:
-
-* Final position error
-* Final velocity error
-* Grounded state correctness
-* Jump timing
-* Slide duration
-* Acceleration curve
-* Air-control strength
-* Step resolution
-* Slope response
-
-Movement tuning changes should update expected results intentionally, not accidentally.
-
-## Netcode Tests
-
-Network tests simulate:
-
-* Latency
-* Jitter
-* Packet loss
-* Packet duplication
-* Packet reordering
-* Delayed snapshots
-* Missing acknowledgements
-* Prediction correction
-* Snapshot interpolation
-* Lag-compensated hits
-* Packet primitive roundtrip
-* Overread rejection
-
-The same test scenarios should run through loopback first and real UDP later.
-
-## Prediction and Reconciliation Tests
-
-Prediction tests verify:
-
-* Client input buffering
-* Local prediction replay
-* Server correction thresholds
-* Replaying unacknowledged inputs
-* Smooth visual correction
-* No permanent desync after packet loss
-
-Measured values:
-
-* Prediction error
-* Correction count
-* Correction magnitude
-* Reconciliation time
-* Replay tick count
-
-## Lag Compensation Tests
-
-Lag compensation tests verify:
-
-* Historical hitbox storage
-* Rewind to command tick
-* Weapon fire validation
-* Raycast correctness
-* Current-state restoration
-* Damage application
-
-Required scenarios:
-
-* Stationary target
-* Moving target
-* High-latency shooter
-* Packet-delayed shot command
-* Invalid fire timing
-* Target teleport/discontinuity
-
-## Gameplay Tests
-
-Gameplay tests verify actual combat and rules.
-
-Scenarios:
-
-* AR time-to-kill
-* SMG close-range time-to-kill
-* Shotgun pellet distribution
-* Sidearm fallback
-* Reload timing
-* Weapon swap timing
-* Ammo consumption
-* Damage falloff
-* Objective scoring
-* Spawn safety
-* Respawn timing
-* Team assignment
-
-Gameplay tests should protect balance-critical behavior.
-
-## Renderer Tests
-
-Renderer tests verify stability before visual fidelity.
-
-Scenarios:
-
-* Vulkan runtime probe
-* Swapchain creation
-* Swapchain recreation
-* Clear frame
-* Debug triangle
-* Depth-tested world box primitive draw
-* Depth-tested world line primitive draw
-* Basic mesh render
-* Device-local GLB vertex/index upload
-* Vulkan indexed mesh draw submission
-* Screen-space UI rect, line, and bitmap debug text primitive draw
-* Mesh handle registration
-* Mesh-resource handle reuse and generation bumping
-* Mesh upload queue residency transitions
-* Deferred GPU mesh destruction
-* Backend frame stats
-* Backend UI submission stats
-* GLB CPU mesh extraction
-* Material fallback
-* Character controller floor snap, step-up, ramp, ledge, and wall-run contact queries
-* Character controller mantle probe and ledge-top target resolution
-* Shader compile failure diagnostics
-* Frame timing output
-* Resize survival
-* Null renderer fallback
-
-Renderer tests should report useful errors instead of crashing without context.
-
-## Asset Pipeline Tests
-
-Asset tests verify:
-
-* Manifest loading
-* Registry lookup
-* Tag filtering
-* Streamable filtering
-* Dependency parsing
-* Duplicate request coalescing
-* Priority sorting
-* Metadata validation
-* Missing asset diagnostics
-* GLB scene metadata
-* CPU mesh extraction
-* Mesh-handle registration
-
-Future tests should include:
-
-* Cook determinism
-* Dependency graph validation
-* Asset version mismatch
-* Streaming zone preload
-* Residency transitions
-* Safe unload behavior
-
-## Server Tests
-
-Server tests verify:
-
-* Dedicated server startup
-* Headless tick loop
-* Client session creation
-* Client disconnect cleanup
-* Match state progression
-* Spawn assignment
-* Snapshot generation
-* Fixed tick stability
-* Listen server using shared server code
-
-Server tests must run without renderer initialization.
-
-## Performance Tests
-
-Performance should be measured, not guessed.
-
-Metrics:
-
-* CPU frame time
-* GPU frame time
-* Server tick time
-* Physics time
-* Render extraction time
-* Culling time
-* Draw submission time
-* Snapshot build time
-* Packet serialization time
-* Asset load time
-* Memory usage
-
-Performance tests should define warning thresholds and failure thresholds.
-
-## Acceptance Dashboard
-
-The debug UI should expose:
-
-* FPS
-* CPU frame time
-* GPU frame time
-* Server tick time
-* Physics time
-* RTT
-* Packet loss
-* Snapshot size
-* Bandwidth usage
-* Reconciliation error
-* Correction count
-* Entity count
-* Draw call count
-* Loaded assets
-* Streaming queue length
-* GPU memory estimate
-
-The dashboard should make performance and networking problems visible during normal playtesting.
-
-## Regression Policy
-
-Every serious bug should produce a regression test.
-
-Examples:
-
-* Stale EntityId accepted
-* PacketReader overread
-* Movement replay divergence
-* Swapchain resize crash
-* Prediction correction loop
-* Missing asset crash
-* Server tick drift
-* Hot reload parse failure
-
-The test suite should become stronger as the engine matures.
-
-## Milestone Acceptance
-
-A milestone is accepted only when:
-
-* Required tests pass.
-* Known failures are documented.
-* Debug diagnostics are available.
-* Performance does not regress unexpectedly.
-* Docs match actual behavior.
-* Runtime errors fail loudly and clearly.
-
-## First Implementation Acceptance
-
-The first implementation is accepted when:
-
-* Project skeleton is clean.
-* Engine, game, and server targets build.
-* Core loop exists.
-* ECS basics work.
-* Input layer works.
-* Renderer stub or debug backend runs.
-* Net skeleton runs through loopback.
-* Asset registry loads manifests.
-* Smoke tests pass.
-* Missing external tools are documented.
-* Headless server path does not depend on renderer/audio/window systems.
+Acceptance requires relevant builds/tests to pass, known failures and unexecuted
+checks to be explicit, and documentation to match actual behavior. Never disable
+failures or add silent fallbacks merely to obtain a green result.

@@ -72,3 +72,28 @@ Next executable step: classify each existing test contract, then correct
 Nemisis acceptance. Do this as a separate bounded PR after the CI stack. Keep
 all existing coverage until its replacement/ownership is verified. Renderer,
 importer and KCC extractions remain deferred behind real product needs.
+
+## 2026-10-18 Phase 1 test architecture audit
+
+Current status correction: GitHub confirms PR #7 merged as 9c2566d and PR #8 as
+aca50b8. Earlier unmerged/pending statements above describe their original dates;
+they are historical, not current instructions. Phase 1 starts from
+aca50b8c1c4bec920aa4255575bb7591ca825bb0 in the clean recovery worktree. Original
+user checkout remains dirty and untouched. Nemisis main is ff88eb0; its runtime
+pin remains dbdfc38d092e018952ead43d9cb669333ebf70bc.
+
+- Read all 54 test functions/assertions and CMake registrations; TEST_AUDIT.md
+  records group/function categories, invariants, overlap, decisions and risk.
+- Removed only four assignment-only material assertions. Neutral defaults,
+  validator preservation, diagnostics and all clamp checks remain in that test.
+- Corrected a no-op canonical snapshot fixture: reverse the multi-component
+  entity after reversing entity order. Existing component-order checks now test
+  unsorted input. No runtime code, public API, test function or suite removed.
+- Updated testing acceptance to separate verified CPU behavior, missing coverage,
+  real GPU requirements and Nemisis combat/movement/match ownership.
+- Before changes: complete local C++23 build and 5/5 suites pass (GCC 13.2/Ninja).
+  Post-change build/test and hosted MSVC/Clang results will be recorded below.
+- Next: validate/publish this bounded PR; game audit and coordinate contract are
+  independent Nemisis PRs. Engine pin change is unnecessary for test/doc edits.
+- Post-change: complete local build passes; all 5/5 CTest suites pass with
+  GCC 13.2/Ninja. `git diff --check` passes. No GPU rendering is claimed.
