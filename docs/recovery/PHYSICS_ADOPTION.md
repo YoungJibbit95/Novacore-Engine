@@ -197,7 +197,8 @@ KCC replacement or raycast change is introduced.
 
 `castShape(shape, displacement, layerMask, includeSensors)` performs a native
 linear translation while retaining the supplied orientation; it does not sweep
-rotation. Displacement is the complete finite travel and must be nonzero. Start
+rotation. Displacement is the complete finite travel; its length must exceed
+0.000001 m, matching the existing closest ray's near-zero guard. Start
 and end origins stay inside the same +/-100000 m pose bound. The result
 distinguishes an invalid/unavailable query (`queried=false`, error) from a valid
 miss (`queried=true`, no hit). A successful query records current world ownership
@@ -261,9 +262,14 @@ X=-1, two sorted unique overlaps, an empty explicit overflow and owned material
 42 after removal. It links the unchanged installed Jolt archive. New package:
 `C:/Users/Administrator/.codex/tmp/phase5-physics-queries`; engine archive SHA256
 `3dbf329da90e7e4b4453c51525e47ce6418f147584ea86e34213b67ca8cd8363`.
-Earlier adoption/sensor and combined packages remain unchanged. Hosted
-MSVC/Clang and exact combined Nemisis acceptance remain pending for this slice.
-No renderer, Vulkan or GUI validation was performed.
+Earlier adoption/sensor and combined packages remain unchanged. Published Draft
+[PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24) contains runtime
+`765da36906ef0c69581a6c928f7f4c3c16d2f1a2`. Its complete default-off MSVC/Clang
+[run 39176871616](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871616)
+and Jolt MSVC/Clang [run 39176871535](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871535)
+all pass. The main agent reviewed the complete implementation without actionable
+findings; exact combined Nemisis acceptance remains separate. No renderer,
+Vulkan or GUI validation was performed.
 
 ## Build and validation
 
