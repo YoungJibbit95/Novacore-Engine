@@ -27,14 +27,26 @@
   Existing binary writer reused; no checked-in GLB or test framework added.
 - Fresh baseline complete GCC 13.2/Ninja headless build: 5/5 suites pass. Complete
   post-change build and 5/5 suites also pass. No existing function/assertion removed.
-- Cross-repo validation and published PR/CI evidence follow below. No GUI actions
-  or GPU visual validation: previous physical Escape boundary remains in force.
+- Published PR https://github.com/YoungJibbit95/Novacore-Engine/pull/10; runtime
+  fix 455869c3229dc39f665a5958d727a7daaf4c9d21, published/tested/pinned revision
+  15c1b684a430bb70235ea9407f78106d958812b6 (following commit changes docs only).
+- Hosted complete Windows/MSVC and Ubuntu/Clang builds and 5/5 suites pass:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39126715016.
+- Nemisis e48c6e38605a3c3abf971646ffd8901c63583c16 built against exact 15c1b68:
+  all 34 CPU cases pass locally and on both hosted platforms in game PR #12:
+  https://github.com/YoungJibbit95/Nemisis/actions/runs/39127318199.
+  Actual arms/selected-character bind socket parity and skinning now pass; old pin
+  reproduced 24 failures. Separate geometry-cleanup PR #13 also passes 34/34.
+- Local acceptance branch recovery/phase2-review combines only published #12/#13,
+  commit259755f; combined full CPU build/34 tests and SDL3/Vulkan game build pass.
+  This is an unpublished review branch, not a merge to main. No GUI actions or
+  visual validation: the previous Escape boundary remains in force pending the
+  explicit new GUI question. No PR merged automatically.
 
-Next: build/test Nemisis against the exact committed engine revision, including
-real arms/selected-character bind-socket parity. Pin only that validated revision
-in a dependent game PR. Then solve hand contact after animation and before final
+Next: visually inspect the combined existing Dev Range only after renewed user
+authorization. Then solve hand contact after animation and before final
 skinning; the existing whole-mesh average translation is not IK. ozz TwoBoneIK is
-a candidate for that separate game blocker; parser migration does not fix this
+a validated CPU-prototype candidate for that separate game blocker; parser migration does not fix this
 bridge bug. Preserve the user's chosen chr_project_male1 and unmodified GLBs.
 
 ## 2026-10-18 baseline and rules
