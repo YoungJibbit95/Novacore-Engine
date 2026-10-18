@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -24,6 +25,33 @@ void expect(bool condition, std::string_view message) {
 
     ++failures;
     std::cerr << "[fail] " << message << '\n';
+}
+
+void testUiDrawDataValidation() {
+    using namespace novacore::render;
+    UiDrawData data;
+    data.width = 1280; data.height = 720;
+    data.vertices = {{{0,0}},{{100,0}},{{0,100}}};
+    data.indices = {0,1,2};
+    data.commands.push_back({0,3,{0,0,1280,720},{}});
+    expect(data.valid(), "native UI triangle accepted");
+    data.indices[2] = 3;
+    expect(!data.valid(), "out-of-bounds UI indices rejected");
+    data.indices[2] = 2;
+    data.commands[0].indexCount = 6;
+    expect(!data.valid(), "out-of-bounds UI draw range rejected");
+    data.commands[0].indexCount = 3;
+    auto texture = std::make_shared<UiTexture>(UiTexture{1,1,{255,255,255,255}});
+    data.commands[0].texture = texture;
+    expect(data.valid(), "premultiplied RGBA texture accepted");
+    texture->rgba.pop_back();
+    expect(!data.valid(), "truncated UI texture rejected");
+    data.commands[0].texture.reset();
+    data.commands[0].clip[2] = -1;
+    expect(!data.valid(), "negative UI scissor rejected");
+    data.commands[0].clip[2] = 1280;
+    data.vertices[0].position[0] = std::numeric_limits<float>::infinity();
+    expect(!data.valid(), "non-finite UI geometry rejected");
 }
 
 void testWorldLifetime() {
@@ -1344,6 +1372,7 @@ void testVulkanRuntimeProbeIsStable() {
 } // namespace
 
 int main() {
+    testUiDrawDataValidation();
     testWorldLifetime();
     testFixedStepAccumulator();
     testLoopbackChannel();

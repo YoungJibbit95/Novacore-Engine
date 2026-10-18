@@ -84,6 +84,8 @@ add_library(novacore_engine
     engine/src/platform/Input.cpp
     engine/src/platform/Window.cpp
     engine/src/render/Mesh.cpp
+    engine/src/render/UiDrawData.cpp
+    engine/src/render/VulkanUiRenderer.cpp
     engine/src/render/Renderer.cpp
     engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
@@ -170,6 +172,8 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_line.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.vert"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_rect.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_line.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_flat.frag"
@@ -199,6 +203,7 @@ endif()
 
 target_compile_definitions(novacore_engine
     PUBLIC
+        NOVACORE_UI_GEOMETRY_API=1
         NOVACORE_HAS_SDL3=${NOVACORE_HAS_SDL3}
         NOVACORE_HAS_VULKAN=${NOVACORE_HAS_VULKAN}
         NOVACORE_PROJECT_VERSION="${PROJECT_VERSION}"

@@ -166,6 +166,10 @@ void Window::pollEvents(InputSystem& input) {
                 static_cast<float>(event.motion.yrel),
                 InputDeviceKind::KeyboardMouse);
             break;
+        case SDL_EVENT_MOUSE_WHEEL:
+            input.noteKeyboardMouseActivity();
+            inputSnapshot_.addAxisDelta({InputControlKind::MouseAxis, 2}, event.wheel.y, InputDeviceKind::KeyboardMouse);
+            break;
         case SDL_EVENT_GAMEPAD_ADDED:
             input.noteControllerConnected(static_cast<std::int32_t>(event.gdevice.which), "SDL Gamepad");
             break;
