@@ -2,6 +2,11 @@
 
 ## 2026-10-19 Phase 5 optional rigid-body adoption
 
+- Published Draft [engine PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
+  runtime `b17ff125f9d0b6a0a5150155f067e9e92ed6ed91`. Exact runtime head passes
+  complete default-off MSVC/Clang [run 39171464412](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464412)
+  and optional Jolt MSVC/Clang [run 39171464486](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464486).
+  This following record-only commit changes no runtime or API. No automatic merge.
 - Isolated `recovery/phase5-physics-adoption` starts at exact main
   `38e718bad65001879b482f8039bff338855e5f0b`. No original dirty worktree,
   character/KCC source, renderer/UI source or existing tests changed.
@@ -27,13 +32,13 @@
 - Installed public CMake consumer actually builds/links/runs a dropped box
   using only NovaCore headers/target (Y=0.245 m, sleeping). Jolt static dependency
   and MIT notice install correctly. Hosted default-off plus opt-in MSVC/Clang
-  workflows, exact Nemisis Dev Range integration and visual review remain gates.
+  workflows pass; exact Nemisis Dev Range integration and visual review remain gates.
 - Final trigger-kind exclusion retains the existing KCC's nonblocking semantics
   even for inconsistent trigger flags; closest-ray regression covers this.
   Complete final Jolt-on 8/8 suites pass in 5.03 s. Final disabled adapter also
   compiles/runs without linking Jolt. No existing suite/assertion was removed.
-- No GUI launched. Next executable step: publish Draft engine PR, run both
-  platform matrices, then main-agent exact-pin Dev Range integration/tests;
+- No GUI launched. Next executable step: main-agent exact-pin Dev Range
+  integration/tests against the existing UI/camera engine changes;
   preserve default-off adoption until accepted. Trigger events, shape casts,
   two-way KCC contact, materials/impact event tags and prop replication remain
   explicit later slices. No general solver/constraint engine was reinvented.
