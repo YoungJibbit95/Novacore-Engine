@@ -88,6 +88,16 @@ void testMaterialUniformsAndBudget(const std::vector<std::uint8_t>& png) {
            "GPU metadata preserves selected UV, emissive strength and normal scale without claiming a map is bound");
     source.alphaMode = "BLEND";
     expect(!detail::materialTextureUniforms(source), "BLEND requires explicit fallback in this opaque slice");
+    source.textureTransforms[0].enabled = true;
+    source.baseColorTexCoord = 7;
+    const auto fallback = detail::materialFactorFallbackUniforms(source);
+    expect(fallback.mapEnabled == std::array<float, 4>{} && fallback.uvSets == std::array<std::uint32_t, 4>{} &&
+               std::abs(fallback.emissiveNormalScale[0] - .2F) < .00001F &&
+               std::abs(fallback.emissiveNormalScale[1] - .4F) < .00001F &&
+               std::abs(fallback.emissiveNormalScale[2] - .6F) < .00001F,
+           "unsupported alpha/transform/UV retains factor emission in the actual fallback UBO with maps disabled");
+    source.textureTransforms[0].enabled = false;
+    source.baseColorTexCoord = 1;
     source.alphaMode = "MASK";
     expect(!detail::materialTextureUniforms(source), "MASK requires alpha-aware depth/caster follow-up");
     source.alphaMode = "OPAQUE";
@@ -96,6 +106,16 @@ void testMaterialUniformsAndBudget(const std::vector<std::uint8_t>& png) {
     source.textureTransforms[0].enabled = false;
     source.normalScale = std::numeric_limits<float>::infinity();
     expect(!detail::materialTextureUniforms(source), "invalid synthetic material data cannot enter a UBO");
+    source.emissiveStrength = std::numeric_limits<float>::infinity();
+    expect(detail::materialFactorFallbackUniforms(source).emissiveNormalScale[0] == 0,
+           "fallback emission rejects non-finite factors instead of sending NaN/inf to the shader");
+    source.emissiveStrength = -1;
+    expect(detail::materialFactorFallbackUniforms(source).emissiveNormalScale[0] == 0,
+           "fallback emission rejects negative strength");
+    source.emissiveStrength = 2;
+    source.emissiveFactor.x = -.1F;
+    expect(detail::materialFactorFallbackUniforms(source).emissiveNormalScale[1] == 0,
+           "fallback emission fails closed for a negative factor component");
     detail::MaterialImageBudget budget{100};
     expect(budget.reserve(60) && !budget.reserve(50) && budget.used == 60 && budget.rejected == 1,
            "image budget rejects an allocation before exceeding the real resident byte limit");

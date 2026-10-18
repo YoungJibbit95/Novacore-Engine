@@ -36,6 +36,17 @@ static_assert(sizeof(MaterialTextureUniforms) == 48);
 static_assert(offsetof(MaterialTextureUniforms, emissiveNormalScale) == 16);
 static_assert(offsetof(MaterialTextureUniforms, uvSets) == 32);
 
+[[nodiscard]] inline MaterialTextureUniforms materialFactorFallbackUniforms(const assets::GltfMaterialData& material) {
+    MaterialTextureUniforms result{};
+    result.emissiveNormalScale[3] = 1;
+    const auto emissive = material.emissiveFactor * material.emissiveStrength;
+    if (std::isfinite(material.emissiveStrength) && material.emissiveStrength >= 0 && finiteShadowPoint(emissive) &&
+        emissive.x >= 0 && emissive.y >= 0 && emissive.z >= 0) {
+        result.emissiveNormalScale = {emissive.x, emissive.y, emissive.z, 1};
+    }
+    return result;
+}
+
 [[nodiscard]] inline std::optional<MaterialTextureUniforms>
 materialTextureUniforms(const assets::GltfMaterialData& material) {
     const std::array coordinates{material.baseColorTexCoord, material.metallicRoughnessTexCoord,

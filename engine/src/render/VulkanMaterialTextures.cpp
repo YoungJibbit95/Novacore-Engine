@@ -525,6 +525,10 @@ std::shared_ptr<VulkanMaterialTextures::Asset> VulkanMaterialTextures::upload(co
                 [&](const auto& primitive) { return primitive.materialIndex == static_cast<int>(material); });
         if (referenced) {
             const auto& source = mesh.materials[material];
+            // An unsupported map/alpha/UV path still has real material factors.
+            // The textured shader adds emission separately from albedo, so do
+            // not lose it merely because every image falls back.
+            constants = detail::materialFactorFallbackUniforms(source);
             const auto candidate = detail::materialTextureUniforms(source);
             if (!candidate || !hasRequiredUvs(mesh, material, *candidate)) {
                 core::logWarning("render", "glTF material " + std::to_string(material) +
