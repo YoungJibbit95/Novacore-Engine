@@ -432,3 +432,6 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Hosted checks and exact-revision Nemisis extraction/build/tests remain next
   integration gates. No GPU launch, validation-layer execution, timing or visual
   acceptance is claimed. R3 was audited read-only; no R3 source was implemented.
+- Published [Draft PR #18](https://github.com/YoungJibbit95/Novacore-Engine/pull/18),
+  stacked on recovery/phase5-camera-chirality. No remote merge. Integration lead
+  owns the matching Nemisis extraction, exact engine pin and consumer gates.
