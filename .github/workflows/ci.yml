@@ -1,0 +1,54 @@
+name: NovaCore headless CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: novacore-headless-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu Clang
+            os: ubuntu-24.04
+            preset: ci-headless-linux
+          - name: Windows MSVC
+            os: windows-2022
+            preset: ci-headless-windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure C++23 without SDL3 or Vulkan
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build engine, server, sandbox and tests
+        run: cmake --build --preset ${{ matrix.preset }} --parallel 2
+      - name: Test core, ECS, assets, animation, networking and KCC
+        run: ctest --preset ${{ matrix.preset }} --output-junit test-results.xml
+      - name: Record graphics validation boundary
+        shell: pwsh
+        run: Add-Content $env:GITHUB_STEP_SUMMARY 'Dependency-light CI only. GPU/Vulkan rendering was not tested.'
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: novacore-${{ matrix.preset }}-failure
+          path: |
+            test-results.xml
+            build/**/Testing/Temporary/**
+            build/**/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 7
+          if-no-files-found: warn

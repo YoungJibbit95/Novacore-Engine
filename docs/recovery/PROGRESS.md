@@ -25,3 +25,50 @@
 Next: branch recovery/01-ci-baseline from the rules PR, add minimal headless
 Windows/MSVC and Ubuntu/Clang CI, and record real hosted results. Keep all
 existing tests; do not promote a no-GPU run into graphics validation.
+
+## 2026-10-18 CI baseline implementation
+
+- Added shared `ci-headless` configure/build/test presets plus Linux/Clang and
+  Windows/MSVC variants. GitHub workflow runs on PRs, main pushes and manual
+  dispatch, with read-only permissions, cancellation/timeouts and failure logs.
+- Action releases resolved through GitHub and pinned to verified commits:
+  checkout v7.0.1 / 3d3c42e5aac5ba805825da76410c181273ba90b1;
+  upload-artifact v7.0.2 / cf430e030ddbb5b0abf93d22962f4752f3646cd9.
+- Executed: configure with `--preset ci-headless -B build/local-debug-no-deps
+  -DCMAKE_CXX_COMPILER=C:/Strawberry/c/bin/g++.exe`, complete incremental build,
+  all 5 CTest suites (pass), `cmake --list-presets=all`, actionlint and
+  `git diff --check` (pass). Reused the baseline binary directory locally;
+  hosted jobs will validate fresh platform-specific preset directories.
+- No runtime code, API, assets or tests removed. The unused sandbox helper warning
+  remains visible; CI does not disguise it by claiming warnings-as-errors.
+- Nemisis remains pinned to the published dbdfc38 runtime; this PR changes only
+  CI/presets/docs, so no engine API compatibility dependency is introduced.
+- Hosted MSVC/Clang results pending publication; GPU rendering intentionally not
+  covered by this CPU-only workflow. Do not mark Phase 0 complete until results
+  are recorded. Next: inspect hosted runs, then classify tests/ownership in Phase 1.
+- Hosted first run: Ubuntu/Clang builds and all 5 suites pass
+  (https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39120015726).
+  Windows-2025 could not resolve a Visual Studio 2022 instance at configure time.
+  Selected the explicitly documented Windows-2022 / VS2022 runner instead;
+  no tests or compiler checks were disabled. Fresh validation pending.
+
+## Phase 0 validation complete
+
+- Rules: f769998 / tracking 28dca6f, PR #7.
+- CI: 49740d4 plus runner correction 9c87ef2, PR
+  https://github.com/YoungJibbit95/Novacore-Engine/pull/8 (base: recovery/00-agent-rules).
+- Fresh hosted run at 9c87ef2 passed on both platforms:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39120124857.
+  Ubuntu 24.04 / Clang 18.1.3: complete build, 5/5 suites pass.
+  Windows 2022 / MSVC 19.44: complete build, 5/5 suites pass.
+- Windows-2025 had resolved to windows-2025-vs2026, explaining the first
+  VS2022-generator configure failure. Windows-2022 matches the existing toolchain.
+- Actionlint and the final diff whitespace check pass. No merge performed.
+- No GPU/visual validation performed. No runtime API or code changed; Nemisis CI
+  continues to validate the identical published runtime at dbdfc38.
+
+Next executable step: classify each existing test contract, then correct
+`docs/13_TESTING_ACCEPTANCE.md` so weapon TTK/objective scoring/spawn safety are
+Nemisis acceptance. Do this as a separate bounded PR after the CI stack. Keep
+all existing coverage until its replacement/ownership is verified. Renderer,
+importer and KCC extractions remain deferred behind real product needs.
