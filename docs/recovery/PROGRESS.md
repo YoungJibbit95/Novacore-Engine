@@ -460,3 +460,21 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   validation-layer/resize/two-slot matrix. No GUI permission or graphical launch
   exists. R3 actual textures and subsequent PBR/reflection/LOD work remain next
   bounded packages after R2 technical and integration checks.
+- Completed full separate GCC 13.2 Release builds in C:/Users/Administrator/
+  .codex/tmp/phase5-render-r2/{headless,vulkan}, leaving every frozen prior shader
+  directory intact. Exact tested source/test head d1dab476ec2201346b4a675cec711632abff5365;
+  runtime implementation is 5af5c830868ef5f3f6db06310fb03ba5ab22cd81. Full engine,
+  server, sandbox and all 8/8 CPU CTest suites pass (1.42 seconds). The separate
+  actual SDL3/Vulkan static library builds and installs; all 23 generated shader
+  modules pass Vulkan 1.0 spirv-val. Only the existing unused sandbox helper
+  warning remains. No tests/warnings were disabled.
+- Installed packages: C:/Users/Administrator/.codex/tmp/phase5-render-r2/
+  package-headless and package-vulkan. SHA-256 for lib/libnovacore_engine.a:
+  headless 2a8d3bc2749ab83460b81819f5ce0fea23107289787b93136d698dc8eb4a85a6;
+  Vulkan 6f49c386def5c79345af3c131cac743a22b2bf30c279937398ae191414f0e82d.
+  Hosted checks and exact-revision Nemisis extraction/build/tests remain next
+  integration gates. No GPU launch, validation-layer execution, timing or visual
+  acceptance is claimed. R3 was audited read-only; no R3 source was implemented.
+- Published [Draft PR #18](https://github.com/YoungJibbit95/Novacore-Engine/pull/18),
+  stacked on recovery/phase5-camera-chirality. No remote merge. Integration lead
+  owns the matching Nemisis extraction, exact engine pin and consumer gates.

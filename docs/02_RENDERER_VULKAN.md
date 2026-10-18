@@ -422,10 +422,12 @@ Swapchain teardown destroys receiver pipelines/layouts before shadow resources.
 The UI adapter retains its existing prepare, last-in-pass record and teardown.
 See the [Vulkan render-pass specification](https://docs.vulkan.org/spec/latest/chapters/renderpass.html).
 
-Validation so far: standalone shadow mathematics passes with GCC 13.2; six new
-shader modules compile and pass Vulkan 1.0 SPIR-V validation. Full backend build,
-engine CTest, exact-revision Nemisis integration and real-device validation are
-separate pending gates. Counters report the recorded map and actual caster draw
+Validation at source/test head d1dab476: complete GCC 13.2 Release engine, server,
+sandbox and 8/8 engine CTest suites pass; the separate SDL3/Vulkan library builds
+and installs successfully. All 23 shader modules compile and pass Vulkan 1.0
+SPIR-V validation, including the six new shadow modules. Exact-revision Nemisis
+integration, hosted CI and real-device validation remain separate gates.
+Counters report the recorded map and actual caster draw
 calls, including dynamic caster draws; requested mesh counts are not evidence.
 
 The matched visual matrix holds camera, sun and material fixed for shadows
