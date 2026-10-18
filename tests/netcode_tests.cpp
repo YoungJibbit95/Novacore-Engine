@@ -198,7 +198,8 @@ void testSequenceChannelTracksSentAndAcknowledgedPackets() {
 void testFullSnapshotRoundTripAndCanonicalization() {
     auto snapshot = baselineSnapshot();
     std::reverse(snapshot.entities.begin(), snapshot.entities.end());
-    std::reverse(snapshot.entities.front().components.begin(), snapshot.entities.front().components.end());
+    // After reversing entities, the last entity has the multi-component payload.
+    std::reverse(snapshot.entities.back().components.begin(), snapshot.entities.back().components.end());
     const auto encoded = novacore::net::encodeSnapshot(snapshot);
     expect(encoded.has_value(), "full snapshot encodes");
     const auto decoded = novacore::net::decodeSnapshot(*encoded);

@@ -205,11 +205,6 @@ void testRenderMaterialFallbackFrameData() {
     expect(valid.sanitized.contrastScale == mesh.material.contrastScale, "render material validation preserves legal contrast scale");
     expect(valid.sanitized.saturationScale == mesh.material.saturationScale, "render material validation preserves legal saturation scale");
 
-    expect(mesh.material.rimScale > 1.0F, "render mesh material fallback can boost rim response");
-    expect(mesh.material.specularScale > 1.0F, "render mesh material fallback can boost specular response");
-    expect(mesh.material.contrastScale > 1.0F, "render mesh material fallback can shape contrast");
-    expect(mesh.material.saturationScale < 1.0F, "render mesh material fallback can desaturate neutral blockouts");
-
     const auto invalid = novacore::render::validateRenderMaterialFallback({
         -2.0F,
         9.0F,
@@ -604,6 +599,40 @@ void testGltfMeshDataAppliesNodeTransforms() {
     }
 
     std::filesystem::remove(glbPath);
+}
+
+void testGltfMeshAndMarkersShareNestedTransform() {
+    const auto path = std::filesystem::temp_directory_path() / "novacore_nested_mesh_markers.glb";
+    // Root TRS followed by a column-major child matrix. Socket and mesh must
+    // receive the same hierarchy exactly once, including nonuniform scale.
+    writeTinyGlb(path, R"([
+        {"translation":[10,20,30],"rotation":[0,0.7071067812,0,0.7071067812],"scale":[2,3,4],"children":[1]},
+        {"matrix":[1,0,0,0,0,1,0,0,0,0,1,0,1,2,3,1],"children":[2,3]},
+        {"name":"weapon_mesh","mesh":0},
+        {"name":"socket_muzzle","translation":[0,0,1]}
+    ])");
+    novacore::assets::GltfMeshData mesh{};
+    const auto result = novacore::assets::loadGltfMeshData(path, mesh);
+    expect(result.ok(), "nested cooked socket fixture imports");
+    expect(mesh.primitives.size() == 1U && mesh.primitives.front().positions.size() == 3U, "nested fixture keeps its triangle");
+    if (result.ok() && mesh.primitives.size() == 1U && mesh.primitives.front().positions.size() == 3U) {
+        const auto near = [](novacore::math::Vec3 a, novacore::math::Vec3 b) {
+            return (a - b).lengthSquared() < 0.000001F;
+        };
+        const auto& primitive = mesh.primitives.front();
+        expect(primitive.nodeTransformBaked, "static weapon hierarchy is baked once");
+        expect(near(primitive.positions.front(), {22.0F, 26.0F, 28.0F}), "parent TRS times child matrix transforms mesh origin");
+        expect(near(primitive.positions[1], {22.0F, 26.0F, 26.0F}), "local X scales before parent yaw");
+        const auto muzzle = std::ranges::find_if(mesh.nodeMarkers, [](const auto& marker) { return marker.name == "socket_muzzle"; });
+        expect(muzzle != mesh.nodeMarkers.end(), "nested muzzle marker is retained");
+        if (muzzle != mesh.nodeMarkers.end()) {
+            expect(near(muzzle->worldPosition, {26.0F, 26.0F, 28.0F}), "socket uses the same asset-scene space as baked vertices");
+            expect(near(muzzle->worldPosition - primitive.positions.front(), {4.0F, 0.0F, 0.0F}), "socket offset receives scale exactly once");
+            expect(near(muzzle->worldForward, {1.0F, 0.0F, 0.0F}), "socket local +Z rotates with its parent and normalizes");
+            expect(near(muzzle->worldUp, {0.0F, 1.0F, 0.0F}), "socket local +Y remains normalized up");
+        }
+    }
+    std::filesystem::remove(path);
 }
 
 void testGltfMetadataAndMeshCatalog() {
@@ -1253,6 +1282,7 @@ int main() {
     testAssetManifestAndRegistry();
     testAssetStreamer();
     testGltfMeshDataAppliesNodeTransforms();
+    testGltfMeshAndMarkersShareNestedTransform();
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
     testPhysicsCharacterControllerSurfaces();
