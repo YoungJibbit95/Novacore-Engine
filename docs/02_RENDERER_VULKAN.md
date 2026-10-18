@@ -375,6 +375,81 @@ and after Vulkan images, real device validation, frame timings and final visual
 acceptance remain open until those captures are actually produced. No GUI was
 started for this Phase 4 renderer work after the previous physical Escape stop.
 
+## Phase 5 bounded directional shadow map (R2)
+
+`RenderFrameInfo::directionalShadows` is opt-in and defaults to disabled. Disabled
+frames allocate no shadow images, descriptors or pipelines. A valid enabled
+frame lazily creates one depth-only pass and one sampled depth map per in-flight
+slot. Both static meshes and the current slot's CPU-skinned vertex buffers cast
+onto world boxes and meshes. This is one camera-centred directional map, not
+cascades, point-light shadows, transparency shadows or world-wide coverage.
+
+Settings accept resolutions 256/512/1024/2048, receiver distance 1..150 metres and
+finite normalized depth/slope-bias values 0..0.05. Invalid settings, sun or camera
+data retain baseline world rendering with a bounded diagnostic. The map covers
+a receiver sphere of radius `distance`; visibility fades to fully lit over
+0.8..1.0 times that radius. Outside the map or light-depth extrusion, surfaces
+are fully lit. Casters are conservatively culled against the light frustum, not
+the receiver sphere: an off-camera caster toward the sun can still occlude it.
+The finite extrusion extends two map half-extents in each light-depth direction.
+
+Light-space XY texel snapping and a one-texel border stabilize translation while
+covering the entire receiver sphere. A 3x3 comparison PCF kernel filters the
+sampled depth; raster depth bias plus configurable receiver depth/slope bias
+reduce acne. Bias values require scene/device validation to avoid detached
+shadows and lost small details. Ambient/fill remain lit; visibility attenuates
+the sun's diffuse/specular terms. Existing procedural material variation and
+fixed view vectors remain separate R3/R4 work.
+
+`castsShadow` and `receivesShadow` are independent extraction flags on boxes and
+meshes. Camera-attached first-person meshes in the World layer require explicit
+opt-out from the consuming game; layer membership alone does not identify them.
+Legacy ViewModel geometry stays on its existing camera/pipeline and never casts.
+The existing contact-shadow approximation remains separately configurable and
+must be compared with it disabled when evaluating the real map.
+
+The existing 128-byte world push blocks remain unchanged. A private 160-byte
+std140 UBO reconstructs mesh world positions from the actual shared RH camera
+clip coordinates. Two aligned UBO entries per slot support receiver opt-out.
+Depth images use sampled D32 float, with sampled D16 fallback, nearest comparison
+sampling and a white border. No stencil or UI descriptor layout is shared.
+Preparation follows the existing slot fence and dynamic vertex update. The
+depth pass precedes the world pass in the same command buffer; full-frame
+read-to-depth-write and depth-write-to-fragment-read dependencies cover image
+layout transitions. These are not framebuffer-local BY_REGION dependencies.
+Resolution changes wait for device idle before replacing all slot resources.
+Swapchain teardown destroys receiver pipelines/layouts before shadow resources.
+The UI adapter retains its existing prepare, last-in-pass record and teardown.
+See the [Vulkan render-pass specification](https://docs.vulkan.org/spec/latest/chapters/renderpass.html).
+
+Validation so far: standalone shadow mathematics passes with GCC 13.2; six new
+shader modules compile and pass Vulkan 1.0 SPIR-V validation. Full backend build,
+engine CTest, exact-revision Nemisis integration and real-device validation are
+separate pending gates. Counters report the recorded map and actual caster draw
+calls, including dynamic caster draws; requested mesh counts are not evidence.
+
+The matched visual matrix holds camera, sun and material fixed for shadows
+off/on, then varies sun azimuth 0/90/180 and elevation 20/60 degrees, animated
+character pose, rigid object position, mesh yaw 0/90/180, signed/nonuniform scale,
+receiver/caster opt-outs, map resolution and distance. Repeat translation across
+texel boundaries, camera yaw/pitch/roll, game FOV 55/74/105, portrait/landscape,
+two in-flight slots and resize. Record validation-layer output and GPU timings
+for each resolution after a fresh GUI grant. No GPU launch or visual approval
+has occurred for this change.
+
+Reference criteria: [L01](https://forums.unrealengine.com/t/dynamic-shadows-disappear-on-low-settings-look-ugly-on-medium/137375)
+requires an animated character silhouette attached to the ground and projected
+onto nearby objects; [L03](https://creativeshrimp.gumroad.com/l/Cinematic-Lighting-in-Blender)
+requires directional geometric occlusion across walls/floor/props. Look for
+consistent shadow direction, contact, moving-limb changes and stable edges,
+without rectangular halos, acne or visibly detached feet. The atmosphere in
+[S02](https://polyhaven.com/a/bambanani_sunset) motivates the low-sun case.
+[L02](https://en.gamegpu.com/test-gpu/test-video-cards/cyberpunk-2077-effekty-trassirovki-luchej-podderzhka-dlss-2-0-dostup-v-geforce-now)
+contains industrial reflections and lighting beyond this sun-shadow scope; those
+features are not claimed. Reference images remain local style/technical
+references, never redistributed game assets. Historical user screenshots are
+not matched before/after evidence for this revision.
+
 ## Performance Goals
 
 Target hardware:
