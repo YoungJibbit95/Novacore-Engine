@@ -1,5 +1,22 @@
 # Recovery progress
 
+## 2026-10-19 Main integration: UI, proper camera, shadows and rigid bodies
+
+- Exact combined source `cca45a41aded8b13171943553e27f85071c76ed3` retains
+  UI #15, proper camera #16, R2 #18 and the optional Jolt adapter #17.
+  Integration merges changed no runtime implementation or shared API by hand.
+- Complete Release engine/server/sandbox builds pass with Jolt enabled, both
+  headless and SDL3/Vulkan. All nine CPU suites pass in 1.80s; all 23 shader
+  modules compile and pass SPIR-V validation for Vulkan 1.0.
+- Installed public packages were used for the real Nemisis Dev Range fixture
+  test: six bodies settle, accept a closest-hit impulse, render the existing
+  crate geometry with physical rotation, respond to bounded KCC walking and
+  reset safely. The real headless game fixture smoke also passes after fixing
+  its pre-existing mismatch between spawn transform and movement position.
+- Full game regression and combined hosted CI are pending. GUI was not started;
+  Vulkan execution, shadow/contact quality, resource resizing and GPU timing
+  remain separate acceptance gates. R3 texture sampling is a subsequent branch.
+
 ## 2026-10-19 Phase 5 optional rigid-body adoption
 
 - Published Draft [engine PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
