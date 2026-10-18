@@ -29,6 +29,38 @@
 - The prior `cca45a41` Vulkan runtime/shader/package paths remain frozen during
   user inspection. No new sensor Vulkan build or GPU acceptance is claimed.
 
+## 2026-10-19 Phase 5 native shape query slice
+
+- Published Draft [engine PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24),
+  runtime `765da36906ef0c69581a6c928f7f4c3c16d2f1a2`. Exact runtime complete
+  default-off MSVC/Clang [run 39176871616](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871616)
+  and Jolt MSVC/Clang [run 39176871535](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871535)
+  all pass. Main-agent source review found no actionable issue. This following
+  record-only commit changes no runtime, API or frozen package.
+- Isolated `recovery/phase5-physics-shape-queries` starts at exact sensor head
+  `778f64a4930e786d077fe4ef5728760cb382c893` (#20). Only RigidBodyWorld,
+  its existing tests and recovery documentation change; no CMake, renderer,
+  game, canonical-source, ray or KCC implementation edits.
+- Append native translation-only closest box/sphere/capsule casts and bounded
+  unique-body overlap queries. Reuse body shape/pose validation and the same
+  Jolt world; owned results include material/surface tags, stable identities,
+  current world/tick, native contact points, depth and outward body normals.
+- Start contacts are explicitly included even when casting out; the deepest
+  initial penetration has priority. Overlaps sort by application ID/handle,
+  and explicit maxHits=1..8192 fails with no partial subset on overflow while
+  leaving the read-only world valid. Sensors remain excluded unless requested;
+  target-category filtering matches the unchanged closest ray.
+- Complete local GCC 13.2/O2 headless build and final 8/8 tests pass in 1.19 s.
+  Added native coverage checks all shapes, floor/wall/dynamic/rotated targets,
+  outward initial-overlap normals, sensor/filter/tags, sleeping, current
+  kinematic integration timing, stable bounded extraction, reset/stale handles
+  and unchanged tick ownership. KCC720 hash remains 17925562298706474255.
+- Jolt-disabled adapter compiles/links/runs without Jolt. A separate public
+  installed consumer runs real casts, sorted overlaps, fail-closed overflow and
+  owned stale results against unchanged installed Jolt. C: query variant keeps
+  all earlier frozen packages intact. Hosted CI passes; exact game revision
+  remains a separate gate. No GUI or graphical application was launched.
+
 ## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
 
 - Published Draft [engine PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20),

@@ -186,6 +186,91 @@ and Jolt MSVC/Clang [run 39174235602](https://github.com/YoungJibbit95/Novacore-
 all pass. Exact combined Nemisis acceptance remains separate. No GUI or Vulkan
 validation was performed.
 
+## Native shape casts and bounded overlaps
+
+The PH-2 query slice adds `castShape` and `overlapShape` directly to the existing
+world. `RigidBodyQueryShape` contains only a box/sphere/capsule and its metre-space
+origin, unit quaternion and positive dimensions. Validation and native shape
+creation reuse body-creation conventions, including capsule cylindrical half
+height excluding its caps. No render scale, solver, query world, gameplay rule,
+KCC replacement or raycast change is introduced.
+
+`castShape(shape, displacement, layerMask, includeSensors)` performs a native
+linear translation while retaining the supplied orientation; it does not sweep
+rotation. Displacement is the complete finite travel; its length must exceed
+0.000001 m, matching the existing closest ray's near-zero guard. Start
+and end origins stay inside the same +/-100000 m pose bound. The result
+distinguishes an invalid/unavailable query (`queried=false`, error) from a valid
+miss (`queried=true`, no hit). A successful query records current world ownership
+and the last successful fixed tick. Native earliest fraction wins; initial
+contacts at fraction zero take priority, selecting the deepest penetration if
+several bodies overlap initially. Exact equal-depth/fraction ties retain native
+traversal selection. Starting inside and moving out still reports that initial
+contact, rather than silently ignoring it or applying depenetration.
+
+`overlapShape(shape, maxHits, layerMask, includeSensors)` samples the current
+native pose, including sleeping bodies. `maxHits` is an explicit 1..8192 bound.
+A bounded native collector keeps one deepest manifold per target body; owned
+results are sorted by application ID and world/generation handle. If an extra
+body exceeds the bound, the result has `overflow=true`, `queried=false`, an
+explicit error and **no partial hits**. The query leaves the world valid: no
+simulation tick has advanced and there is no traversal-dependent subset to use
+accidentally as a complete answer. Increasing the bound and retrying is safe.
+
+Both operations return owned body identities/tags, a point on the query and
+target, an outward target-body normal, native depth and fraction.
+`initialOverlap` means a native start contact, including touching within native
+collision tolerance; overlap hits all have fraction zero and this flag true.
+The normal points from the target towards the query, including initial overlap;
+an inherently degenerate native axis yields zero rather than an invented normal.
+Overlap uses no extra speculative separation distance. Native numerical
+tolerance remains; these operations do not promise exact mathematical open-set
+intersection or a custom geometric tolerance.
+
+Filtering follows the existing closest ray: the target's category must be in
+`layerMask`; simulation pair-response masks are not a second query filter.
+Sensors are excluded by default and included only through explicit
+`includeSensors=true`. Results cover application dynamics and the same derived
+canonical bodies; canonical geometry becomes available after its usual `step`
+synchronization. Queries neither synchronize a second source nor mutate the
+source, wake bodies, advance ticks or consume sensor events. Queuing
+`moveKinematic` retains the old current query pose until native integration;
+queries after the step see the integrated pose. This differs deliberately from
+the pre-solve sensor-event sample described above.
+
+Owned results remain readable after body deletion or world reset; their old
+handles then fail normal live lookup. A reused slot has a different engine
+generation. Reset produces a new result world token, including queries before
+the first new simulation tick. No native IDs or borrowed solver memory escape.
+These are CPU-authoritative query primitives, not a new weapon/explosion policy
+or a network schema. The optional Jolt backend remains disabled by default.
+
+Local GCC 13.2/O2 validation (2026-10-19): complete headless engine/server/sandbox
+build and all 8/8 suites pass (final 1.19 s). Native cases cover all three shapes
+against floor/wall, casts into/out of initial overlap with outward normals,
+deepest initial contact, rotated query and target, closer dynamic targets,
+sleeping bodies without waking, tags, category masks, explicit sensors, current
+kinematic pose timing, stable unique-body ordering, exact/overflow/invalid hit
+limits, owned results after deletion/slot reuse/reset and queries that leave
+the next simulation tick untouched. Existing closest-ray assertions remain.
+The original KCC 720-tick hash remains **17925562298706474255**.
+
+The updated Jolt-disabled adapter compiles/links/runs without linking Jolt and
+retains that hash. A new installed public CMake consumer uses only NovaCore
+headers and `Novacore::Engine`, with native cast fraction 0.375, outward normal
+X=-1, two sorted unique overlaps, an empty explicit overflow and owned material
+42 after removal. It links the unchanged installed Jolt archive. New package:
+`C:/Users/Administrator/.codex/tmp/phase5-physics-queries`; engine archive SHA256
+`3dbf329da90e7e4b4453c51525e47ce6418f147584ea86e34213b67ca8cd8363`.
+Earlier adoption/sensor and combined packages remain unchanged. Published Draft
+[PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24) contains runtime
+`765da36906ef0c69581a6c928f7f4c3c16d2f1a2`. Its complete default-off MSVC/Clang
+[run 39176871616](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871616)
+and Jolt MSVC/Clang [run 39176871535](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871535)
+all pass. The main agent reviewed the complete implementation without actionable
+findings; exact combined Nemisis acceptance remains separate. No renderer,
+Vulkan or GUI validation was performed.
+
 ## Build and validation
 
 Default dependency-light configure/build/CTest remains supported without Jolt.
@@ -237,8 +322,10 @@ all pass. Exact Nemisis cross-repo integration remains a separate gate.
 
 This is a bounded PH-1 gate plus initial PH-2/PH-3 functionality, not a completed
 physics overhaul. Application sensor lifecycle and tagged pre-solve contacts
-are provided by the bounded next slice above. Canonical trigger derivation,
-overlap/shape casts/all-hits, static mesh cooking, solved impact events,
+are provided by the bounded next slice above. Native translation-only closest
+shape casts and bounded unique-body overlaps are provided by the PH-2 query
+slice. Canonical trigger derivation, all-hit rays, rotational casts, static mesh
+cooking, solved impact events,
 two-way character contact/support,
 dropped weapons, constraints/ragdolls and prop replication remain separate work.
 No game default, damage, movement tuning or network schema changes are included.
