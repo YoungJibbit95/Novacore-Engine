@@ -250,6 +250,42 @@ Current implementation:
 
 ## Phase 4 visual targets and evidence
 
+### Instance normal foundation (R1)
+
+The world mesh vertex shader applies the render instance inverse transpose to
+normals: for `T * Ry * Rx * Rz * S`, this is the unit rotation quaternion times
+the reciprocal scale. Normals and key/fill directions meet in world space and
+the fragment shader renormalizes interpolated normals. Instance translation
+does not affect shading; rotating a mesh by 180 degrees changes the surface's
+orientation toward the fixed world light. A singular/non-finite instance scale
+or non-finite rotation skips the draw with a once-per-session diagnostic.
+
+The push block remains 128 bytes without adding GPU buffers/descriptors:
+WVP and RGBA retain float precision, rotation/reciprocal scale use floats,
+the two unit light directions use octahedral unorm16 pairs, and six bounded
+light/material factors use unorm16 pairs (absolute scalar error at most
+approximately 7.7e-6). CPU tests bound the directional error below 0.01 degree.
+Invalid non-finite scalar factors become zero before integer conversion;
+finite values preserve their existing clamp intervals.
+
+Only the submitted `RenderMesh3D` instance transform is applied here. The glTF
+importer or CPU skinning has already produced input vertices/normals; no node
+transform is applied again by this change. An independent existing importer
+defect remains: `GltfDocument.cpp::applyNodeTransform` currently transforms
+baked normals with the linear node matrix instead of its inverse transpose.
+R1 cannot repair those already incorrect inputs. A separate importer followup
+needs a slanted triangle with mixed parent/child TRS, nonuniform scale and a
+normal perpendicular to both transformed tangents, plus preserved skin/node
+behavior. Identity-instance preservation tests do not establish importer
+correctness under baked nonuniform scale.
+
+The current material shader still uses a fixed world view vector for specular
+and rim approximation. Camera-relative specular/Fresnel, real texture normal
+maps, BRDF/IBL, cast shadows and reflections remain separate R2-R4 work; R1
+does not claim physically based or complete material response.
+
+### Reference criteria
+
 The supplied reference archive is an art/technical review board. Its actual
 downloaded S01-S03, M01-M02, P01-P02 and L01-L03 images were inspected locally.
 No reference image is imported into runtime assets or redistributed in this

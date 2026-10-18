@@ -220,6 +220,11 @@ endif()
 enable_testing()
 
 if(NOVACORE_BUILD_TESTS)
+    add_executable(novacore_render_normal_tests tests/render_normal_tests.cpp)
+    target_link_libraries(novacore_render_normal_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_render_normal_tests)
+    add_test(NAME novacore_render_normal_tests COMMAND novacore_render_normal_tests)
+
     add_executable(novacore_render_projection_tests tests/render_projection_tests.cpp)
     target_link_libraries(novacore_render_projection_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_render_projection_tests)
