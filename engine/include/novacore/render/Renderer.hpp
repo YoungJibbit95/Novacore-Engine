@@ -59,8 +59,10 @@ struct MeshResourceStats final {
     std::uint64_t gpuUploadQueueProcessedCount = 0;
     std::uint64_t gpuUploadRetireCount = 0;
     std::uint64_t gpuUploadDestroyedCount = 0;
-    std::uint64_t dynamicVertexUpdateAttemptCount = 0;
+    std::uint64_t dynamicVertexUpdateAttemptCount = 0; // Backend queue requests.
+    // Completed safe-slot copies; both frame slots may consume one request.
     std::uint64_t dynamicVertexUpdateSuccessCount = 0;
+    // Rejected requests plus failed/discarded safe-slot copy attempts.
     std::uint64_t dynamicVertexUpdateFailureCount = 0;
 };
 

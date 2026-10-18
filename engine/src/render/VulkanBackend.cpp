@@ -1,4 +1,5 @@
 #include "VulkanBackend.hpp"
+#include "DynamicMeshUpdates.hpp"
 
 #include "novacore/core/Log.hpp"
 #include "novacore/render/Renderer.hpp"
@@ -42,7 +43,7 @@ namespace {
 
 #if NOVACORE_HAS_VULKAN && NOVACORE_HAS_SDL3
 
-constexpr std::uint32_t kMaxFramesInFlight = 2;
+constexpr std::uint32_t kMaxFramesInFlight = detail::kDynamicMeshFrameCount;
 
 [[nodiscard]] std::string vkResultName(VkResult result) {
     switch (result) {
@@ -626,15 +627,8 @@ struct PendingMeshUpload final {
     std::uint64_t queuedFrame = 0;
 };
 
-struct PendingDynamicPrimitiveUpdate final {
-    std::vector<math::Vec3> positions;
-    std::vector<math::Vec3> normals;
-};
-
-struct PendingDynamicMeshUpdate final {
-    MeshResourceHandle handle{};
-    std::vector<PendingDynamicPrimitiveUpdate> primitives;
-};
+using detail::PendingDynamicPrimitiveUpdate;
+using detail::PendingDynamicMeshUpdate;
 
 struct DeferredGpuMeshDestroy final {
     GpuMeshAsset asset;
@@ -2659,11 +2653,7 @@ struct VulkanBackend::Impl final {
             [key](const PendingMeshUpload& upload) {
                 return resourceKey(upload.resource.handle) == key;
             });
-        std::erase_if(
-            pendingDynamicMeshUpdates,
-            [key](const PendingDynamicMeshUpdate& update) {
-                return resourceKey(update.handle) == key;
-            });
+        detail::discardPendingDynamicMeshUpdate(pendingDynamicMeshUpdates, handle);
 
         const auto it = gpuMeshes.find(key);
         if (it == gpuMeshes.end()) {
@@ -2743,7 +2733,9 @@ struct VulkanBackend::Impl final {
         const auto key = resourceKey(handle);
         const auto asset = gpuMeshes.find(key);
         if (asset == gpuMeshes.end() || asset->second.usage != MeshResourceUsage::DynamicVertices ||
-            asset->second.primitives.size() != meshData.primitives.size()) {
+            asset->second.state == GpuMeshState::Failed ||
+            (asset->second.state == GpuMeshState::Resident &&
+                asset->second.primitives.size() != meshData.primitives.size())) {
             ++dynamicVertexUpdateFailureCount;
             return false;
         }
@@ -2758,16 +2750,7 @@ struct VulkanBackend::Impl final {
             });
         }
 
-        const auto pending = std::ranges::find_if(
-            pendingDynamicMeshUpdates,
-            [key](const PendingDynamicMeshUpdate& update) {
-                return resourceKey(update.handle) == key;
-            });
-        if (pending != pendingDynamicMeshUpdates.end()) {
-            *pending = std::move(replacement);
-        } else {
-            pendingDynamicMeshUpdates.push_back(std::move(replacement));
-        }
+        detail::queuePendingDynamicMeshUpdate(pendingDynamicMeshUpdates, std::move(replacement));
         return true;
     }
 
@@ -2776,13 +2759,17 @@ struct VulkanBackend::Impl final {
             return;
         }
 
-        for (auto& update : pendingDynamicMeshUpdates) {
+        const auto upload = [&](const PendingDynamicMeshUpdate& update, std::size_t safeFrameSlot) {
+            using detail::DynamicMeshUploadResult;
             const auto assetIt = gpuMeshes.find(resourceKey(update.handle));
+            if (assetIt != gpuMeshes.end() && assetIt->second.state == GpuMeshState::PendingUpload) {
+                return DynamicMeshUploadResult::Retry;
+            }
             if (assetIt == gpuMeshes.end() || assetIt->second.state != GpuMeshState::Resident ||
                 assetIt->second.usage != MeshResourceUsage::DynamicVertices ||
                 assetIt->second.primitives.size() != update.primitives.size()) {
                 ++dynamicVertexUpdateFailureCount;
-                continue;
+                return DynamicMeshUploadResult::Discard;
             }
 
             bool updated = true;
@@ -2813,11 +2800,11 @@ struct VulkanBackend::Impl final {
                     });
                 }
                 const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
-                if (vertexBytes > destination.vertexBuffers[currentFrame].size ||
+                if (vertexBytes > destination.vertexBuffers[safeFrameSlot].size ||
                     !writeHostVisibleBuffer(
                         vertices.data(),
                         vertexBytes,
-                        destination.vertexBuffers[currentFrame])) {
+                        destination.vertexBuffers[safeFrameSlot])) {
                     updated = false;
                     break;
                 }
@@ -2825,11 +2812,13 @@ struct VulkanBackend::Impl final {
 
             if (updated) {
                 ++dynamicVertexUpdateSuccessCount;
+                return DynamicMeshUploadResult::Uploaded;
             } else {
                 ++dynamicVertexUpdateFailureCount;
+                return DynamicMeshUploadResult::Retry;
             }
-        }
-        pendingDynamicMeshUpdates.clear();
+        };
+        detail::processPendingDynamicMeshUpdates(pendingDynamicMeshUpdates, currentFrame, upload);
     }
 
     void processMeshUploadQueue(std::size_t maxUploadsPerFrame) {

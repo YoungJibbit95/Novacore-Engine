@@ -1,4 +1,5 @@
 #include "novacore/Novacore.hpp"
+#include "../engine/src/render/DynamicMeshUpdates.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -873,6 +874,87 @@ void testRendererMeshResourceRegistry() {
     renderer.releaseMeshResource(dynamic);
 }
 
+void testDynamicMeshPoseReachesEveryFrameSlot() {
+    using namespace novacore::render;
+    using namespace novacore::render::detail;
+    std::vector<PendingDynamicMeshUpdate> pending;
+    std::array<PendingDynamicPrimitiveUpdate, kDynamicMeshFrameCount> buffers;
+    std::array<int, kDynamicMeshFrameCount> uploads{};
+    bool resident = true;
+    bool writeSucceeds = true;
+    const MeshResourceHandle first{3U, 1U};
+    const auto queue = [&](float pose, MeshResourceHandle handle) {
+        PendingDynamicMeshUpdate update;
+        update.handle = handle;
+        update.primitives.push_back({{{pose, 2.0F, 3.0F}}, {{0.0F, pose, 0.0F}}});
+        queuePendingDynamicMeshUpdate(pending, std::move(update));
+    };
+    const auto upload = [&](const PendingDynamicMeshUpdate& update, std::size_t safeSlot) {
+        if (!resident || !writeSucceeds) { return DynamicMeshUploadResult::Retry; }
+        buffers[safeSlot] = update.primitives.front();
+        ++uploads[safeSlot];
+        return DynamicMeshUploadResult::Uploaded;
+    };
+    const auto hasPose = [&](std::size_t slot, float pose) {
+        return buffers[slot].positions.size() == 1U && buffers[slot].normals.size() == 1U &&
+            buffers[slot].positions.front().x == pose && buffers[slot].normals.front().y == pose;
+    };
+
+    queue(1.0F, first);
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    expect(hasPose(0U, 1.0F) && buffers[1].positions.empty() && pending.size() == 1U,
+           "new pose writes only the safe frame slot and retains the other dirty slot");
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    expect(uploads[0] == 1, "repeating the same safe slot does not upload unchanged vertices");
+    processPendingDynamicMeshUpdates(pending, 1U, upload);
+    expect(hasPose(0U, 1.0F) && hasPose(1U, 1.0F) && pending.empty(),
+           "next render without a fixed-tick update still receives the latest pose");
+    processPendingDynamicMeshUpdates(pending, 1U, upload);
+    expect(uploads[1] == 1, "fully consumed pose does not upload again");
+
+    queue(2.0F, first);
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    queue(3.0F, first);
+    expect(pending.size() == 1U, "a newer pose coalesces the same handle instead of adding stale work");
+    processPendingDynamicMeshUpdates(pending, 1U, upload);
+    expect(hasPose(0U, 2.0F) && hasPose(1U, 3.0F) && pending.size() == 1U,
+           "replacement updates only the newly safe slot and dirties the old slot again");
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    expect(hasPose(0U, 3.0F) && hasPose(1U, 3.0F) && pending.empty(),
+           "both slots converge on the replacement pose, never the superseded payload");
+
+    queue(4.0F, first);
+    resident = false;
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    expect(pending.size() == 1U && hasPose(0U, 3.0F), "residency delay retains the pending pose");
+    resident = true;
+    writeSucceeds = false;
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    expect(pending.size() == 1U && hasPose(0U, 3.0F), "failed upload remains dirty for a later safe retry");
+    writeSucceeds = true;
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    processPendingDynamicMeshUpdates(pending, 1U, upload);
+    expect(hasPose(0U, 4.0F) && hasPose(1U, 4.0F) && pending.empty(), "retry eventually updates both slots");
+
+    const MeshResourceHandle reused{first.index, first.generation + 1U};
+    queue(5.0F, first);
+    queue(6.0F, reused);
+    discardPendingDynamicMeshUpdate(pending, first);
+    expect(pending.size() == 1U && pending.front().handle == reused,
+           "release discards exactly its generation and preserves the reused slot's new payload");
+    processPendingDynamicMeshUpdates(pending, 0U, upload);
+    processPendingDynamicMeshUpdates(pending, 1U, upload);
+    expect(hasPose(0U, 6.0F) && hasPose(1U, 6.0F) && pending.empty(), "released generation never reaches a reused resource");
+    queue(7.0F, reused);
+    int discards = 0;
+    const auto discard = [&](const auto&, std::size_t) { ++discards; return DynamicMeshUploadResult::Discard; };
+    processPendingDynamicMeshUpdates(pending, kDynamicMeshFrameCount, discard);
+    expect(discards == 0 && pending.size() == 1U, "invalid frame slot never accesses a frame buffer");
+    processPendingDynamicMeshUpdates(pending, 0U, discard);
+    processPendingDynamicMeshUpdates(pending, 1U, discard);
+    expect(discards == 1 && pending.empty(), "permanently removed or incompatible resources discard stale work once");
+}
+
 void testPhysicsCharacterControllerSurfaces() {
     novacore::physics::PhysicsWorld world;
     world.setBounds({12.0F, 6.0F, 12.0F});
@@ -1285,6 +1367,7 @@ int main() {
     testGltfMeshAndMarkersShareNestedTransform();
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
+    testDynamicMeshPoseReachesEveryFrameSlot();
     testPhysicsCharacterControllerSurfaces();
     testPhysicsSystemCharacterMotor();
     testEngineSandboxRunsStandalone();
