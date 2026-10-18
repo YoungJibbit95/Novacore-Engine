@@ -269,3 +269,11 @@ fix and exact cross-repo validation if pursued; do not mix it into this audit.
   all 15 GLSL shaders with glslc. All 15 modules pass spirv-val for Vulkan 1.0;
   sky push-member offsets are 0/16/32/48/64/80/96/112 (128 bytes total).
   No Vulkan device was started; visual/GPU acceptance remains pending.
+- User's later visual-reference addon incorporated without restarting work:
+  inspected actual local S01-S03, M01-M02, P01-P02 and L01-L03 images, the
+  README, reference JSON and original board. Renderer docs now identify original
+  source URLs, concrete targets, package boundaries and a reproducible R0/R1
+  before/after matrix. Reference binaries remain outside the repository/assets.
+- Full SDL3/Vulkan Release static library also built and installed successfully.
+  Both public candidate packages have runtime f0c90b7. The following commit is
+  documentation-only; cross-repo and visual evidence are still separate gates.
