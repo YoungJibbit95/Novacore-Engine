@@ -14,6 +14,8 @@ struct GltfAnimationAsset final {
     std::filesystem::path sourcePath;
     std::size_t skinIndex = 0;
     animation::Skeleton skeleton;
+    // Original skin palette slots come first; non-deforming glTF ancestor/pose
+    // nodes follow with identity inverse binds. JOINTS_0 indices stay unchanged.
     std::vector<animation::Mat4> inverseBindMatrices;
     std::vector<std::size_t> jointNodeIndices;
     std::vector<animation::AnimationClip> clips;
