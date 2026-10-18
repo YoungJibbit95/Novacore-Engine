@@ -354,3 +354,35 @@ Validation: full GCC13.2 Release SDL3/Vulkan build, new shaders compiled by SDK
 1.4.350.0 glslc, all 5 engine suites pass, including malformed UI packet tests.
 Game integration and visual evidence are recorded in the dependent Nemisis UI
 PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
+
+## 2026-10-19 Phase 5 physical camera chirality
+
+- Branch recovery/phase5-camera-chirality starts at combined UI/render base
+  5518818a6b89f20b0ad2ddb3c959116786dd9189 (merged main 38e718 plus UI fb33cb5).
+  The UI adapter code, packet API and pass/lifetime hooks remain unchanged.
+- Independent source audit confirms the projection seam: glTF RH geometry and
+  proper source Y180 rotation produce physical front +Z/right -X. The old
+  camera used +Z view depth with screen right +X, horizontally reversing that
+  anatomy. Renaming bones or swapping grip targets cannot repair this seam.
+- Use a proper RH physical camera frame (right,up,-logicalForward), standard
+  RH perspective clip W=-viewZ, unchanged Vulkan depth 0..1/Y flip, and the same
+  shared basis for sky rays. Logical yaw/pitch/forward API and public headers
+  remain unchanged. No asset, Euler mount repair, mirror flag or mesh edit.
+- Added independent asymmetric wrist/thumb/index/front geometry against a
+  standard glTF -Z-camera reference, proper determinant, opposite yaw and
+  pole/roll tests. Kept all existing sky/world projection/depth/FOV/aspect
+  coverage. Corrected the earlier sun-yaw screen-sign assumption to match the
+  physical RH basis, while preserving its world-direction/rotation contract.
+- Standalone C++23 projection suite passes (GCC 13.2, no SDL/Vulkan launch).
+  The same current tests compiled against the untouched 551 camera fail with
+  112 assertions, including wrist/medial-thumb/finger-triangle parity and
+  opposite yaw. Negative control log: recovery/phase5/render-validation/
+  old_projection_tests.log. This is CPU evidence, not a GPU visual review.
+- Full engine/headless/Vulkan and Nemisis compatibility checks are pending
+  integration-lead build scheduling. Matching Nemisis strafe/input-yaw and
+  camera-relative basis changes are required before a production pin migration.
+  UI pixel-space geometry remains independent. No new GUI permission exists.
+- Prior R2 isolated math/tests/shader work is preserved only on local branch
+  recovery/phase5-shadow-maps at 4e31fd461a7d13558caee5548146b39d5856132e;
+  it is unbuilt, unregistered and unpublished. Camera/content correctness takes
+  precedence. R2 lifecycle/backend work and R3 textures have not been started.

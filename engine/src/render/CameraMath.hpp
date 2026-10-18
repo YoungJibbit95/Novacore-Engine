@@ -43,14 +43,16 @@ struct CameraFrame final {
     math::Vec3 forward{};
 };
 
-// Analytic basis remains defined at vertical pitch; rebuilding right from a
-// world-up cross product would become singular there. Positive pitch looks up.
+// glTF world coordinates are right handed. Forward is the engine's logical
+// look direction; the physical camera's local +Z points backward, so its
+// proper rotation has columns (right, up, -forward). Positive pitch looks up.
+// This analytic basis remains defined at vertical pitch.
 [[nodiscard]] inline CameraFrame cameraFrame(const RenderCamera3D& camera) {
     constexpr float radians = 3.14159265358979323846F / 180.0F;
     const float yaw = camera.yawDegrees * radians;
     const float pitch = camera.pitchDegrees * radians;
     const float roll = camera.rollDegrees * radians;
-    const math::Vec3 right{std::cos(yaw), 0.0F, -std::sin(yaw)};
+    const math::Vec3 right{-std::cos(yaw), 0.0F, std::sin(yaw)};
     const math::Vec3 up{-std::sin(yaw) * std::sin(pitch), std::cos(pitch), -std::cos(yaw) * std::sin(pitch)};
     return {
         right * std::cos(roll) + up * std::sin(roll),
@@ -94,7 +96,7 @@ struct SkyRayBasis final {
     const auto basis = cameraFrame(camera);
     const auto projection = cameraProjection(camera, width, height);
     Mat4 view = identity();
-    const std::array<math::Vec3, 3> axes{basis.right, basis.up, basis.forward};
+    const std::array<math::Vec3, 3> axes{basis.right, basis.up, basis.forward * -1.0F};
     for (std::size_t row = 0; row < axes.size(); ++row) {
         view.at(row, 0) = axes[row].x;
         view.at(row, 1) = axes[row].y;
@@ -105,9 +107,9 @@ struct SkyRayBasis final {
     Mat4 perspective{};
     perspective.at(0, 0) = 1.0F / projection.horizontalRayScale;
     perspective.at(1, 1) = -1.0F / projection.verticalRayScale;
-    perspective.at(2, 2) = projection.farPlane / (projection.farPlane - projection.nearPlane);
+    perspective.at(2, 2) = -projection.farPlane / (projection.farPlane - projection.nearPlane);
     perspective.at(2, 3) = -(projection.nearPlane * projection.farPlane) / (projection.farPlane - projection.nearPlane);
-    perspective.at(3, 2) = 1.0F;
+    perspective.at(3, 2) = -1.0F;
     return multiply(perspective, view);
 }
 
