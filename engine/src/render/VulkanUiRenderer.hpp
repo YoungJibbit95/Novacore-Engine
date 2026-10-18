@@ -11,7 +11,7 @@ class VulkanUiRenderer final {
 public:
     VulkanUiRenderer();
     ~VulkanUiRenderer();
-    bool create(VkPhysicalDevice physical, VkDevice device, VkRenderPass pass);
+    bool create(VkPhysicalDevice physical, VkDevice device, VkRenderPass pass, VkFormat colorFormat);
     void shutdown(); // caller waits for device idle first
     bool prepare(const UiDrawData& data, std::uint32_t slot, VkCommandPool pool, VkQueue queue);
     std::size_t record(VkCommandBuffer command, const UiDrawData& data,

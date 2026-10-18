@@ -2,7 +2,7 @@
 layout(location=0) in vec2 position;
 layout(location=1) in vec2 texcoord;
 layout(location=2) in vec4 color;
-layout(push_constant) uniform View { vec2 size; } view;
+layout(push_constant) uniform View { vec2 size; int srgb; } view;
 layout(location=0) out vec2 uv;
 layout(location=1) out vec4 tint;
 void main() {

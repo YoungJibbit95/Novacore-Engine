@@ -24,3 +24,7 @@ The game should reject its modern UI launch profile if the capability is absent.
 Integration points: create with existing physical/device/render pass, prepare
 only after the current slot fence, record before vkCmdEndRenderPass, shutdown
 inside existing idle swapchain teardown. Native handles remain engine-private.
+
+Color handling: the adapter decodes straight sRGB after unpremultiplication and
+repremultiplies in linear space for sRGB attachments. UNORM swapchains retain
+the original values, preventing double encoding of CSS colors.

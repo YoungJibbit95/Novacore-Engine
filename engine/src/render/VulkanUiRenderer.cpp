@@ -34,6 +34,7 @@ struct VulkanUiRenderer::Impl {
     VkSampler sampler{};
     VkPipelineLayout layout{};
     VkPipeline pipeline{};
+    std::int32_t srgb = 0;
     struct Buffer { VkBuffer handle{}; VkDeviceMemory memory{}; VkDeviceSize capacity{}; };
     struct Texture {
         VkImage image{}; VkDeviceMemory memory{}; VkImageView view{}; VkDescriptorSet set{};
@@ -169,9 +170,10 @@ struct VulkanUiRenderer::Impl {
 };
 VulkanUiRenderer::VulkanUiRenderer() : impl_(std::make_unique<Impl>()) {}
 VulkanUiRenderer::~VulkanUiRenderer() { shutdown(); }
-bool VulkanUiRenderer::create(VkPhysicalDevice physical, VkDevice device, VkRenderPass pass) {
+bool VulkanUiRenderer::create(VkPhysicalDevice physical, VkDevice device, VkRenderPass pass, VkFormat colorFormat) {
     shutdown();
     auto& p = *impl_; p.physical = physical; p.device = device;
+    p.srgb = (colorFormat == VK_FORMAT_B8G8R8A8_SRGB || colorFormat == VK_FORMAT_R8G8B8A8_SRGB) ? 1 : 0;
     VkShaderModule vert{}, frag{};
     try {
         VkDescriptorSetLayoutBinding binding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
@@ -186,7 +188,7 @@ bool VulkanUiRenderer::create(VkPhysicalDevice physical, VkDevice device, VkRend
         sampler.magFilter = sampler.minFilter = VK_FILTER_LINEAR;
         sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         check(vkCreateSampler(device, &sampler, nullptr, &p.sampler));
-        VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT, 0, 8};
+        VkPushConstantRange push{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 12};
         VkPipelineLayoutCreateInfo layout{}; layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout.setLayoutCount = 1; layout.pSetLayouts = &p.setLayout; layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
         check(vkCreatePipelineLayout(device, &layout, nullptr, &p.layout));
@@ -288,8 +290,9 @@ std::size_t VulkanUiRenderer::record(VkCommandBuffer command, const UiDrawData& 
     const VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(command, 0, 1, &frame.vertices.handle, &offset);
     vkCmdBindIndexBuffer(command, frame.indices.handle, 0, VK_INDEX_TYPE_UINT32);
-    const float size[]{data.width, data.height};
-    vkCmdPushConstants(command, p.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(size), size);
+    struct View { float width, height; std::int32_t srgb; };
+    const View view{data.width, data.height, p.srgb};
+    vkCmdPushConstants(command, p.layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(view), &view);
     const float sx = viewport.width / data.width, sy = viewport.height / data.height;
     std::size_t draws = 0;
     for (std::size_t i = 0; i < data.commands.size(); ++i) {

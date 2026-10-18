@@ -3394,7 +3394,7 @@ struct VulkanBackend::Impl final {
         (void)createWorldMeshPipeline();
         (void)createUiRectPipeline();
         (void)createUiLinePipeline();
-        uiGeometryReady = uiRenderer.create(physicalDevice, device, renderPass);
+        uiGeometryReady = uiRenderer.create(physicalDevice, device, renderPass, swapchainFormat);
         return true;
     }
 
