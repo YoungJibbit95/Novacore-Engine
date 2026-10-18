@@ -122,8 +122,11 @@ resting at Y=0.245 m and sleeping. Installed Jolt library SHA256
 `a4f3b886551fb786e1eb9afe17000405bdced70dcd969e161ae992737f82d79a`;
 engine library SHA256
 `e7ec69f0e555f5d85761a9a339ff3c343325817b8f0067487c185b80f0c9eead`.
-MSVC/Clang hosted checks and exact Nemisis cross-repo integration are pending
-publication/integration; this local result does not substitute for them.
+Published Draft [PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
+runtime `b17ff125f9d0b6a0a5150155f067e9e92ed6ed91`: hosted complete default-off
+MSVC/Clang [run 39171464412](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464412)
+and optional Jolt MSVC/Clang [run 39171464486](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464486)
+all pass. Exact Nemisis cross-repo integration remains a separate gate.
 
 ## Remaining acceptance
 
