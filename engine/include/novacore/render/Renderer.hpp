@@ -4,6 +4,7 @@
 #include "novacore/platform/Window.hpp"
 #include "novacore/math/Types.hpp"
 #include "novacore/render/VulkanRuntime.hpp"
+#include "novacore/render/UiDrawData.hpp"
 
 #include <array>
 #include <cstdint>
@@ -67,6 +68,8 @@ struct MeshResourceStats final {
 };
 
 struct RenderBackendFrameStats final {
+    std::size_t lastUiGeometryDrawCount = 0;
+    bool uiGeometryReady = false;
     std::uint64_t submittedFrames = 0;
     std::uint64_t skippedFrames = 0;
     std::uint64_t swapchainRecreateCount = 0;
@@ -269,6 +272,7 @@ struct RenderFrameInfo final {
     std::vector<DebugRect> debugRects;
     std::vector<DebugLine> debugLines;
     std::vector<DebugText> debugTexts;
+    UiDrawData ui;
 };
 
 class Renderer final {

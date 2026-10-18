@@ -336,3 +336,21 @@ fix and exact cross-repo validation if pursued; do not mix it into this audit.
   screenshots remain separate next gates. No GUI permission or device launch
   occurred in this rendering subagent. Main owns publication/game pin changes;
   no R2 resources or further rendering features started.
+## 2026-10-18 UI geometry adapter (UI-0)
+
+Separate worktree/branch `ui/00-overlay-adapter`, based on Nemisis' compatible
+engine pin a687c8816fbcc8a7f4d313cf092c6dc17a59f8f7. Adds a public indexed UI draw
+packet and an isolated Vulkan renderer recorded after legacy overlays in the
+existing render pass. No new instance/device/swapchain/fence owner. Shared
+VulkanBackend integration is limited to lifecycle, prepare, record and stats.
+
+CPU textures are immutable premultiplied RGBA8 sources; completed frame slots
+retain them until safe release. Host-visible vertex/index buffers are reused
+per slot. First-time atlas upload currently waits for the existing graphics
+queue. Advanced filters, offscreen layers and backdrop blur are not provided.
+Window's existing snapshot adds wheel delta on mouse axis 2 for UI scrolling.
+
+Validation: full GCC13.2 Release SDL3/Vulkan build, new shaders compiled by SDK
+1.4.350.0 glslc, all 5 engine suites pass, including malformed UI packet tests.
+Game integration and visual evidence are recorded in the dependent Nemisis UI
+PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
