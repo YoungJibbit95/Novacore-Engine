@@ -138,6 +138,19 @@ Minimum development requirements:
 
 ## Testing
 
+The recovery baseline uses `ci-headless-linux` (Ubuntu/Clang) and
+`ci-headless-windows` (Windows/MSVC). Configure, build and test with the same name:
+
+```text
+cmake --preset ci-headless-linux
+cmake --build --preset ci-headless-linux --parallel 2
+ctest --preset ci-headless-linux
+```
+
+`ci-headless` provides the same dependency-light configuration with the local
+Ninja toolchain. These presets disable SDL3/Vulkan and do not validate GPU
+rendering. See [recovery progress](docs/recovery/PROGRESS.md) before continuing.
+
 NovaCore includes a dependency-light smoke test suite covering core engine functionality, including:
 
 * Entity lifetime

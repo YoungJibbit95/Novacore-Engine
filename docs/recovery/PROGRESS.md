@@ -25,3 +25,24 @@
 Next: branch recovery/01-ci-baseline from the rules PR, add minimal headless
 Windows/MSVC and Ubuntu/Clang CI, and record real hosted results. Keep all
 existing tests; do not promote a no-GPU run into graphics validation.
+
+## 2026-10-18 CI baseline implementation
+
+- Added shared `ci-headless` configure/build/test presets plus Linux/Clang and
+  Windows/MSVC variants. GitHub workflow runs on PRs, main pushes and manual
+  dispatch, with read-only permissions, cancellation/timeouts and failure logs.
+- Action releases resolved through GitHub and pinned to verified commits:
+  checkout v7.0.1 / 3d3c42e5aac5ba805825da76410c181273ba90b1;
+  upload-artifact v7.0.2 / cf430e030ddbb5b0abf93d22962f4752f3646cd9.
+- Executed: configure with `--preset ci-headless -B build/local-debug-no-deps
+  -DCMAKE_CXX_COMPILER=C:/Strawberry/c/bin/g++.exe`, complete incremental build,
+  all 5 CTest suites (pass), `cmake --list-presets=all`, actionlint and
+  `git diff --check` (pass). Reused the baseline binary directory locally;
+  hosted jobs will validate fresh platform-specific preset directories.
+- No runtime code, API, assets or tests removed. The unused sandbox helper warning
+  remains visible; CI does not disguise it by claiming warnings-as-errors.
+- Nemisis remains pinned to the published dbdfc38 runtime; this PR changes only
+  CI/presets/docs, so no engine API compatibility dependency is introduced.
+- Hosted MSVC/Clang results pending publication; GPU rendering intentionally not
+  covered by this CPU-only workflow. Do not mark Phase 0 complete until results
+  are recorded. Next: inspect hosted runs, then classify tests/ownership in Phase 1.

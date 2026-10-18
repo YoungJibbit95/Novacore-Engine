@@ -106,6 +106,38 @@
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       }
+    },
+    {
+      "name": "ci-headless",
+      "displayName": "Recovery dependency-light CI",
+      "inherits": "local-debug-no-deps",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "NOVACORE_FETCH_SDL3": "OFF"
+      }
+    },
+    {
+      "name": "ci-headless-linux",
+      "inherits": "ci-headless",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "ci-headless-windows",
+      "inherits": "ci-headless",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
     }
   ],
   "buildPresets": [
@@ -139,13 +171,59 @@
     {
       "name": "linux-clang-vcpkg-debug",
       "configurePreset": "linux-clang-vcpkg-debug"
+    },
+    {
+      "name": "ci-headless",
+      "configurePreset": "ci-headless",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ci-headless-linux",
+      "configurePreset": "ci-headless-linux",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ci-headless-windows",
+      "configurePreset": "ci-headless-windows",
+      "configuration": "Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "ci-headless",
+      "configurePreset": "ci-headless",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "timeout": 120
+      }
+    },
+    {
+      "name": "ci-headless-linux",
+      "configurePreset": "ci-headless-linux",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "timeout": 120
+      }
+    },
+    {
+      "name": "ci-headless-windows",
+      "configurePreset": "ci-headless-windows",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "timeout": 120
+      }
     }
   ]
 }
-
-
-
-
-
-
-
