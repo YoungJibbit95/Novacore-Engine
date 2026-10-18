@@ -449,3 +449,52 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   recovery/phase5-shadow-maps at 4e31fd461a7d13558caee5548146b39d5856132e;
   it is unbuilt, unregistered and unpublished. Camera/content correctness takes
   precedence. R2 lifecycle/backend work and R3 textures have not been started.
+
+## 2026-10-19 Phase 5 R2 source candidate
+
+- Isolated branch recovery/phase5-directional-shadows starts at RH camera
+  f4d7c99b0c522ae872ae05a6eb42818629b16607 (stacked on UI base 5518818).
+  Preserved the earlier math-only WIP as 4e31fd4 and cherry-picked it as 96da1c5.
+- Implemented the real source path: lazy per-frame-slot depth maps, depth-only
+  mesh/box caster pass, world receiver shader variants, 3x3 comparison PCF,
+  finite configurable bias/resolution/distance, conservative light-frustum
+  culling and per-slot bounds from successful dynamic vertex-buffer writes.
+  Explicit cast/receive flags include World-layer first-person opt-out. Legacy
+  ViewModel stays on its existing camera/pipeline; UI hooks and resources remain
+  unchanged. No new queue, submission, fence or render graph ownership.
+- Default disabled creates no shadow Vulkan handles. World push blocks stay
+  128 bytes; the private aligned shadow UBO is 160 bytes. Resource replacement
+  waits for idle; ordinary updates follow the existing slot fence. Stats count
+  recorded depth draws and current dynamic caster draws.
+- Standalone GCC 13.2 C++23 shadow math suite passes: finite inputs, world-sun
+  depth, whole receiver-sphere coverage, texel stability, off-camera casters,
+  six-plane conservative culling, RH camera reconstruction across FOV/aspect/
+  rotation/roll, signed nonuniform instance bounds and changed skinned bounds.
+  Six new shader modules compile with SDK 1.4.350.0 glslc and pass Vulkan 1.0
+  spirv-val. Small outputs are in C:/Users/Administrator/.codex/tmp/phase5-render-r2.
+- Full C++ backend/library, engine suites, hosted MSVC/Clang and exact-revision
+  Nemisis integration are pending coordinated build resources. The frozen
+  Phase 4 and Phase 5 camera shader directories have not been modified. This
+  source candidate is not a production pin or a completed GPU/visual gate.
+- Renderer docs define matched L01/L03/S02 visual criteria and an explicit
+  validation-layer/resize/two-slot matrix. No GUI permission or graphical launch
+  exists. R3 actual textures and subsequent PBR/reflection/LOD work remain next
+  bounded packages after R2 technical and integration checks.
+- Completed full separate GCC 13.2 Release builds in C:/Users/Administrator/
+  .codex/tmp/phase5-render-r2/{headless,vulkan}, leaving every frozen prior shader
+  directory intact. Exact tested source/test head d1dab476ec2201346b4a675cec711632abff5365;
+  runtime implementation is 5af5c830868ef5f3f6db06310fb03ba5ab22cd81. Full engine,
+  server, sandbox and all 8/8 CPU CTest suites pass (1.42 seconds). The separate
+  actual SDL3/Vulkan static library builds and installs; all 23 generated shader
+  modules pass Vulkan 1.0 spirv-val. Only the existing unused sandbox helper
+  warning remains. No tests/warnings were disabled.
+- Installed packages: C:/Users/Administrator/.codex/tmp/phase5-render-r2/
+  package-headless and package-vulkan. SHA-256 for lib/libnovacore_engine.a:
+  headless 2a8d3bc2749ab83460b81819f5ce0fea23107289787b93136d698dc8eb4a85a6;
+  Vulkan 6f49c386def5c79345af3c131cac743a22b2bf30c279937398ae191414f0e82d.
+  Hosted checks and exact-revision Nemisis extraction/build/tests remain next
+  integration gates. No GPU launch, validation-layer execution, timing or visual
+  acceptance is claimed. R3 was audited read-only; no R3 source was implemented.
+- Published [Draft PR #18](https://github.com/YoungJibbit95/Novacore-Engine/pull/18),
+  stacked on recovery/phase5-camera-chirality. No remote merge. Integration lead
+  owns the matching Nemisis extraction, exact engine pin and consumer gates.

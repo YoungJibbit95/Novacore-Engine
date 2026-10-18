@@ -1,9 +1,11 @@
 #include "VulkanBackend.hpp"
 #include "VulkanUiRenderer.hpp"
 #include "CameraMath.hpp"
-#include "VulkanUiRenderer.hpp"
+#include "DirectionalShadowMath.hpp"
 #include "DynamicMeshUpdates.hpp"
 #include "MeshLighting.hpp"
+#include "VulkanDirectionalShadowMap.hpp"
+#include "VulkanUiRenderer.hpp"
 
 #include "novacore/core/Log.hpp"
 #include "novacore/render/Renderer.hpp"
@@ -198,6 +200,7 @@ struct VulkanMeshVertex final {
     float normal[3]{0.0F, 1.0F, 0.0F};
     float texcoord[2]{};
 };
+static_assert(sizeof(VulkanMeshVertex) == 8 * sizeof(float)); // Directional depth pass position-only input.
 
 static_assert(sizeof(SkyPushConstants) <= 128, "Sky push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(ContactShadowPushConstants) <= 128, "Contact shadow push constants must stay under the Vulkan minimum limit");
@@ -512,6 +515,7 @@ enum class GpuMeshState {
 
 struct GpuMeshPrimitive final {
     std::array<GpuBuffer, kMaxFramesInFlight> vertexBuffers{};
+    std::array<detail::ShadowMeshBounds, kMaxFramesInFlight> bounds{};
     GpuBuffer indexBuffer{};
     std::size_t vertexCount = 0;
     std::uint32_t indexCount = 0;
@@ -691,6 +695,16 @@ struct VulkanBackend::Impl final {
     VkPipeline worldLinePipeline = VK_NULL_HANDLE;
     VkPipelineLayout worldMeshPipelineLayout = VK_NULL_HANDLE;
     VkPipeline worldMeshPipeline = VK_NULL_HANDLE;
+    VulkanDirectionalShadowMap directionalShadowMap;
+    VkPipelineLayout worldMeshShadowedPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldMeshShadowedPipeline = VK_NULL_HANDLE;
+    VkPipelineLayout worldBoxShadowedPipelineLayout = VK_NULL_HANDLE;
+    VkPipeline worldBoxShadowedPipeline = VK_NULL_HANDLE;
+    bool directionalShadowsPrepared = false;
+    bool directionalShadowsReady = false;
+    bool attemptedShadowReceiverPipelines = false;
+    std::size_t lastDirectionalShadowCasterDrawCount = 0;
+    std::size_t lastDirectionalShadowDynamicCasterDrawCount = 0;
     VkPipelineLayout uiRectPipelineLayout = VK_NULL_HANDLE;
     VkPipeline uiRectPipeline = VK_NULL_HANDLE;
     VkPipelineLayout uiLinePipelineLayout = VK_NULL_HANDLE;
@@ -1558,11 +1572,15 @@ struct VulkanBackend::Impl final {
         return success;
     }
 
-    [[nodiscard]] bool createWorldBoxPipeline() {
+    [[nodiscard]] bool createWorldBoxPipeline(bool shadowed = false) {
+        auto& outputLayout = shadowed ? worldBoxShadowedPipelineLayout : worldBoxPipelineLayout;
+        auto& outputPipeline = shadowed ? worldBoxShadowedPipeline : worldBoxPipeline;
         beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
-        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_box.vert.spv");
-        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_box.frag.spv");
+        const auto vertexShaderBytes =
+            readBinaryFile(shaderDirectory / (shadowed ? "world_box_shadowed.vert.spv" : "world_box.vert.spv"));
+        const auto fragmentShaderBytes =
+            readBinaryFile(shaderDirectory / (shadowed ? "world_box_shadowed.frag.spv" : "world_box.frag.spv"));
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
             skipPipelineCreate();
             core::logWarning("render", "Vulkan world box pipeline skipped because shader binaries are missing");
@@ -1667,18 +1685,20 @@ struct VulkanBackend::Impl final {
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        const auto descriptorLayout = directionalShadowMap.receiverLayout();
+        pipelineLayoutInfo.setLayoutCount = shadowed ? 1U : 0U;
+        pipelineLayoutInfo.pSetLayouts = shadowed ? &descriptorLayout : nullptr;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldBoxPipelineLayout), "vkCreatePipelineLayout(worldBox)")) {
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outputLayout),
+                  "vkCreatePipelineLayout(worldBox)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
             finishPipelineCreate(false);
             return false;
         }
-        setObjectName(
-            vulkanObjectHandle(worldBoxPipelineLayout),
-            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-            "NovaCore WorldBox PipelineLayout");
+        setObjectName(vulkanObjectHandle(outputLayout), VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                      "NovaCore WorldBox PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1691,20 +1711,24 @@ struct VulkanBackend::Impl final {
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.layout = worldBoxPipelineLayout;
+        pipelineInfo.layout = outputLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        const bool success = vkOk(
-            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &worldBoxPipeline),
-            "vkCreateGraphicsPipelines(worldBox)");
+        const bool success =
+            vkOk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outputPipeline),
+                 "vkCreateGraphicsPipelines(worldBox)");
 
         vkDestroyShaderModule(device, fragmentShader, nullptr);
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
-            setObjectName(vulkanObjectHandle(worldBoxPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldBox Pipeline");
+            setObjectName(vulkanObjectHandle(outputPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldBox Pipeline");
             core::logInfo("render", "Vulkan world box graphics pipeline created");
+        }
+        if (!success) {
+            vkDestroyPipelineLayout(device, outputLayout, nullptr);
+            outputLayout = VK_NULL_HANDLE;
         }
         finishPipelineCreate(success);
         return success;
@@ -1862,11 +1886,15 @@ struct VulkanBackend::Impl final {
         return success;
     }
 
-    [[nodiscard]] bool createWorldMeshPipeline() {
+    [[nodiscard]] bool createWorldMeshPipeline(bool shadowed = false) {
+        auto& outputLayout = shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout;
+        auto& outputPipeline = shadowed ? worldMeshShadowedPipeline : worldMeshPipeline;
         beginPipelineCreate();
         const auto shaderDirectory = std::filesystem::path(NOVACORE_SHADER_BINARY_DIR);
-        const auto vertexShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.vert.spv");
-        const auto fragmentShaderBytes = readBinaryFile(shaderDirectory / "world_mesh.frag.spv");
+        const auto vertexShaderBytes =
+            readBinaryFile(shaderDirectory / (shadowed ? "world_mesh_shadowed.vert.spv" : "world_mesh.vert.spv"));
+        const auto fragmentShaderBytes =
+            readBinaryFile(shaderDirectory / (shadowed ? "world_mesh_shadowed.frag.spv" : "world_mesh.frag.spv"));
         if (vertexShaderBytes.empty() || fragmentShaderBytes.empty()) {
             skipPipelineCreate();
             core::logWarning("render", "Vulkan world mesh pipeline skipped because shader binaries are missing");
@@ -1994,18 +2022,20 @@ struct VulkanBackend::Impl final {
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        const auto descriptorLayout = directionalShadowMap.receiverLayout();
+        pipelineLayoutInfo.setLayoutCount = shadowed ? 1U : 0U;
+        pipelineLayoutInfo.pSetLayouts = shadowed ? &descriptorLayout : nullptr;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &worldMeshPipelineLayout), "vkCreatePipelineLayout(worldMesh)")) {
+        if (!vkOk(vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &outputLayout),
+                  "vkCreatePipelineLayout(worldMesh)")) {
             vkDestroyShaderModule(device, fragmentShader, nullptr);
             vkDestroyShaderModule(device, vertexShader, nullptr);
             finishPipelineCreate(false);
             return false;
         }
-        setObjectName(
-            vulkanObjectHandle(worldMeshPipelineLayout),
-            VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-            "NovaCore WorldMesh PipelineLayout");
+        setObjectName(vulkanObjectHandle(outputLayout), VK_OBJECT_TYPE_PIPELINE_LAYOUT,
+                      "NovaCore WorldMesh PipelineLayout");
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
         pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -2018,20 +2048,24 @@ struct VulkanBackend::Impl final {
         pipelineInfo.pMultisampleState = &multisampling;
         pipelineInfo.pDepthStencilState = &depthStencil;
         pipelineInfo.pColorBlendState = &colorBlending;
-        pipelineInfo.layout = worldMeshPipelineLayout;
+        pipelineInfo.layout = outputLayout;
         pipelineInfo.renderPass = renderPass;
         pipelineInfo.subpass = 0;
 
-        const bool success = vkOk(
-            vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &worldMeshPipeline),
-            "vkCreateGraphicsPipelines(worldMesh)");
+        const bool success =
+            vkOk(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outputPipeline),
+                 "vkCreateGraphicsPipelines(worldMesh)");
 
         vkDestroyShaderModule(device, fragmentShader, nullptr);
         vkDestroyShaderModule(device, vertexShader, nullptr);
 
         if (success) {
-            setObjectName(vulkanObjectHandle(worldMeshPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldMesh Pipeline");
+            setObjectName(vulkanObjectHandle(outputPipeline), VK_OBJECT_TYPE_PIPELINE, "NovaCore WorldMesh Pipeline");
             core::logInfo("render", "Vulkan world mesh graphics pipeline created");
+        }
+        if (!success) {
+            vkDestroyPipelineLayout(device, outputLayout, nullptr);
+            outputLayout = VK_NULL_HANDLE;
         }
         finishPipelineCreate(success);
         return success;
@@ -2412,12 +2446,13 @@ struct VulkanBackend::Impl final {
         return true;
     }
 
-    [[nodiscard]] std::vector<VulkanMeshVertex> buildVertices(
-        const assets::GltfPrimitiveData& primitive) const {
+    [[nodiscard]] std::vector<VulkanMeshVertex> buildVertices(const assets::GltfPrimitiveData& primitive,
+                                                              detail::ShadowMeshBounds& bounds) const {
         std::vector<VulkanMeshVertex> vertices;
         vertices.reserve(primitive.positions.size());
         for (std::size_t index = 0; index < primitive.positions.size(); ++index) {
             const auto position = primitive.positions[index];
+            bounds.include(position);
             const auto normal = index < primitive.normals.size()
                 ? normalized(primitive.normals[index])
                 : novacore::math::Vec3{0.0F, 1.0F, 0.0F};
@@ -2442,7 +2477,9 @@ struct VulkanBackend::Impl final {
             return false;
         }
 
-        const auto vertices = buildVertices(source);
+        detail::ShadowMeshBounds bounds{};
+        const auto vertices = buildVertices(source, bounds);
+        outPrimitive.bounds.fill(bounds);
         const VkDeviceSize vertexBytes = sizeof(VulkanMeshVertex) * vertices.size();
         const VkDeviceSize indexBytes = sizeof(std::uint32_t) * source.indices.size();
 
@@ -2697,10 +2734,12 @@ struct VulkanBackend::Impl final {
                     break;
                 }
 
+                detail::ShadowMeshBounds bounds{};
                 std::vector<VulkanMeshVertex> vertices;
                 vertices.reserve(source.positions.size());
                 for (std::size_t vertexIndex = 0; vertexIndex < source.positions.size(); ++vertexIndex) {
                     const auto position = source.positions[vertexIndex];
+                    bounds.include(position);
                     const auto normal = vertexIndex < source.normals.size()
                         ? normalized(source.normals[vertexIndex])
                         : math::Vec3{0.0F, 1.0F, 0.0F};
@@ -2722,6 +2761,7 @@ struct VulkanBackend::Impl final {
                     updated = false;
                     break;
                 }
+                destination.bounds[safeFrameSlot] = bounds;
             }
 
             if (updated) {
@@ -2906,12 +2946,84 @@ struct VulkanBackend::Impl final {
         }
     }
 
+    void prepareDirectionalShadows(const RenderFrameInfo& frame) {
+        directionalShadowsPrepared = directionalShadowMap.prepare(currentFrame, frame, swapchainExtent);
+        if (!directionalShadowsPrepared) {
+            directionalShadowsReady = false;
+            lastDirectionalShadowCasterDrawCount = 0;
+            lastDirectionalShadowDynamicCasterDrawCount = 0;
+            return;
+        }
+        if (!attemptedShadowReceiverPipelines) {
+            attemptedShadowReceiverPipelines = true;
+            (void)createWorldBoxPipeline(true);
+            (void)createWorldMeshPipeline(true);
+        }
+        directionalShadowsPrepared =
+            worldBoxShadowedPipeline != VK_NULL_HANDLE && worldMeshShadowedPipeline != VK_NULL_HANDLE;
+    }
+
+    void recordDirectionalShadows(VkCommandBuffer command, const RenderFrameInfo& frame) {
+        directionalShadowsReady = false;
+        lastDirectionalShadowCasterDrawCount = 0;
+        lastDirectionalShadowDynamicCasterDrawCount = 0;
+        if (!directionalShadowsPrepared) {
+            return;
+        }
+        const auto& light = directionalShadowMap.lightCamera();
+        beginDebugRegion(command, "Directional Shadow Depth", {0.40F, 0.36F, 0.18F, 1.0F});
+        directionalShadowMap.begin(command, currentFrame);
+        for (const auto& box : frame.worldBoxes) {
+            const float radius = std::hypot(box.halfExtents.x, box.halfExtents.y, box.halfExtents.z);
+            if (!box.castsShadow || !detail::finiteShadowPoint(box.halfExtents) ||
+                !detail::shadowCasterSphereVisible(light, box.center, radius)) {
+                continue;
+            }
+            directionalShadowMap.drawBox(command, box);
+            ++lastDirectionalShadowCasterDrawCount;
+        }
+        for (const auto& mesh : frame.worldMeshes) {
+            if (!mesh.castsShadow || mesh.layer != RenderMeshLayer::World || !mesh.mesh.isValid() ||
+                !detail::finiteShadowPoint(mesh.position) || !detail::meshNormalTransform(mesh)) {
+                continue;
+            }
+            const auto uploaded = gpuMeshes.find(resourceKey(mesh.mesh));
+            if (uploaded == gpuMeshes.end() || uploaded->second.state != GpuMeshState::Resident) {
+                continue;
+            }
+            const auto model = modelMatrixForMesh(mesh);
+            for (const auto& primitive : uploaded->second.primitives) {
+                const auto slot = primitive.dynamicVertices ? currentFrame : 0U;
+                const auto& vertices = primitive.vertexBuffers[slot];
+                const auto sphere = detail::transformedShadowBounds(primitive.bounds[slot], model);
+                if (vertices.buffer == VK_NULL_HANDLE || primitive.indexBuffer.buffer == VK_NULL_HANDLE ||
+                    primitive.indexCount == 0 || !sphere ||
+                    !detail::shadowCasterSphereVisible(light, sphere->center, sphere->radius)) {
+                    continue;
+                }
+                directionalShadowMap.drawMesh(command, model, vertices.buffer, primitive.indexBuffer.buffer,
+                                              primitive.indexCount);
+                uploaded->second.lastTouchedFrame = frameSerial;
+                ++lastDirectionalShadowCasterDrawCount;
+                if (primitive.dynamicVertices) {
+                    ++lastDirectionalShadowDynamicCasterDrawCount;
+                }
+            }
+        }
+        directionalShadowMap.end(command);
+        endDebugRegion(command);
+        directionalShadowsReady = true;
+    }
+
     void drawMeshLayer(
         VkCommandBuffer commandBuffer,
         const RenderFrameInfo& frame,
         RenderMeshLayer layer,
         const Mat4& viewProjection) {
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldMeshPipeline);
+        const bool shadowed = directionalShadowsPrepared && layer == RenderMeshLayer::World;
+        const auto layout = shadowed ? worldMeshShadowedPipelineLayout : worldMeshPipelineLayout;
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          shadowed ? worldMeshShadowedPipeline : worldMeshPipeline);
         for (const auto& mesh : frame.worldMeshes) {
             if (mesh.layer != layer || !mesh.mesh.isValid()) {
                 continue;
@@ -2931,6 +3043,9 @@ struct VulkanBackend::Impl final {
                 continue;
             }
             uploaded->second.lastTouchedFrame = frameSerial;
+            if (shadowed) {
+                directionalShadowMap.bindReceiver(commandBuffer, layout, currentFrame, mesh.receivesShadow);
+            }
 
             for (const auto& primitive : uploaded->second.primitives) {
                 const auto& vertexBuffer = primitive.dynamicVertices
@@ -2961,13 +3076,8 @@ struct VulkanBackend::Impl final {
                     frame.lighting,
                     primitiveColor,
                     gltfMaterial);
-                vkCmdPushConstants(
-                    commandBuffer,
-                    worldMeshPipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0,
-                    static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)),
-                    &constants);
+                vkCmdPushConstants(commandBuffer, layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                                   static_cast<std::uint32_t>(sizeof(WorldMeshPushConstants)), &constants);
 
                 const VkBuffer vertexBuffers[] = {vertexBuffer.buffer};
                 const VkDeviceSize offsets[] = {0};
@@ -2994,6 +3104,7 @@ struct VulkanBackend::Impl final {
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(commandBuffer, &beginInfo);
+        recordDirectionalShadows(commandBuffer, frame);
 
         std::array<VkClearValue, 2> clearValues{};
         clearValues[0].color = {{frame.clearColor[0], frame.clearColor[1], frame.clearColor[2], frame.clearColor[3]}};
@@ -3039,16 +3150,16 @@ struct VulkanBackend::Impl final {
             }
             beginDebugRegion(commandBuffer, "World Boxes", {0.24F, 0.72F, 0.42F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
-            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, worldBoxPipeline);
+            const auto boxLayout = directionalShadowsPrepared ? worldBoxShadowedPipelineLayout : worldBoxPipelineLayout;
+            vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              directionalShadowsPrepared ? worldBoxShadowedPipeline : worldBoxPipeline);
             for (const auto& box : frame.worldBoxes) {
+                if (directionalShadowsPrepared) {
+                    directionalShadowMap.bindReceiver(commandBuffer, boxLayout, currentFrame, box.receivesShadow);
+                }
                 const auto constants = pushConstantsForBox(viewProjection, box, frame.lighting);
-                vkCmdPushConstants(
-                    commandBuffer,
-                    worldBoxPipelineLayout,
-                    VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                    0,
-                    static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants)),
-                    &constants);
+                vkCmdPushConstants(commandBuffer, boxLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                                   0, static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants)), &constants);
                 vkCmdDraw(commandBuffer, 36, 1, 0, 0);
             }
             endDebugRegion(commandBuffer);
@@ -3184,6 +3295,24 @@ struct VulkanBackend::Impl final {
             return;
         }
 
+        directionalShadowsPrepared = false;
+        directionalShadowsReady = false;
+        attemptedShadowReceiverPipelines = false;
+        lastDirectionalShadowCasterDrawCount = 0;
+        lastDirectionalShadowDynamicCasterDrawCount = 0;
+        for (auto* pipeline : {&worldMeshShadowedPipeline, &worldBoxShadowedPipeline}) {
+            if (*pipeline != VK_NULL_HANDLE) {
+                vkDestroyPipeline(device, *pipeline, nullptr);
+                *pipeline = VK_NULL_HANDLE;
+            }
+        }
+        for (auto* layout : {&worldMeshShadowedPipelineLayout, &worldBoxShadowedPipelineLayout}) {
+            if (*layout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(device, *layout, nullptr);
+                *layout = VK_NULL_HANDLE;
+            }
+        }
+        directionalShadowMap.shutdown();
         uiRenderer.shutdown();
         if (uiLinePipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(device, uiLinePipeline, nullptr);
@@ -3307,6 +3436,7 @@ struct VulkanBackend::Impl final {
             return false;
         }
 
+        (void)directionalShadowMap.create(physicalDevice, device, kMaxFramesInFlight);
         (void)createSkyPipeline();
         (void)createWorldBoxPipeline();
         (void)createContactShadowPipeline();
@@ -3438,6 +3568,7 @@ void VulkanBackend::beginFrame(const RenderFrameInfo& frame) {
     impl_->processDeferredMeshDestroys();
     impl_->processMeshUploadQueue(32);
     impl_->processDynamicMeshUpdates();
+    impl_->prepareDirectionalShadows(frame);
     (void)impl_->uiRenderer.prepare(frame.ui, impl_->currentFrame, impl_->commandPool, impl_->graphicsQueue);
 
     const VkResult acquireResult = vkAcquireNextImageKHR(
@@ -3602,6 +3733,10 @@ RenderBackendFrameStats VulkanBackend::frameStats() const {
     stats.lastUiTextCount = impl_->lastUiTextCount;
     stats.swapchainReady = impl_->isReady && impl_->swapchain != VK_NULL_HANDLE;
     stats.debugLabelsAvailable = impl_->debugLabelsAvailable;
+    stats.directionalShadowsReady = impl_->directionalShadowsReady;
+    stats.directionalShadowResolution = impl_->directionalShadowsReady ? impl_->directionalShadowMap.resolution() : 0;
+    stats.lastDirectionalShadowCasterDrawCount = impl_->lastDirectionalShadowCasterDrawCount;
+    stats.lastDirectionalShadowDynamicCasterDrawCount = impl_->lastDirectionalShadowDynamicCasterDrawCount;
     return stats;
 #else
     return {};
