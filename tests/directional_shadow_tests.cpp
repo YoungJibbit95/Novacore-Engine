@@ -96,7 +96,8 @@ void testInstanceBoundsAndIndependentOcclusion() {
         const auto occluder = detail::shadowProjectPoint(light->viewProjection, {0, 4, 0});
         expect(near(receiver.z, 0.5F) && near(occluder.z, 0.5F - 4 / (4 * light->radius)),
                "light depth follows world sun elevation with a known four-metre blocker");
-        expect(occluder.z < receiver.z - 0.0007F && receiver.z <= receiver.z + 0.0007F,
+        const auto frontReceiver = detail::shadowProjectPoint(light->viewProjection, {0, 5, 0});
+        expect(occluder.z < receiver.z - 0.0007F && frontReceiver.z - 0.0007F <= occluder.z,
                "LESS_OR_EQUAL comparison shadows behind the blocker and keeps the front surface lit");
     }
 }
