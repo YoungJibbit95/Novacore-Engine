@@ -118,6 +118,8 @@ std::string makeAnimationJson(std::string_view bufferUri = {}, std::string_view 
                 "material": 0
             }]
         }],
+        "images": [{ "uri": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGUlEQVR4nAXBAQEAAAjDIKI9ms0niOTQKg9AGAe6dfu8vgAAAABJRU5ErkJggg==" }],
+        "textures": [{ "source": 0 }, { "source": 0 }, { "source": 0 }],
         "materials": [{
             "name": "operator_blue",
             "pbrMetallicRoughness": {

@@ -2,6 +2,11 @@
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
 layout(location = 2) in vec2 in_texcoord;
+#ifdef MATERIAL_TEXTURES
+layout(location = 3) in vec2 in_texcoord1;
+#include "material_frame.glsl"
+layout(location = 7) out vec2 v_uv1;
+#endif
 
 layout(push_constant) uniform MeshPushConstants {
     mat4 world_view_projection;
@@ -20,6 +25,8 @@ layout(location = 4) out vec4 v_fill_direction_intensity;
 layout(location = 5) out vec4 v_material_response;
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
 #include "shadow_data.glsl"
+#endif
+#if defined(DIRECTIONAL_SHADOW_RECEIVER) || defined(MATERIAL_TEXTURES)
 layout(location = 6) out vec3 v_world_position;
 #endif
 
@@ -46,12 +53,17 @@ void main() {
     scaled_normal = normal_scale > 0.0 ? scaled_normal / normal_scale : vec3(0.0, 1.0, 0.0);
     v_normal = normalize(rotateNormal(pc.normal_rotation, scaled_normal));
     v_uv = in_texcoord;
+#ifdef MATERIAL_TEXTURES
+    v_uv1 = in_texcoord1;
+#endif
     vec2 ambient_fill = unpackUnorm2x16(pc.lighting_material.y);
     v_light_direction_ambient = vec4(unpackDirection(pc.sun_direction), ambient_fill.x);
     v_fill_direction_intensity = vec4(unpackDirection(pc.lighting_material.x), ambient_fill.y);
     v_material_response = vec4(unpackUnorm2x16(pc.lighting_material.z), unpackUnorm2x16(pc.lighting_material.w));
     gl_Position = pc.world_view_projection * vec4(in_position, 1.0);
-#ifdef DIRECTIONAL_SHADOW_RECEIVER
+#ifdef MATERIAL_TEXTURES
+    v_world_position = materialWorldPosition(gl_Position);
+#elif defined(DIRECTIONAL_SHADOW_RECEIVER)
     v_world_position = shadowWorldPosition(gl_Position);
 #endif
 }

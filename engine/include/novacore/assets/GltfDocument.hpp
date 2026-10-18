@@ -84,6 +84,7 @@ struct GltfPrimitiveData final {
     std::vector<std::array<std::uint16_t, 4>> joints;
     std::vector<std::array<float, 4>> weights;
     std::vector<std::uint32_t> indices;
+    std::vector<math::Vec2> texcoords1;
 };
 
 struct GltfNodeMarker final {
@@ -92,6 +93,14 @@ struct GltfNodeMarker final {
     math::Vec3 worldForward{0.0F, 0.0F, 1.0F};
     math::Vec3 worldUp{0.0F, 1.0F, 0.0F};
     int meshIndex = -1;
+};
+
+struct GltfTextureTransformData final {
+    bool enabled = false;
+    math::Vec2 offset{};
+    math::Vec2 scale{1.0F, 1.0F};
+    float rotation = 0.0F;
+    int texCoord = -1; // absent override
 };
 
 struct GltfMaterialData final {
@@ -106,6 +115,39 @@ struct GltfMaterialData final {
     int normalTextureIndex = -1;
     int emissiveTextureIndex = -1;
     bool doubleSided = false;
+    std::uint32_t baseColorTexCoord = 0;
+    std::uint32_t metallicRoughnessTexCoord = 0;
+    std::uint32_t normalTexCoord = 0;
+    std::uint32_t emissiveTexCoord = 0;
+    float normalScale = 1.0F;
+    std::string alphaMode = "OPAQUE";
+    float alphaCutoff = 0.5F;
+    float emissiveStrength = 1.0F;
+    // Base color, metallic/roughness, normal, emissive. Retained even when the
+    // current renderer explicitly falls back for KHR_texture_transform.
+    std::array<GltfTextureTransformData, 4> textureTransforms{};
+};
+
+struct GltfImageData final {
+    std::string name;
+    std::string mimeType;
+    std::string uri;
+    int bufferViewIndex = -1;
+    // Encoded data stays shared when mesh subsets or CPU-skinned copies are
+    // made. Pixel decoding is demand-driven by material upload, not simulation.
+    std::shared_ptr<const std::vector<std::uint8_t>> encodedBytes;
+};
+
+struct GltfTextureData final {
+    int imageIndex = -1;
+    int samplerIndex = -1;
+};
+
+struct GltfSamplerData final {
+    int magFilter = 9729; // LINEAR
+    int minFilter = 9987; // LINEAR_MIPMAP_LINEAR when unspecified
+    int wrapS = 10497;    // REPEAT
+    int wrapT = 10497;
 };
 
 struct GltfAnimationData;
@@ -118,6 +160,9 @@ struct GltfMeshData final {
     std::vector<GltfMaterialData> materials;
     std::vector<GltfPrimitiveData> primitives;
     std::shared_ptr<const GltfAnimationData> animationData;
+    std::vector<GltfImageData> images;
+    std::vector<GltfTextureData> textures;
+    std::vector<GltfSamplerData> samplers;
 
     [[nodiscard]] std::size_t primitiveCount() const {
         return primitives.size();

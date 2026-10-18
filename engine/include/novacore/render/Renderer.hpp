@@ -98,6 +98,13 @@ struct RenderBackendFrameStats final {
     std::uint32_t directionalShadowResolution = 0;
     std::size_t lastDirectionalShadowCasterDrawCount = 0;
     std::size_t lastDirectionalShadowDynamicCasterDrawCount = 0;
+    bool materialTexturesReady = false;
+    std::size_t residentMaterialImageCount = 0;
+    std::size_t lastMaterialTextureDrawCount = 0;
+    std::size_t lastMaterialFallbackDrawCount = 0;
+    std::uint64_t residentMaterialImageBytes = 0;
+    std::uint64_t materialImageBudgetBytes = 0;
+    std::uint64_t materialImageBudgetRejectCount = 0;
 };
 
 struct MeshResourceView final {
@@ -176,6 +183,8 @@ struct RenderMaterialBinding final {
     bool descriptorReady = false;
     bool textureBound = false;
     bool fallbackOnly = true;
+    // Compatibility metadata. Actual image/descriptor readiness is owned by
+    // the backend and reported through RenderBackendFrameStats.
 };
 
 struct RenderMaterialFallbackValidation final {
@@ -292,6 +301,7 @@ struct RenderFrameInfo final {
     std::vector<DebugText> debugTexts;
     UiDrawData ui;
     RenderDirectionalShadows directionalShadows{};
+    bool materialTexturesEnabled = false;
 };
 
 class Renderer final {
