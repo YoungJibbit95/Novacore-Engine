@@ -7,6 +7,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <tuple>
 #include <utility>
 
 #if NOVACORE_HAS_JOLT
@@ -18,7 +19,9 @@
 #include <Jolt/Geometry/AABox.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
@@ -49,6 +52,10 @@ namespace {
 }
 #endif
 [[nodiscard]] bool validate(const RigidBodyDesc& d, std::string& error) {
+    if (d.isSensor && d.motion != RigidBodyMotion::Kinematic) {
+        error = "Sensors require active kinematic motion";
+        return false;
+    }
     if (d.id.empty() || d.id.size() > 128 || !bounded(d.position, 100000.0F) ||
         !validRotation(d.rotation) || !speedBounded(d.linearVelocity, 500.0F) ||
         !speedBounded(d.angularVelocity, 100.0F) || d.filter.layer >= 8 ||
@@ -162,6 +169,26 @@ public:
 private:
     unsigned mask_;
 };
+class RayBodyFilter final : public JPH::BodyFilter {
+public:
+    explicit RayBodyFilter(bool includeSensors) : includeSensors_(includeSensors) {}
+    bool ShouldCollideLocked(const JPH::Body& body) const override { return includeSensors_ || !body.IsSensor(); }
+private:
+    bool includeSensors_;
+};
+
+bool endpointLess(const RigidBodyContactEndpoint& a, const RigidBodyContactEndpoint& b) {
+    return std::tie(a.id,a.handle.world,a.handle.index,a.handle.generation) <
+        std::tie(b.id,b.handle.world,b.handle.index,b.handle.generation);
+}
+template<class Pair> bool pairLess(const Pair& a, const Pair& b) {
+    if (endpointLess(a.first,b.first)) return true;
+    if (endpointLess(b.first,a.first)) return false;
+    return endpointLess(a.second,b.second);
+}
+template<class Pair> bool samePair(const Pair& a, const Pair& b) {
+    return a.first.handle == b.first.handle && a.second.handle == b.second.handle;
+}
 
 JPH::Shape::ShapeResult makeShape(const RigidBodyDesc& desc) {
     switch (desc.shape) {
@@ -195,7 +222,7 @@ JPH::Shape::ShapeResult makeRamp(const StaticCollider& collider) {
 }
 } // namespace
 
-class RigidBodyWorld::Impl final {
+class RigidBodyWorld::Impl final : public JPH::ContactListener {
 public:
     struct Slot final {
         std::uint32_t generation = 1;
@@ -217,8 +244,19 @@ public:
     std::uint64_t tick = 0;
     std::vector<Slot> slots;
     std::map<std::string,std::size_t,std::less<>> byId;
+    struct RawContact final {
+        RigidBodyHandle first{}, second{};
+        math::Vec3 pointOnFirst{}, pointOnSecond{}, normal{};
+        float depth = 0;
+    };
+    std::vector<RawContact> rawContacts; // Sized once; callbacks never allocate.
+    std::size_t rawCount = 0;
+    bool captureOverflow = false;
+    std::vector<RigidBodyContact> sensorPairs;
+    std::vector<RigidBodySensorEvent> pendingExits;
 
     ~Impl() {
+        if (system) system->SetContactListener(nullptr);
         if (system) for (auto& slot : slots) if (!slot.native.IsInvalid()) {
             system->GetBodyInterface().RemoveBody(slot.native);
             system->GetBodyInterface().DestroyBody(slot.native);
@@ -232,11 +270,91 @@ public:
         auto& slot = slots[handle.index];
         return slot.generation == handle.generation && !slot.native.IsInvalid() ? &slot : nullptr;
     }
+    RigidBodyContactEndpoint endpoint(std::size_t index) const {
+        const auto& slot = slots[index];
+        return {handle(index),slot.desc.id,slot.desc.materialId,slot.desc.surfaceId,slot.desc.isSensor,slot.canonical};
+    }
+    void capture(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& manifold) {
+        // SingleThreaded jobs only. Bodies are locked: read callback values,
+        // never call the locking interface, allocate, or dispatch game code.
+        if (rawCount == rawContacts.size()) { captureOverflow = true; return; }
+        const auto first = static_cast<std::size_t>(a.GetUserData());
+        const auto second = static_cast<std::size_t>(b.GetUserData());
+        if (first >= slots.size() || second >= slots.size() || slots[first].native != a.GetID() || slots[second].native != b.GetID()) {
+            captureOverflow = true; return;
+        }
+        auto& record = rawContacts[rawCount++];
+        record = {handle(first),handle(second),{}, {},vec(manifold.mWorldSpaceNormal),manifold.mPenetrationDepth};
+        if (!manifold.mRelativeContactPointsOn1.empty() && !manifold.mRelativeContactPointsOn2.empty()) {
+            record.pointOnFirst = vec(manifold.GetWorldSpaceContactPointOn1(0));
+            record.pointOnSecond = vec(manifold.GetWorldSpaceContactPointOn2(0));
+        }
+    }
+    void OnContactAdded(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& m, JPH::ContactSettings&) override { capture(a,b,m); }
+    void OnContactPersisted(const JPH::Body& a, const JPH::Body& b, const JPH::ContactManifold& m, JPH::ContactSettings&) override { capture(a,b,m); }
+    void OnContactRemoved(const JPH::SubShapeIDPair&) override {
+        // Never dereference possibly destroyed bodies. Active kinematic sensors
+        // report their complete current pairs every update; diff that owned set
+        // after Update so removal of just one subshape cannot emit a false Exit.
+    }
+    bool extract(RigidBodyStepResult& result, std::uint64_t nextTick) {
+        if (config.maxContactEvents == 0) return true;
+        if (captureOverflow) return false;
+        std::vector<RigidBodyContact> contacts;
+        contacts.reserve(rawCount);
+        for (std::size_t i=0; i<rawCount; ++i) {
+            const auto& raw = rawContacts[i];
+            if (!find(raw.first) || !find(raw.second)) return false;
+            RigidBodyContact contact{nextTick,endpoint(raw.first.index),endpoint(raw.second.index),
+                raw.pointOnFirst,raw.pointOnSecond,raw.normal,raw.depth};
+            if (endpointLess(contact.second,contact.first)) {
+                std::swap(contact.first,contact.second);
+                std::swap(contact.pointOnFirst,contact.pointOnSecond);
+                contact.normal = contact.normal * -1.0F;
+            }
+            contacts.push_back(std::move(contact));
+        }
+        std::sort(contacts.begin(),contacts.end(),[](const auto& a,const auto& b) {
+            if (pairLess(a,b)) return true;
+            if (pairLess(b,a)) return false;
+            // Keep deepest manifold, with a stable tie break for CCD repeats.
+            return std::tie(a.penetrationDepth,a.pointOnFirst.x,a.pointOnFirst.y,a.pointOnFirst.z,
+                a.pointOnSecond.x,a.pointOnSecond.y,a.pointOnSecond.z,a.normal.x,a.normal.y,a.normal.z) >
+                std::tie(b.penetrationDepth,b.pointOnFirst.x,b.pointOnFirst.y,b.pointOnFirst.z,
+                b.pointOnSecond.x,b.pointOnSecond.y,b.pointOnSecond.z,b.normal.x,b.normal.y,b.normal.z);
+        });
+        contacts.erase(std::unique(contacts.begin(),contacts.end(),[](const auto& a,const auto& b) { return samePair(a,b); }),contacts.end());
+        std::vector<RigidBodyContact> currentSensors;
+        for (const auto& contact : contacts) if (contact.first.isSensor || contact.second.isSensor) currentSensors.push_back(contact);
+        auto events = pendingExits;
+        for (auto& event : events) event.tick = nextTick;
+        std::size_t old = 0, current = 0;
+        while (old < sensorPairs.size() || current < currentSensors.size()) {
+            RigidBodySensorEvent event; event.tick = nextTick;
+            if (current == currentSensors.size() || (old < sensorPairs.size() && pairLess(sensorPairs[old],currentSensors[current]))) {
+                const auto& previous = sensorPairs[old++];
+                event.first = previous.first; event.second = previous.second; event.phase = RigidBodySensorPhase::Exit;
+            } else {
+                const auto& contact = currentSensors[current++];
+                event.first = contact.first; event.second = contact.second;
+                if (old < sensorPairs.size() && samePair(sensorPairs[old],contact)) { ++old; event.phase = RigidBodySensorPhase::Stay; }
+            }
+            if (events.size() == config.maxContactEvents) return false;
+            events.push_back(std::move(event));
+        }
+        std::sort(events.begin(),events.end(),[](const auto& a,const auto& b) { return pairLess(a,b); });
+        sensorPairs = std::move(currentSensors);
+        pendingExits.clear();
+        result.contacts = std::move(contacts);
+        result.sensorEvents = std::move(events);
+        return true;
+    }
     RigidBodyHandle create(const RigidBodyDesc& desc, const JPH::Shape* shape, bool canonical, std::string& error) {
         if (byId.contains(desc.id) || byId.size() >= config.maxBodies) {
             error = "Duplicate rigid-body ID or world capacity exhausted";
             return {};
         }
+        if (desc.isSensor && config.maxContactEvents == 0) { error = "Sensors require contact capture capacity"; return {}; }
         JPH::EMotionType motion = JPH::EMotionType::Static;
         if (desc.motion == RigidBodyMotion::Dynamic) motion = JPH::EMotionType::Dynamic;
         if (desc.motion == RigidBodyMotion::Kinematic) motion = JPH::EMotionType::Kinematic;
@@ -248,8 +366,10 @@ public:
         settings.mLinearDamping = desc.linearDamping;
         settings.mAngularDamping = desc.angularDamping;
         settings.mMaxAngularVelocity = 100.0F;
-        settings.mMotionQuality = desc.continuousCollision ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
-        settings.mAllowSleeping = desc.allowSleeping;
+        settings.mMotionQuality = desc.continuousCollision && !desc.isSensor ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
+        settings.mAllowSleeping = desc.allowSleeping && !desc.isSensor;
+        settings.mIsSensor = desc.isSensor;
+        settings.mCollideKinematicVsNonDynamic = desc.isSensor;
         settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
         settings.mMassPropertiesOverride.mMass = desc.massKg;
         std::size_t index = 0;
@@ -267,8 +387,18 @@ public:
         byId.emplace(desc.id,index);
         return handle(index);
     }
-    void remove(std::size_t index) {
+    void remove(std::size_t index, RigidBodySensorExitReason reason = RigidBodySensorExitReason::BodyRemoved) {
         auto& slot = slots[index];
+        const auto removedHandle = handle(index);
+        for (auto it = sensorPairs.begin(); it != sensorPairs.end();) {
+            if (it->first.handle != removedHandle && it->second.handle != removedHandle) { ++it; continue; }
+            auto first = it->first, second = it->second;
+            if (find(first.handle)) first = endpoint(first.handle.index);
+            if (find(second.handle)) second = endpoint(second.handle.index);
+            if (pendingExits.size() == config.maxContactEvents) captureOverflow = true;
+            else pendingExits.push_back({0,std::move(first),std::move(second),RigidBodySensorPhase::Exit,reason});
+            it = sensorPairs.erase(it);
+        }
         std::optional<JPH::AABox> bounds;
         {
             const JPH::BodyLockRead lock(system->GetBodyLockInterface(),slot.native);
@@ -292,7 +422,8 @@ public:
         return {handle(index), slot.desc.id, slot.desc.motion,
             vec(api.GetPosition(slot.native)), quat(api.GetRotation(slot.native)),
             vec(api.GetLinearVelocity(slot.native)), vec(api.GetAngularVelocity(slot.native)),
-            slot.desc.motion == RigidBodyMotion::Dynamic && !api.IsActive(slot.native), slot.canonical};
+            slot.desc.motion == RigidBodyMotion::Dynamic && !api.IsActive(slot.native), slot.canonical,
+            slot.desc.materialId,slot.desc.surfaceId,slot.desc.isSensor};
     }
     void wakeNear(const StaticCollider& collider) {
         const auto padding = math::Vec3{0.05F,0.05F,0.05F};
@@ -323,6 +454,10 @@ public:
                 return false;
             }
             const auto previous = byId.find(source.id);
+            if (previous != byId.end()) {
+                desc.materialId = slots[previous->second].desc.materialId;
+                desc.surfaceId = slots[previous->second].desc.surfaceId;
+            }
             if (desc.motion == RigidBodyMotion::Kinematic && previous != byId.end() &&
                 !speedBounded(source.center - slots[previous->second].source.center,500.0F*config.fixedDeltaSeconds)) {
                 result.error = "Canonical kinematic displacement exceeds fixed-tick speed bound; reset for teleports";
@@ -359,7 +494,7 @@ public:
         for (auto& [id,pending] : sources) {
             auto existing = byId.find(id);
             if (pending.shape) {
-                if (existing != byId.end()) { remove(existing->second); ++result.staticBodiesRemoved; }
+                if (existing != byId.end()) { remove(existing->second,RigidBodySensorExitReason::ColliderReplaced); ++result.staticBodiesRemoved; }
                 const auto created = create(pending.desc,pending.shape,true,result.error);
                 if (!created.valid()) return false;
                 slots[created.index].source = pending.source;
@@ -399,7 +534,8 @@ bool RigidBodyWorld::initialize(const RigidBodyWorldConfig& config, std::string&
     if (!std::isfinite(config.fixedDeltaSeconds) || config.fixedDeltaSeconds < 1.0F/240.0F ||
         config.fixedDeltaSeconds > 1.0F/15.0F || !bounded(config.gravity,1000.0F) ||
         config.maxBodies < 8 || config.maxBodies > 8192 ||
-        !std::isfinite(config.contactSlopMeters) || config.contactSlopMeters < 0.0001F || config.contactSlopMeters > 0.02F) {
+        !std::isfinite(config.contactSlopMeters) || config.contactSlopMeters < 0.0001F || config.contactSlopMeters > 0.02F ||
+        config.maxContactEvents > 65536) {
         error = "Invalid rigid-body world configuration";
         return false;
     }
@@ -416,6 +552,12 @@ bool RigidBodyWorld::initialize(const RigidBodyWorldConfig& config, std::string&
     auto settings = candidate->system->GetPhysicsSettings();
     settings.mPenetrationSlop = config.contactSlopMeters;
     candidate->system->SetPhysicsSettings(settings);
+    if (config.maxContactEvents != 0) {
+        candidate->rawContacts.resize(config.maxContactEvents);
+        candidate->sensorPairs.reserve(config.maxContactEvents);
+        candidate->pendingExits.reserve(config.maxContactEvents);
+        candidate->system->SetContactListener(candidate.get());
+    }
     impl_ = std::move(candidate);
     return true;
 #else
@@ -495,6 +637,18 @@ bool RigidBodyWorld::moveKinematic(RigidBodyHandle handle, math::Vec3 target, ma
 #endif
     return false;
 }
+bool RigidBodyWorld::setBodyTags(RigidBodyHandle handle, std::uint32_t materialId, std::uint32_t surfaceId) {
+#if NOVACORE_HAS_JOLT
+    if (impl_) if (auto* slot = impl_->find(handle)) {
+        slot->desc.materialId = materialId;
+        slot->desc.surfaceId = surfaceId;
+        return true;
+    }
+#else
+    (void)handle; (void)materialId; (void)surfaceId;
+#endif
+    return false;
+}
 RigidBodyStepResult RigidBodyWorld::step(const PhysicsWorld& canonicalStatics, std::uint64_t tick) {
     RigidBodyStepResult result;
 #if NOVACORE_HAS_JOLT
@@ -503,11 +657,16 @@ RigidBodyStepResult RigidBodyWorld::step(const PhysicsWorld& canonicalStatics, s
         if (impl_->tick == std::numeric_limits<std::uint64_t>::max() || tick != impl_->tick + 1U) {
             result.error = "Rigid-body tick must be the next consecutive authoritative tick"; return result;
         }
+        if (impl_->captureOverflow) {
+            result.error = "Rigid-body contact capture capacity exceeded; world requires reset";
+            shutdown(); return result;
+        }
         if (!impl_->synchronize(canonicalStatics,result)) return result;
         for (auto& slot : impl_->slots) if (!slot.native.IsInvalid() && !slot.canonical && slot.desc.motion == RigidBodyMotion::Kinematic) {
             if (!slot.kinematicTargetPending) impl_->system->GetBodyInterface().SetLinearAndAngularVelocity(slot.native,JPH::Vec3::sZero(),JPH::Vec3::sZero());
             slot.kinematicTargetPending = false;
         }
+        impl_->rawCount = 0;
         const auto updateError = impl_->system->Update(impl_->config.fixedDeltaSeconds,1,impl_->allocator.get(),impl_->jobs.get());
         if (updateError != JPH::EPhysicsUpdateError::None) {
             result.error = "Jolt update capacity exceeded; world requires reset";
@@ -515,6 +674,11 @@ RigidBodyStepResult RigidBodyWorld::step(const PhysicsWorld& canonicalStatics, s
             // retrying the same tick must not simulate it twice.
             shutdown();
             return result;
+        }
+        if (!impl_->extract(result,tick)) {
+            result.error = "Rigid-body contact capture capacity exceeded; world requires reset";
+            // No successful/partial event packet escapes a partly advanced tick.
+            shutdown(); return result;
         }
         result.stepped = true;
         result.tick = ++impl_->tick;
@@ -532,13 +696,13 @@ RigidBodyStepResult RigidBodyWorld::step(const PhysicsWorld& canonicalStatics, s
     result.error = "Rigid-body world is not initialized";
     return result;
 }
-std::optional<RigidBodyRayHit> RigidBodyWorld::raycast(math::Vec3 origin, math::Vec3 displacement, std::uint8_t layerMask) const {
+std::optional<RigidBodyRayHit> RigidBodyWorld::raycast(math::Vec3 origin, math::Vec3 displacement, std::uint8_t layerMask, bool includeSensors) const {
     if (!bounded(origin,100000.0F) || !bounded(displacement,100000.0F) || displacement.lengthSquared() <= 1.0e-12F) return {};
 #if NOVACORE_HAS_JOLT
     if (impl_) {
         JPH::RayCastResult hit;
         const JPH::RRayCast ray(vec(origin),vec(displacement));
-        if (!impl_->system->GetNarrowPhaseQuery().CastRay(ray,hit,{},RayFilter(layerMask))) return {};
+        if (!impl_->system->GetNarrowPhaseQuery().CastRay(ray,hit,{},RayFilter(layerMask),RayBodyFilter(includeSensors))) return {};
         const auto index = static_cast<std::size_t>(impl_->system->GetBodyInterface().GetUserData(hit.mBodyID));
         if (index >= impl_->slots.size() || impl_->slots[index].native != hit.mBodyID) return {};
         const auto point = ray.GetPointOnRay(hit.mFraction);
@@ -546,10 +710,11 @@ std::optional<RigidBodyRayHit> RigidBodyWorld::raycast(math::Vec3 origin, math::
         if (!lock.Succeeded()) return {};
         const auto& slot = impl_->slots[index];
         return RigidBodyRayHit{impl_->handle(index),slot.desc.id,vec(point),
-            vec(lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2,point)),hit.mFraction,slot.canonical};
+            vec(lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2,point)),hit.mFraction,slot.canonical,
+            slot.desc.materialId,slot.desc.surfaceId,slot.desc.isSensor};
     }
 #else
-    (void)layerMask;
+    (void)layerMask; (void)includeSensors;
 #endif
     return {};
 }

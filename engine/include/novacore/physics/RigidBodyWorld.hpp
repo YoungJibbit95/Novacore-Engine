@@ -48,6 +48,9 @@ struct RigidBodyDesc final {
     bool continuousCollision = true;
     bool allowSleeping = true;
     RigidBodyFilter filter{};
+    std::uint32_t materialId = 0; // Application-owned values; 0 means unspecified.
+    std::uint32_t surfaceId = 0; // Tags do not select friction/restitution presets.
+    bool isSensor = false; // Active kinematic only; discrete pre-solve overlap, no response/CCD.
 };
 
 struct RigidBodyWorldConfig final {
@@ -55,6 +58,9 @@ struct RigidBodyWorldConfig final {
     math::Vec3 gravity{0.0F, -9.81F, 0.0F};
     std::uint32_t maxBodies = 512; // Includes canonical static colliders.
     float contactSlopMeters = 0.005F; // Explicit metre-scale prop contact tolerance.
+    // 0 disables capture. Otherwise bounds raw callbacks, tracked sensor pairs,
+    // and each extracted vector independently. Overflow invalidates the world.
+    std::uint32_t maxContactEvents = 0; // 0..65536; sensors require capture enabled.
 };
 
 struct RigidBodySnapshot final {
@@ -67,6 +73,9 @@ struct RigidBodySnapshot final {
     math::Vec3 angularVelocity{};
     bool sleeping = false;
     bool canonicalCollider = false;
+    std::uint32_t materialId = 0;
+    std::uint32_t surfaceId = 0;
+    bool isSensor = false;
 };
 
 struct RigidBodyRayHit final {
@@ -76,6 +85,41 @@ struct RigidBodyRayHit final {
     math::Vec3 normal{};
     float fraction = 1.0F;
     bool canonicalCollider = false;
+    std::uint32_t materialId = 0;
+    std::uint32_t surfaceId = 0;
+    bool isSensor = false;
+};
+
+// Owned identity/tag copies remain readable after a body is removed. A handle
+// in an Exit event may already be stale; never resolve it without validation.
+struct RigidBodyContactEndpoint final {
+    RigidBodyHandle handle{};
+    std::string id;
+    std::uint32_t materialId = 0;
+    std::uint32_t surfaceId = 0;
+    bool isSensor = false;
+    bool canonicalCollider = false;
+};
+
+struct RigidBodyContact final {
+    std::uint64_t tick = 0;
+    RigidBodyContactEndpoint first{}, second{}; // Application ID/handle order.
+    math::Vec3 pointOnFirst{}, pointOnSecond{};
+    math::Vec3 normal{}; // From first towards second.
+    float penetrationDepth = 0; // Negative means speculative contact.
+    // One deepest manifold per body pair for this tick, before the solver.
+    // No resolved impulse or impact-audio intensity is implied.
+};
+
+enum class RigidBodySensorPhase { Enter, Stay, Exit };
+enum class RigidBodySensorExitReason { Separated, BodyRemoved, ColliderReplaced };
+struct RigidBodySensorEvent final {
+    std::uint64_t tick = 0;
+    RigidBodyContactEndpoint first{}, second{};
+    RigidBodySensorPhase phase = RigidBodySensorPhase::Enter;
+    RigidBodySensorExitReason exitReason = RigidBodySensorExitReason::Separated; // Exit only.
+    // Native pre-solve sample: MoveKinematic's integrated target is sampled on
+    // the following tick. No transient swept/pass-through occupancy is promised.
 };
 
 struct RigidBodyStepResult final {
@@ -87,6 +131,9 @@ struct RigidBodyStepResult final {
     std::uint32_t staticBodiesCreated = 0;
     std::uint32_t staticBodiesRemoved = 0;
     std::uint32_t staticBodiesUpdated = 0;
+    // Sorted owned extraction after a successful fixed tick; empty on failure.
+    std::vector<RigidBodyContact> contacts;
+    std::vector<RigidBodySensorEvent> sensorEvents;
 };
 
 // Optional CPU solver. Single simulation-thread ownership; call after KCC input
@@ -112,6 +159,7 @@ public:
     [[nodiscard]] std::vector<RigidBodySnapshot> bodies() const; // Application ID order.
     [[nodiscard]] bool applyImpulse(RigidBodyHandle handle, math::Vec3 impulse, math::Vec3 worldPoint);
     [[nodiscard]] bool moveKinematic(RigidBodyHandle handle, math::Vec3 target, math::Quat rotation);
+    [[nodiscard]] bool setBodyTags(RigidBodyHandle handle, std::uint32_t materialId, std::uint32_t surfaceId);
 
     // Tick must be previous successful tick+1, starting at 1. Derive blocking
     // boxes/ramps from ONE authoritative StaticCollider source; update only changed
@@ -120,7 +168,8 @@ public:
     [[nodiscard]] RigidBodyStepResult step(const PhysicsWorld& canonicalStatics, std::uint64_t tick);
     // displacement encodes both direction AND finite ray length, not a unit ray.
     [[nodiscard]] std::optional<RigidBodyRayHit> raycast(
-        math::Vec3 origin, math::Vec3 displacement, std::uint8_t layerMask = 0xff) const;
+        math::Vec3 origin, math::Vec3 displacement, std::uint8_t layerMask = 0xff,
+        bool includeSensors = false) const;
 
 private:
     class Impl;

@@ -1,5 +1,37 @@
 # Recovery progress
 
+## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
+
+- Published Draft [engine PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20),
+  runtime `34e87207f0219e1e8901e5b192703fa2adbb2d31`. Exact runtime complete
+  default-off MSVC/Clang [run 39174235581](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235581)
+  and Jolt MSVC/Clang [run 39174235602](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235602)
+  all pass. This following record-only commit changes no runtime or API.
+- Branch `recovery/phase5-physics-sensors` starts at immutable adoption head
+  `0da8ba32eed6617238c6a8f45553c7e5ec037c23`, stacked on Draft PR #17.
+  Only RigidBodyWorld, its tests and recovery records change; CMake, canonical
+  derivation, KCC, renderer and game source remain unchanged.
+- Append application material/surface IDs to descriptions/snapshots/rays; allow
+  live tag edits, retaining tags across canonical geometry replacement.
+  Game-owned presets still supply the explicit friction/restitution values.
+- Optional bounded extraction uses native Jolt Added/Persisted contact callbacks
+  and active kinematic sensor bodies. Extract sorted owned pre-solve contact
+  records and Enter/Stay/Exit after fixed Update. Sensor target poses are sampled
+  on the following tick; no continuous sensor/CCD or solved impulse is claimed.
+- Removal/replacement exits retain old world/generation identity, reset clears
+  queues, symmetric filters remain explicit, default rays skip sensors, and any
+  capture overflow invalidates the world without a partial successful packet.
+  Event capture remains disabled by default; no implicit canonical triggers.
+- Local GCC 13.2/O2 complete headless build plus 8/8 suites pass in 1.18 s,
+  including sleeping overlap, actual kinematic-player detection, removal/reuse,
+  tags, replacement/reset, stable ordering and both overflow paths. Final
+  Jolt-disabled adapter compiles/links/runs without Jolt. KCC720 hash remains
+  17925562298706474255 with capture off/on and after dynamics.
+- New C: variant public CMake package configures/builds/links/runs native sensor
+  Enter/Exit and tagged rays against unchanged installed Jolt. Earlier installed
+  artifacts remain untouched. Hosted CI passes; exact Nemisis combined revision
+  remains a separate acceptance gate. No graphical application was launched.
+
 ## 2026-10-19 Main integration: UI, proper camera, shadows and rigid bodies
 
 - Exact combined source `cca45a41aded8b13171943553e27f85071c76ed3` retains

@@ -81,6 +81,111 @@ deterministic build option is not proof of cross-platform network determinism.
 The current acceptance is same-build repeated fixed-tick simulation and unchanged
 KCC replay. No networked rigid-body prediction or rollback is implemented.
 
+## Bounded application sensors and material tags
+
+The next slice appends application-owned `materialId` and `surfaceId` values to
+body descriptions, snapshots and closest-ray results. Zero means unspecified.
+`setBodyTags` also labels canonical bodies after their first synchronization.
+Tags do not choose friction or restitution; the existing numeric coefficients
+remain authoritative. Nemisis owns Concrete/Metal/Wood presets, art and audio.
+A canonical collider with the same ID retains its tags during shape replacement;
+actual removal and later re-creation starts with unspecified tags.
+
+Contact extraction is explicit and disabled by default:
+
+```cpp
+RigidBodyWorldConfig config;
+config.maxContactEvents = 128;
+// initialize(config, error), then:
+RigidBodyDesc zone;
+zone.id = "application_zone";
+zone.motion = RigidBodyMotion::Kinematic;
+zone.isSensor = true;
+zone.halfExtents = {1, 1, 1};
+zone.filter = {3, 0x06}; // Observe categories 1 and 2.
+// createBody(zone, error); occupants must also permit category 3 in their masks.
+```
+
+Sensors are native Jolt bodies with no collision response. This slice accepts
+only active kinematic sensors: Jolt static sensors lose contacts when occupants
+sleep, while active kinematic sensors also detect sleeping occupants. Native
+kinematic-versus-nondynamic contact is enabled for sensors so they can observe
+player proxies and static bodies when the explicit symmetric filters allow it.
+Normal rays skip sensors; `raycast(origin, displacement, mask, true)` explicitly
+includes them. Sensor creation requires a nonzero capture budget.
+
+After a successful fixed `step`, `contacts` contains one deepest pre-solve
+manifold per body pair. Endpoints carry owned IDs, world/generation handles and
+tags, plus a representative point on each body, an oriented normal and depth.
+Negative depth is speculative contact. These are native active-contact records,
+not a complete overlap query for sleeping solid bodies. They contain **no solved
+impulse**, damage decision or computed audio intensity.
+
+`sensorEvents` contains Enter/Stay/Exit from the native callback pair set, sorted
+by application ID and then handle identity. Both endpoints are owned copies;
+old handles in Exit remain safely readable values but may fail live lookup.
+Discrete callbacks sample the pre-solve pose: a `MoveKinematic` target integrated
+this tick is sampled on the following tick. A fast body crossing an entire sensor
+between samples can be missed. Sensor CCD/swept triggers are not implemented.
+No second geometry scan or custom collision solver supplies these events.
+
+Lifecycle rules:
+
+- A native pair first present in a tick emits Enter, then one Stay per sampled
+  tick, including while a dynamic occupant sleeps. Separation emits one Exit.
+- Removing either endpoint queues a `BodyRemoved` Exit on the next successful
+  tick. Replacing a canonical shape queues `ColliderReplaced` for the old
+  generation; a newly overlapping generation emits its own Enter. Invalid ticks
+  do not drain the queue. Native deferred removal never resolves a recycled body.
+- Metadata edits retain occupancy. Filters remain creation-time values; remove
+  and re-create the body to change filtering. Excluded pairs never enter.
+- Reset/shutdown clears occupancy and queued events and changes world ownership.
+  Consumers clear their occupancy on reset rather than waiting for stale exits.
+
+Callbacks run with Jolt locks held and write only preallocated value records.
+They never allocate strings, take body locks, mutate bodies or call game code.
+Extraction/coalescing happens after the single-thread update. The configured
+budget (1..65536) independently bounds raw Added/Persisted callback records,
+tracked sensor pairs, and each extracted vector. Multiple manifolds and CCD
+Added/Persisted repeats consume raw records, so leave headroom. Pending exits
+also count toward the extracted event limit. Any overflow returns an explicit
+error, no successful or partial event packet, and invalidates the world; the
+partly advanced tick cannot be retried. Capture zero installs no listener and
+keeps the existing default solver path unchanged.
+
+Only explicitly created application sensors participate. Canonical
+`SurfaceKind::Trigger`, nonblocking greybox markers, range/spawn markers and KCC
+semantics retain their previous derivation. Trigger intent and level policies
+remain game-owned. No UI, GameApp, CMake, material registry or network schema is
+added by this slice.
+
+Local GCC 13.2/O2 validation (2026-10-19): complete cached headless build and all
+8/8 suites pass in 1.85 s (final added no-response assertion: 8/8 in 1.18 s).
+Added cases cover native kinematic player detection,
+360 sleeping-overlap ticks, explicit sensor rays, symmetric exclusions, metadata
+edits, owned removal exits, old-slot reuse, reset, canonical replacement/tag
+retention, stable event order, callback overflow and extracted-packet overflow.
+The first sensor timing assertions expected the integrated target too early;
+actual Jolt callbacks established the pre-solve timing documented above. Assertions
+now check both the integration tick and the following sampled tick explicitly.
+The original 720-tick KCC hash remains **17925562298706474255**, including with
+capture enabled during the intervening 720 rigid-body steps.
+
+The final disabled adapter also compiles/links/runs the updated public header and
+test without any Jolt link dependency, retaining that hash. An installed consumer
+using only NovaCore public headers and `Novacore::Engine` configures, links and
+runs actual Enter tick 1 / removal Exit tick 2 plus tagged sensor ray queries.
+It finds the unchanged installed Jolt archive explicitly. New variant package:
+`C:/Users/Administrator/.codex/tmp/phase5-physics-sensors`; engine archive SHA256
+`0e0096c22fdf9be3aa33639f090911b819f2ba9f73922066da7db27a77343530`.
+The earlier `physics/package` engine/Jolt artifacts and recorded hashes remain
+untouched. Published Draft [PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20)
+contains runtime `34e87207f0219e1e8901e5b192703fa2adbb2d31`.
+Exact runtime complete default-off MSVC/Clang [run 39174235581](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235581)
+and Jolt MSVC/Clang [run 39174235602](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235602)
+all pass. Exact combined Nemisis acceptance remains separate. No GUI or Vulkan
+validation was performed.
+
 ## Build and validation
 
 Default dependency-light configure/build/CTest remains supported without Jolt.
@@ -131,8 +236,10 @@ all pass. Exact Nemisis cross-repo integration remains a separate gate.
 ## Remaining acceptance
 
 This is a bounded PH-1 gate plus initial PH-2/PH-3 functionality, not a completed
-physics overhaul. Trigger lifecycle, overlap/shape casts/all-hits, static mesh
-cooking, shared material tags/impact events, two-way character contact/support,
+physics overhaul. Application sensor lifecycle and tagged pre-solve contacts
+are provided by the bounded next slice above. Canonical trigger derivation,
+overlap/shape casts/all-hits, static mesh cooking, solved impact events,
+two-way character contact/support,
 dropped weapons, constraints/ragdolls and prop replication remain separate work.
 No game default, damage, movement tuning or network schema changes are included.
 No graphical application was launched or visual acceptance claimed.
