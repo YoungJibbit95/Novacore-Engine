@@ -104,3 +104,22 @@ pin remains dbdfc38d092e018952ead43d9cb669333ebf70bc.
   tests still run against the exact old pin, whose runtime behavior is unchanged.
 - The added nested-transform contract also passes the complete local build and
   5/5 suites. It is engine-owned; no parser/socket repair code was introduced.
+- Published PR https://github.com/YoungJibbit95/Novacore-Engine/pull/9 from main
+  aca50b8. Cleanup commit 6689cfd5fe1fab50543e71d042c5774003f775f5; added hierarchy
+  test at 59929d6c6941f62ea20dd48424119811d37b0afe.
+- Hosted complete builds and all 5/5 suites pass on Windows/MSVC and Ubuntu/Clang
+  at 59929d6c6941f62ea20dd48424119811d37b0afe:
+  https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39123953218.
+  This evidence follow-up changes documentation only. No merge performed.
+- Independent Nemisis audit PR #10 retains 177 functions; contract PR #11 adds
+  two game functions against unchanged pin dbdfc38. A separate graphical build
+  reached the RTX 3070 Ti backend and one live hipfire image; physical Escape
+  stopped Computer Use. Held ADS, muzzle/grips and animation are not fully
+  visually validated; GPU CTest smokes were not run. CPU CI is not graphics proof.
+
+Next executable step: inspect the current/candidate M4A1 image matrix in Nemisis
+PR #11 using the existing Dev Range, then consider a separate visually reviewed
+cook/catalog migration. Preserve active offline fixups and both GLBs until CPU
+contracts plus hip/held ADS/muzzle/grips/scale/procedural-motion review pass.
+The documented authored glTF socket-offset gap needs a separate engine fixture/
+fix and exact cross-repo validation if pursued; do not mix it into this audit.
