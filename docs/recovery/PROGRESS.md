@@ -507,3 +507,21 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Final package lib hashes supersede the intermediate hashes above:
   headless 566a5aba40c10b3f54a283966808e7fb9d7b05b2b749e084000ccbd0737f2f34;
   Vulkan d493c60db46fdea131bb926b6190de7429b44e7d97517ea68b83e9b6073cd337.
+
+## 2026-10-19 Phase 5 R4 direct light source candidate
+
+- Isolated recovery/phase5-material-direct-light starts at frozen R3
+  22a421010d2e1329db54329464e1775f3f3b9f57. Changed only the opt-in textured
+  fragment light response: actual world-space eye direction, GGX/correlated
+  Smith/Schlick/Lambert dielectric-metal mixture, existing unitless sun/fill,
+  diffuse ambient approximation and R2 whole-sun visibility. MR/UV/normal,
+  emission, Reinhard and sRGB contracts stay intact. No public API/resource/
+  layout/asset/lifetime rewrite or renderer framework.
+- Initial small SDK shader gate passes all 27 modules with Vulkan 1.0
+  spirv-val. Compared with frozen R3, all 23 legacy modules and two textured
+  vertex modules are byte-identical; only the two textured fragments change.
+  Separate CPU reference calculations agree with analytic normal-incidence
+  endpoint values and reciprocal BRDF examples; they are not GPU execution.
+- Complete new C: CPU/Vulkan builds and hosted gates wait for the coordinated
+  build slot. Combined consumer/device/readback/visual acceptance remain open.
+  No R3 package or shader output was overwritten, and no GUI action occurred.

@@ -207,6 +207,7 @@ if(NOVACORE_ENABLE_VULKAN)
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_sampling.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_frame.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_textures.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_direct_light.glsl"
                     VERBATIM
                 )
                 list(APPEND NOVACORE_SHADER_SPV_FILES "${shader_output}")

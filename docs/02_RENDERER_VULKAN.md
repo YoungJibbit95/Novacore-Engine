@@ -560,6 +560,64 @@ Known inherited boundary: baked nonuniform glTF node normal transforms still
 use the old importer behavior. The instance inverse-transpose correction is
 preserved; this slice does not claim a repair to baked nonuniform source nodes.
 
+## Phase 5 R4 bounded direct material light candidate
+
+The opt-in MATERIAL_TEXTURES fragment path now derives the surface-to-eye
+direction from the existing frame eye and actual world position. It evaluates
+isotropic GGX distribution, height-correlated Smith visibility, Schlick Fresnel
+and Lambert diffuse for the existing sun/fill directions. The dielectric/metal
+mixture uses dielectric F0 0.04, base-color metal F0, squared perceptual
+roughness, and zero metal diffuse. Its formula references are the official
+[glTF Appendix B at 521a91d](https://github.com/KhronosGroup/glTF/blob/521a91d491f02bb7db7d445b35f591d09d2a64ce/specification/2.0/Specification.adoc#appendix-b-brdf-implementation)
+and [Khronos BRDF reference at 74aaf40](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/74aaf40853dd92c554101e4f9f17ba1a13d12367/source/Renderer/shaders/brdf.glsl).
+This is a direct single-scattering approximation, not an exact energy-conserving
+or complete environment/reflection model.
+
+The existing 0.04 perceptual roughness floor remains a numerical approximation.
+Safe normalization rejects zero/nonfinite eye and half vectors; negative/zero
+view/light cosines produce no direct response. An equivalent GGX denominator
+avoids cancellation near the sharp peak. The incident cosine is folded into
+Smith visibility before multiplication, avoiding an unnecessary grazing-angle
+intermediate overflow. Sharp ideal directional highlights can still be very
+bright before the existing tone curve; antialiasing/filtering remains separate.
+
+Sun incoming strength remains the existing unitless 1-ambient control; fill uses
+its existing intensity. R2 visibility attenuates the whole direct sun response,
+including diffuse and specular; it does not shadow fill, ambient or emission.
+Ambient stays a documented nonmetal diffuse approximation. The old artistic
+rim/specular scalars remain active in the legacy path and are unused by this
+opt-in BRDF. Sky exposure/sun intensity do not become calibrated mesh radiance.
+Existing sampled MR/normal/UV, factor fallback, emissive-before-Reinhard and
+single sRGB output conversion contracts are unchanged. No new renderer API,
+UBO, push layout, descriptor, upload, pipeline owner, asset or queue is added.
+
+The new private GLSL include is the only additional CMake shader dependency.
+An initial standalone SDK compile/spirv-val gate passes all 27 modules: all
+23 baseline modules and both textured vertex modules are byte-identical to
+frozen R3; only the two textured fragment modules change. Full new-directory
+engine CPU/Vulkan builds, hosted checks, combined consumer and real GPU
+numerical/visual gates remain to be recorded.
+
+Independent CPU design calculations use Smith's lambda form rather than the
+shader's visibility expression. For unit front-facing light/view, base red 0.5
+and roughness 0.5, the reference cosine-weighted red response is 0.2037183272
+for dielectric and 0.6366197724 for metal, matching their analytic values.
+Swapping light/view preserves the BRDF after dividing out the incident cosine.
+Rough metal has a broader lobe than sharp metal, and the grazing/zero-vector
+reference cases remain finite. These are reference calculations only: no C++
+formula copy or source-pattern check is registered as a shader execution test.
+Actual GPU evaluation/readback is still open.
+
+After the combined R3 gate, matched captures should hold light/material/exposure
+fixed while moving the eye: highlights must follow eye and roughness, not world
+Z. Sweep dielectric/metallic endpoints and roughness, camera yaw/pitch/roll,
+180-degree mesh rotation, nonuniform scale, normal maps, R2 shadows and SDR
+presentation formats; preserve UI output. Existing M01/M02 references motivate
+surface response differences; P01/P02 reflections remain future work. Very dark
+metals without environment illumination are a limitation of this direct-only
+step. IBL, probes, material extensions, transparency, two-sided normal policy,
+baked nonuniform source normals and HDR/exposure redesign are outside scope.
+
 ## Performance Goals
 
 Target hardware:
