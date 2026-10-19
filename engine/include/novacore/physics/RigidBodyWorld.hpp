@@ -101,6 +101,40 @@ struct RigidBodyContactEndpoint final {
     bool canonicalCollider = false;
 };
 
+// Same positive metre dimensions and unit pose as body creation; no render scale.
+struct RigidBodyQueryShape final {
+    RigidBodyShape shape = RigidBodyShape::Box;
+    math::Vec3 position{};
+    math::Quat rotation{};
+    math::Vec3 halfExtents{0.25F, 0.25F, 0.25F};
+    float radius = 0.25F;
+    float capsuleHalfHeight = 0.50F; // Cylindrical half height, excluding caps.
+};
+
+struct RigidBodyShapeHit final {
+    RigidBodyContactEndpoint body{};
+    math::Vec3 pointOnQuery{}, pointOnBody{};
+    math::Vec3 normal{}; // Outward from body towards query; zero if native axis is degenerate.
+    float fraction = 0; // Cast translation fraction, or 0 for overlap queries.
+    float penetrationDepth = 0; // Native depth, including touching/numerical tolerance.
+    bool initialOverlap = false; // Native start contact: includes touching/tolerance.
+};
+
+struct RigidBodyShapeCastResult final {
+    bool queried = false; // true + empty hit means a valid miss.
+    std::string error;
+    std::uint64_t world = 0, tick = 0; // Current world and last successful fixed tick.
+    std::optional<RigidBodyShapeHit> hit;
+};
+
+struct RigidBodyOverlapResult final {
+    bool queried = false; // true + empty hits means no current overlaps.
+    std::string error;
+    std::uint64_t world = 0, tick = 0;
+    bool overflow = false; // Capacity exceeded: queried=false, no partial hits.
+    std::vector<RigidBodyShapeHit> hits; // One deepest hit/body, application ID/handle order.
+};
+
 struct RigidBodyContact final {
     std::uint64_t tick = 0;
     RigidBodyContactEndpoint first{}, second{}; // Application ID/handle order.
@@ -170,6 +204,16 @@ public:
     [[nodiscard]] std::optional<RigidBodyRayHit> raycast(
         math::Vec3 origin, math::Vec3 displacement, std::uint8_t layerMask = 0xff,
         bool includeSensors = false) const;
+    // Native translation-only cast, retaining orientation. Nonzero displacement
+    // is the complete finite travel; earliest hit, deepest native start contact
+    // first at fraction 0 (including when moving out). Never moves any body.
+    [[nodiscard]] RigidBodyShapeCastResult castShape(const RigidBodyQueryShape& shape,
+        math::Vec3 displacement, std::uint8_t layerMask = 0xff, bool includeSensors = false) const;
+    // Current native pose, including sleeping bodies; no motion or speculative
+    // separation margin. Explicit maxHits=1..8192. Overflow fails this read-only
+    // query, preserving the world and returning no traversal-dependent subset.
+    [[nodiscard]] RigidBodyOverlapResult overlapShape(const RigidBodyQueryShape& shape,
+        std::uint32_t maxHits, std::uint8_t layerMask = 0xff, bool includeSensors = false) const;
 
 private:
     class Impl;

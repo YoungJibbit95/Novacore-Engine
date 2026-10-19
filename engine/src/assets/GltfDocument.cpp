@@ -192,6 +192,31 @@ using GltfBuffers = std::vector<std::string>;
         material.normalTextureIndex = document.intOr(prefix + ".normalTexture.index", -1);
         material.emissiveTextureIndex = document.intOr(prefix + ".emissiveTexture.index", -1);
         material.doubleSided = document.boolOr(prefix + ".doubleSided", false);
+        material.baseColorTexCoord = static_cast<std::uint32_t>(document.intOr(pbr + ".baseColorTexture.texCoord", 0));
+        material.metallicRoughnessTexCoord =
+            static_cast<std::uint32_t>(document.intOr(pbr + ".metallicRoughnessTexture.texCoord", 0));
+        material.normalTexCoord = static_cast<std::uint32_t>(document.intOr(prefix + ".normalTexture.texCoord", 0));
+        material.emissiveTexCoord = static_cast<std::uint32_t>(document.intOr(prefix + ".emissiveTexture.texCoord", 0));
+        material.normalScale = static_cast<float>(document.numberOr(prefix + ".normalTexture.scale", 1));
+        material.alphaMode = document.stringOr(prefix + ".alphaMode", "OPAQUE");
+        material.alphaCutoff = static_cast<float>(document.numberOr(prefix + ".alphaCutoff", 0.5));
+        material.emissiveStrength = static_cast<float>(
+            document.numberOr(prefix + ".extensions.KHR_materials_emissive_strength.emissiveStrength", 1));
+        const std::array texturePaths{pbr + ".baseColorTexture", pbr + ".metallicRoughnessTexture",
+                                      prefix + ".normalTexture", prefix + ".emissiveTexture"};
+        for (std::size_t slot = 0; slot < texturePaths.size(); ++slot) {
+            const auto transformPath = texturePaths[slot] + ".extensions.KHR_texture_transform.";
+            auto& transform = material.textureTransforms[slot];
+            transform.enabled = std::ranges::any_of(document.values(), [&](const auto& value) {
+                return value.first.starts_with(transformPath);
+            });
+            transform.offset = {static_cast<float>(document.numberOr(transformPath + "offset.0", 0)),
+                                static_cast<float>(document.numberOr(transformPath + "offset.1", 0))};
+            transform.scale = {static_cast<float>(document.numberOr(transformPath + "scale.0", 1)),
+                               static_cast<float>(document.numberOr(transformPath + "scale.1", 1))};
+            transform.rotation = static_cast<float>(document.numberOr(transformPath + "rotation", 0));
+            transform.texCoord = document.intOr(transformPath + "texCoord", -1);
+        }
         materials.push_back(std::move(material));
     }
     return materials;
@@ -1038,6 +1063,150 @@ void applyNodeTransform(GltfPrimitiveData& primitive, GltfMat4 transform) {
     return desc;
 }
 
+void readTextureResources(const GltfPayload& payload, const core::ConfigDocument& document, const GltfBuffers& buffers,
+                          GltfMeshData& mesh, std::vector<std::string>& errors) {
+    constexpr std::size_t maximumImageBytes = 64U * 1024U * 1024U;
+    constexpr std::size_t maximumSceneImageBytes = 256U * 1024U * 1024U;
+    std::size_t totalBytes = 0;
+    const auto imageIndices = collectArrayIndices(document, "images");
+    if (!imageIndices.empty() && imageIndices.back() >= 512) {
+        errors.push_back("glTF exceeds the bounded 512-image material table");
+        return;
+    }
+    mesh.images.resize(imageIndices.size());
+    for (const auto index : imageIndices) {
+        if (index >= mesh.images.size()) {
+            errors.push_back("glTF image table is not contiguous");
+            continue;
+        }
+        const auto prefix = "images." + std::to_string(index);
+        auto& image = mesh.images[index];
+        image.name = document.stringOr(prefix + ".name", "");
+        image.mimeType = document.stringOr(prefix + ".mimeType", "");
+        image.uri = document.stringOr(prefix + ".uri", "");
+        image.bufferViewIndex = document.intOr(prefix + ".bufferView", -1);
+        std::string encoded;
+        if (!image.uri.empty() && image.bufferViewIndex == -1) {
+            if (image.uri.size() > maximumImageBytes * 2) {
+                errors.push_back(prefix + " encoded URI exceeds the image byte budget");
+                continue;
+            }
+            std::string error;
+            if (!image.uri.starts_with("data:") && image.uri.find("://") == std::string::npos) {
+                std::string decodedUri;
+                if (!percentDecode(image.uri, decodedUri, error)) {
+                    errors.push_back(prefix + ": " + error);
+                    continue;
+                }
+                std::error_code filesystemError;
+                const auto size = std::filesystem::file_size(payload.path.parent_path() / decodedUri, filesystemError);
+                if (!filesystemError && size > maximumImageBytes) {
+                    errors.push_back(prefix + " exceeds the image byte budget before file read");
+                    continue;
+                }
+            }
+            if (!loadBufferUri(payload.path, image.uri, encoded, error)) {
+                errors.push_back(prefix + ": " + error);
+                continue;
+            }
+            if (image.mimeType.empty() && image.uri.starts_with("data:")) {
+                image.mimeType = image.uri.substr(5, image.uri.find_first_of(";,", 5) - 5);
+            }
+        } else if (image.uri.empty() && image.bufferViewIndex >= 0 && !image.mimeType.empty()) {
+            const auto view = readBufferView(document, static_cast<std::size_t>(image.bufferViewIndex), errors);
+            if (!view || view->bufferIndex >= buffers.size() || view->byteStride != 0 ||
+                view->byteLength > maximumImageBytes || view->byteOffset > buffers[view->bufferIndex].size() ||
+                view->byteLength > buffers[view->bufferIndex].size() - view->byteOffset) {
+                errors.push_back(prefix + " has an invalid or oversized encoded-image bufferView");
+                continue;
+            }
+            encoded = buffers[view->bufferIndex].substr(view->byteOffset, view->byteLength);
+        } else {
+            errors.push_back(prefix + " must define one URI or one bufferView with MIME type");
+            continue;
+        }
+        if (encoded.empty() || encoded.size() > maximumImageBytes ||
+            encoded.size() > maximumSceneImageBytes - totalBytes) {
+            errors.push_back(prefix + " exceeds the encoded image/scene byte budget");
+            continue;
+        }
+        totalBytes += encoded.size();
+        image.encodedBytes = std::make_shared<const std::vector<std::uint8_t>>(encoded.begin(), encoded.end());
+    }
+    const auto samplerIndices = collectArrayIndices(document, "samplers");
+    if (!samplerIndices.empty() && samplerIndices.back() >= 4096) {
+        errors.push_back("glTF exceeds the bounded sampler table");
+        return;
+    }
+    mesh.samplers.resize(samplerIndices.size());
+    for (const auto index : samplerIndices) {
+        if (index >= mesh.samplers.size()) {
+            errors.push_back("glTF sampler table is not contiguous");
+            continue;
+        }
+        const auto prefix = "samplers." + std::to_string(index);
+        auto& sampler = mesh.samplers[index];
+        sampler.magFilter = document.intOr(prefix + ".magFilter", 9729);
+        sampler.minFilter = document.intOr(prefix + ".minFilter", 9987);
+        sampler.wrapS = document.intOr(prefix + ".wrapS", 10497);
+        sampler.wrapT = document.intOr(prefix + ".wrapT", 10497);
+        const auto validWrap = [](int value) { return value == 10497 || value == 33648 || value == 33071; };
+        if ((sampler.magFilter != 9728 && sampler.magFilter != 9729) ||
+            (sampler.minFilter != 9728 && sampler.minFilter != 9729 &&
+             (sampler.minFilter < 9984 || sampler.minFilter > 9987)) ||
+            !validWrap(sampler.wrapS) || !validWrap(sampler.wrapT)) {
+            errors.push_back(prefix + " has an unsupported glTF sampler filter/wrap value");
+        }
+    }
+    const auto textureIndices = collectArrayIndices(document, "textures");
+    if (!textureIndices.empty() && textureIndices.back() >= 4096) {
+        errors.push_back("glTF exceeds the bounded texture table");
+        return;
+    }
+    mesh.textures.resize(textureIndices.size());
+    for (const auto index : textureIndices) {
+        if (index >= mesh.textures.size()) {
+            errors.push_back("glTF texture table is not contiguous");
+            continue;
+        }
+        const auto prefix = "textures." + std::to_string(index);
+        auto& texture = mesh.textures[index];
+        texture.imageIndex = document.intOr(prefix + ".source", -1);
+        texture.samplerIndex = document.intOr(prefix + ".sampler", -1);
+        if (texture.imageIndex < 0 || static_cast<std::size_t>(texture.imageIndex) >= mesh.images.size() ||
+            texture.samplerIndex < -1 ||
+            (texture.samplerIndex >= 0 && static_cast<std::size_t>(texture.samplerIndex) >= mesh.samplers.size())) {
+            errors.push_back(prefix + " references a missing image or sampler");
+        }
+    }
+    for (const auto& material : mesh.materials) {
+        const auto prefix = "materials." + std::to_string(material.materialIndex);
+        const std::array indices{material.baseColorTextureIndex, material.metallicRoughnessTextureIndex,
+                                 material.normalTextureIndex, material.emissiveTextureIndex};
+        const std::array coordinates{material.baseColorTexCoord, material.metallicRoughnessTexCoord,
+                                     material.normalTexCoord, material.emissiveTexCoord};
+        for (std::size_t slot = 0; slot < indices.size(); ++slot) {
+            if (indices[slot] < -1 ||
+                (indices[slot] >= 0 &&
+                 (static_cast<std::size_t>(indices[slot]) >= mesh.textures.size() || coordinates[slot] > 1))) {
+                errors.push_back(prefix +
+                                 " references a missing texture or unsupported TEXCOORD set (only 0/1 supported)");
+            }
+            const auto& transform = material.textureTransforms[slot];
+            if (!std::isfinite(transform.offset.x) || !std::isfinite(transform.offset.y) ||
+                !std::isfinite(transform.scale.x) || !std::isfinite(transform.scale.y) ||
+                !std::isfinite(transform.rotation) || transform.texCoord < -1 || transform.texCoord > 1) {
+                errors.push_back(prefix + " has invalid/unsupported KHR_texture_transform metadata");
+            }
+        }
+        if (!std::isfinite(material.normalScale) || !std::isfinite(material.alphaCutoff) || material.alphaCutoff < 0 ||
+            !std::isfinite(material.emissiveStrength) || material.emissiveStrength < 0 ||
+            (material.alphaMode != "OPAQUE" && material.alphaMode != "MASK" && material.alphaMode != "BLEND")) {
+            errors.push_back(prefix + " has invalid material scale/alpha/emissive metadata");
+        }
+    }
+}
+
 [[nodiscard]] std::optional<AccessorDesc> readAccessor(
     const core::ConfigDocument& document,
     std::size_t index,
@@ -1183,18 +1352,19 @@ bool readFloatVectors(
     return true;
 }
 
-bool readTexcoords(
-    const core::ConfigDocument& document,
-    const GltfBuffers& buffers,
-    std::size_t accessorIndex,
-    std::vector<math::Vec2>& outValues,
-    std::vector<std::string>& errors) {
+bool readTexcoords(const core::ConfigDocument& document, const GltfBuffers& buffers, std::size_t accessorIndex,
+                   std::vector<math::Vec2>& outValues, std::vector<std::string>& errors,
+                   std::string_view label = "TEXCOORD_0") {
     const auto accessor = readAccessor(document, accessorIndex, errors);
     if (!accessor.has_value()) {
         return false;
     }
-    if (accessor->componentType != kGltfComponentFloat || accessor->type != "VEC2") {
-        errors.push_back("TEXCOORD_0 accessor must be FLOAT VEC2");
+    const bool floating = accessor->componentType == kGltfComponentFloat && !accessor->normalized;
+    const bool normalizedInteger = accessor->normalized && (accessor->componentType == kGltfComponentUnsignedByte ||
+                                                            accessor->componentType == kGltfComponentUnsignedShort);
+    if ((!floating && !normalizedInteger) || accessor->type != "VEC2") {
+        errors.push_back(std::string(label) +
+                         " accessor must be FLOAT or normalized UNSIGNED_BYTE/UNSIGNED_SHORT VEC2");
         return false;
     }
 
@@ -1203,7 +1373,8 @@ bool readTexcoords(
         return false;
     }
     if (view->bufferIndex >= buffers.size()) {
-        errors.push_back("TEXCOORD_0 accessor references missing buffer " + std::to_string(view->bufferIndex));
+        errors.push_back(std::string(label) + " accessor references missing buffer " +
+                         std::to_string(view->bufferIndex));
         return false;
     }
     const std::string_view binary = buffers[view->bufferIndex];
@@ -1214,23 +1385,27 @@ bool readTexcoords(
     outValues.reserve(accessor->count);
 
     for (std::size_t index = 0; index < accessor->count; ++index) {
-        const auto offset = accessorElementOffset(
-            *accessor,
-            *view,
-            index,
-            componentCount,
-            componentSize,
-            binary.size(),
-            errors,
-            "TEXCOORD_0 accessor");
+        const auto offset =
+            accessorElementOffset(*accessor, *view, index, componentCount, componentSize, binary.size(), errors, label);
         if (!offset.has_value()) {
             return false;
         }
 
-        outValues.push_back(math::Vec2{
-            readF32(binary, *offset),
-            readF32(binary, *offset + 4),
-        });
+        const auto readComponent = [&](std::size_t component) {
+            const auto at = *offset + component * componentSize;
+            if (floating) {
+                return readF32(binary, at);
+            }
+            return accessor->componentType == kGltfComponentUnsignedByte
+                       ? static_cast<float>(static_cast<std::uint8_t>(binary[at])) / 255.0F
+                       : static_cast<float>(readU16(binary, at)) / 65535.0F;
+        };
+        const math::Vec2 uv{readComponent(0), readComponent(1)};
+        if (!std::isfinite(uv.x) || !std::isfinite(uv.y)) {
+            errors.push_back(std::string(label) + " contains a non-finite coordinate");
+            return false;
+        }
+        outValues.push_back(uv);
     }
 
     return true;
@@ -1928,6 +2103,7 @@ GltfMeshDataLoadResult loadGltfMeshData(
     std::vector<std::string> errors;
     GltfBuffers buffers;
     (void)loadBuffers(payload, document, buffers, errors);
+    readTextureResources(payload, document, buffers, meshData, errors);
     const auto nodes = readNodes(document, errors);
     validateNodeHierarchy(nodes, errors);
     meshData.nodes = publicNodes(nodes);
@@ -1993,6 +2169,9 @@ GltfMeshDataLoadResult loadGltfMeshData(
                 texcoordAccessor.has_value()) {
                 (void)readTexcoords(document, buffers, *texcoordAccessor, primitive.texcoords, errors);
             }
+            if (const auto accessor = sizeValue(document, base + ".attributes.TEXCOORD_1"); accessor) {
+                (void)readTexcoords(document, buffers, *accessor, primitive.texcoords1, errors, "TEXCOORD_1");
+            }
 
             const auto jointsAccessor = sizeValue(document, base + ".attributes.JOINTS_0");
             const auto weightsAccessor = sizeValue(document, base + ".attributes.WEIGHTS_0");
@@ -2023,6 +2202,7 @@ GltfMeshDataLoadResult loadGltfMeshData(
 
             if ((!primitive.normals.empty() && primitive.normals.size() != primitive.positions.size()) ||
                 (!primitive.texcoords.empty() && primitive.texcoords.size() != primitive.positions.size()) ||
+                (!primitive.texcoords1.empty() && primitive.texcoords1.size() != primitive.positions.size()) ||
                 (!primitive.joints.empty() && primitive.joints.size() != primitive.positions.size()) ||
                 (!primitive.weights.empty() && primitive.weights.size() != primitive.positions.size())) {
                 errors.push_back(

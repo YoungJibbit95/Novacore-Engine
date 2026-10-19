@@ -452,6 +452,176 @@ features are not claimed. Reference images remain local style/technical
 references, never redistributed game assets. Historical user screenshots are
 not matched before/after evidence for this revision.
 
+## Phase 5 R3 opaque glTF texture candidate
+
+`RenderFrameInfo::materialTexturesEnabled` defaults to false. Enabling it
+selects real image-backed world-mesh variants for base color, metallic/roughness,
+normal and emissive maps. Boxes and the legacy ViewModel path retain their
+existing rendering. This is an opaque material slice, not completed PBR,
+transparency, reflections or environment lighting.
+
+The generic CPU importer now retains immutable shared PNG/JPEG encoded payloads,
+image/texture/sampler linkage, UV0/UV1, independent per-map UV selection,
+normal scale, alpha metadata and emissive strength. External percent-encoded
+file URIs, data URIs and GLB bufferViews use the existing URI/buffer path.
+Invalid indices, sampler enums and unsupported requested UV sets report import
+errors. KHR_texture_transform offset/scale/rotation/UV override metadata is
+retained; its material receives an explicit renderer fallback in this slice.
+This preserves the existing NCAR asset's default-OFF loadability. BLEND/MASK
+materials also receive an explicit opaque factor fallback: alpha-aware depth,
+shadow casters, sorting and blending remain open. UV sets beyond 1 used by a
+supported map are rejected rather than silently replaced with UV0.
+
+The private decoder is unchanged upstream stb_image 2.30, pinned to the official
+[nothings/stb commit](https://github.com/nothings/stb/tree/2c980bb59875b0d32144a71867fbdebb2f77cd20),
+with the MIT alternative and exact file hashes under third_party/stb. Only
+PNG/JPEG memory decoding is compiled, in one private translation unit. Encoded
+images are limited to 64 MiB each / 256 MiB per scene / 512 images. Decoding
+limits either axis to 8192 and the image to 16 million pixels. One image is
+decoded at a time; decoder/output copies or output/staging may briefly total
+128 MiB for the largest permitted RGBA image, plus the decoder's working memory.
+Registration with the flag OFF
+performs no pixel decoding, material image upload or descriptor allocation.
+
+Base-color/emissive maps use Vulkan sRGB image formats; metallic/roughness and
+normal maps use linear UNORM. MR uses green roughness / blue metallic multiplied
+by the factors once. Normal maps use a derivative tangent frame from the
+selected UV set and actual reconstructed world positions; no image-name axis
+corrections are applied. Authored wrap/min/mag/mipmap filters are honored with
+full generated mip chains when requested. Unsupported format/blit capability
+causes a diagnostic fallback. Shader output is manually sRGB encoded only on
+supported UNORM SDR presentation; an sRGB attachment performs hardware encoding.
+The old lighting/tone curve and fixed specular view vector remain R4 work.
+
+Material descriptors use private set 1 (frame UBO 80 bytes, material UBO 48
+bytes, four image/samplers); R2 retains set 0 and its 160-byte block. World push
+constants remain 128 bytes. UV1 extends the mesh vertex stride to 40 bytes in
+both world and depth pipelines, including safe-slot dynamic updates. No public
+Vulkan types are exposed. CPU skinning/subset copies share encoded payloads;
+the animation bridge's existing whole-mesh copy preserves the appended data.
+
+The device-lifetime material owner survives swapchain recreation. Its immutable
+per-material descriptors are created once per mesh residency and frame slot;
+frame UBO writes follow the existing safe-slot fence. Image identity includes
+encoded content hash, byte equality, color space and compatible mip coverage,
+so separately loaded body/arm/companion subsets can share images. Weak cache
+entries do not keep retired meshes resident. Image allocations reserve their
+actual Vulkan memory requirements against min(1 GiB, largest local heap / 4),
+with rollback on upload/registration failure and deferred mesh retirement.
+Counters expose resident source images/bytes, budget/rejections and actual
+textured/fallback draws. A requested boolean is never readiness evidence.
+The first upload uses the existing graphics queue with a synchronous idle wait;
+asynchronous streaming/performance optimization remains open. UI descriptors,
+pixel geometry, last-in-pass order and teardown are unchanged.
+
+A successful upload submit followed by an unconfirmed idle wait retains its
+command, staging buffer and image in one inline pending entry. No further image
+upload is started; preparation retries completion even when texturing is OFF.
+Only SUCCESS or DEVICE_LOST permits release. Before any backend recreation or
+teardown destroys children, a private guard retries three times; persistent
+unconfirmed completion terminates without unwinding the pending resources.
+See [queue completion](https://docs.vulkan.org/refpages/latest/refpages/source/vkQueueWaitIdle.html)
+and [command-buffer lifetime](https://docs.vulkan.org/refpages/latest/refpages/source/vkFreeCommandBuffers.html).
+This is a source-reviewed lifetime fix; actual GPU OOM fault injection remains
+open. Unsupported materials also retain finite nonnegative emissive factors in
+the real fallback UBO, covered by the CPU regression test.
+
+CPU tests cover exact PNG channels/straight alpha/row order, JPEG tolerance,
+invalid/truncated/oversized inputs, three image source forms, normalized UV1,
+texture/sampler linkage, material metadata, unsupported transforms/alpha,
+image sharing through two actual skinning frames, content identity and budget
+rollback/overflow. The original animation import test's texture-index-2 contract
+remains; its previously dangling texture reference now has a valid embedded PNG
+and three texture records. No assertion was removed or weakened.
+
+The matched visual gate uses [M01 concrete](https://polyhaven.com/textures/concrete)
+and [M02 metal](https://polyhaven.com/textures/metal) to require authored local
+color/roughness detail that follows UVs and geometry instead of screen-space
+noise. Compare texture OFF/ON at fixed camera/sun: character clothing/skin,
+M4 receiver/grip, FR17 UV1 materials, emissive on/off, normal on/off and camera
+yaw/pitch/roll, game FOV 55/74/105, portrait/landscape, resize and two in-flight
+slots. Verify supported OPAQUE maps, explicit BLEND/MASK/transform fallback,
+shared-resource retirement/re-registration, budget exhaustion, and R2 shadows
+OFF/ON without changing UI. Record validation-layer output, resident bytes,
+upload cost and frame timing. Metallic reflections from P01/P02 are future
+criteria, not a claim for this slice. Reference images remain local references.
+Historical screenshots are not a matched baseline. Full exact-source engine,
+consumer, hosted CI and real-device visual gates must be recorded separately;
+no graphical launch or visual acceptance is claimed here.
+
+Local technical validation: complete separate GCC 13.2 Release headless
+engine/server/sandbox and 9/9 CPU tests pass, as do the complete SDL3/Vulkan
+library build/install and all 27 Vulkan 1.0 SPIR-V module checks. A sequential
+consumer-content probe loads all 36 required Nemisis assets and decodes all 79
+images with this importer, preserving UV1 in 39 primitives and the one NCAR
+transform. Full game integration and real-device validation remain separate.
+
+Known inherited boundary: baked nonuniform glTF node normal transforms still
+use the old importer behavior. The instance inverse-transpose correction is
+preserved; this slice does not claim a repair to baked nonuniform source nodes.
+
+## Phase 5 R4 bounded direct material light candidate
+
+The opt-in MATERIAL_TEXTURES fragment path now derives the surface-to-eye
+direction from the existing frame eye and actual world position. It evaluates
+isotropic GGX distribution, height-correlated Smith visibility, Schlick Fresnel
+and Lambert diffuse for the existing sun/fill directions. The dielectric/metal
+mixture uses dielectric F0 0.04, base-color metal F0, squared perceptual
+roughness, and zero metal diffuse. Its formula references are the official
+[glTF Appendix B at 521a91d](https://github.com/KhronosGroup/glTF/blob/521a91d491f02bb7db7d445b35f591d09d2a64ce/specification/2.0/Specification.adoc#appendix-b-brdf-implementation)
+and [Khronos BRDF reference at 74aaf40](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/74aaf40853dd92c554101e4f9f17ba1a13d12367/source/Renderer/shaders/brdf.glsl).
+This is a direct single-scattering approximation, not an exact energy-conserving
+or complete environment/reflection model.
+
+The existing 0.04 perceptual roughness floor remains a numerical approximation.
+Safe normalization rejects zero/nonfinite eye and half vectors; negative/zero
+view/light cosines produce no direct response. An equivalent GGX denominator
+avoids cancellation near the sharp peak. The incident cosine is folded into
+Smith visibility before multiplication, avoiding an unnecessary grazing-angle
+intermediate overflow. Sharp ideal directional highlights can still be very
+bright before the existing tone curve; antialiasing/filtering remains separate.
+
+Sun incoming strength remains the existing unitless 1-ambient control; fill uses
+its existing intensity. R2 visibility attenuates the whole direct sun response,
+including diffuse and specular; it does not shadow fill, ambient or emission.
+Ambient stays a documented nonmetal diffuse approximation. The old artistic
+rim/specular scalars remain active in the legacy path and are unused by this
+opt-in BRDF. Sky exposure/sun intensity do not become calibrated mesh radiance.
+Existing sampled MR/normal/UV, factor fallback, emissive-before-Reinhard and
+single sRGB output conversion contracts are unchanged. No new renderer API,
+UBO, push layout, descriptor, upload, pipeline owner, asset or queue is added.
+
+The new private GLSL include is the only additional CMake shader dependency.
+The complete fresh SDK compile/spirv-val gate passes all 27 modules: all
+23 baseline modules and both textured vertex modules are byte-identical to
+frozen R3; only the two textured fragment modules change. At exact runtime
+92394956a26d74dd18c9bb2e00292bc02ea169ad, complete new-directory Release
+headless engine/server/sandbox and all 9/9 CPU suites pass (1.38 seconds).
+The complete separate actual SDL3/Vulkan engine/server/sandbox build/install
+also passes. Hosted checks, the combined consumer and real GPU numerical/visual
+gates remain separate.
+
+Independent CPU design calculations use Smith's lambda form rather than the
+shader's visibility expression. For unit front-facing light/view, base red 0.5
+and roughness 0.5, the reference cosine-weighted red response is 0.2037183272
+for dielectric and 0.6366197724 for metal, matching their analytic values.
+Swapping light/view preserves the BRDF after dividing out the incident cosine.
+Rough metal has a broader lobe than sharp metal, and the grazing/zero-vector
+reference cases remain finite. These are reference calculations only: no C++
+formula copy or source-pattern check is registered as a shader execution test.
+Actual GPU evaluation/readback is still open.
+Comparisons must account for the existing UNORM16 roughness/metallic packing.
+
+After the combined R3 gate, matched captures should hold light/material/exposure
+fixed while moving the eye: highlights must follow eye and roughness, not world
+Z. Sweep dielectric/metallic endpoints and roughness, camera yaw/pitch/roll,
+180-degree mesh rotation, nonuniform scale, normal maps, R2 shadows and SDR
+presentation formats; preserve UI output. Existing M01/M02 references motivate
+surface response differences; P01/P02 reflections remain future work. Very dark
+metals without environment illumination are a limitation of this direct-only
+step. IBL, probes, material extensions, transparency, two-sided normal policy,
+baked nonuniform source normals and HDR/exposure redesign are outside scope.
+
 ## Performance Goals
 
 Target hardware:
