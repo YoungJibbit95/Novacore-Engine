@@ -460,6 +460,195 @@ void testCanonicalSensorReplacementAndSortedReplay() {
         else expect(events == firstEvents,"same fixed inputs reproduce sorted sensor lifecycle independently of world token");
     }
 }
+void testShapeQueryBoundaryAndUnavailable() {
+    RigidBodyWorld world;
+    RigidBodyQueryShape shape;
+    expect(!world.castShape(shape,{1,0,0}).queried && !world.overlapShape(shape,8).queried,
+        "shape queries report an uninitialized world rather than a valid miss");
+    shape.position.x = std::numeric_limits<float>::quiet_NaN();
+    expect(!world.castShape(shape,{1,0,0}).queried && !world.overlapShape(shape,8).queried,
+        "shape queries reject non-finite pose before native shape construction");
+    shape = {}; shape.rotation = {0,0,0,0};
+    expect(!world.castShape(shape,{1,0,0}).queried,"shape cast requires the same unit quaternion as body creation");
+    shape = {}; shape.halfExtents.x = -.1F;
+    expect(!world.overlapShape(shape,8).queried,"overlap query rejects negative box scale");
+    shape = {}; shape.shape = RigidBodyShape::Sphere; shape.radius = 0;
+    expect(!world.overlapShape(shape,8).queried,"overlap query rejects zero sphere radius");
+    shape = {}; shape.shape = RigidBodyShape::Capsule; shape.capsuleHalfHeight = 0;
+    expect(!world.castShape(shape,{1,0,0}).queried,"shape cast rejects invalid capsule cylinder half height");
+    shape = {};
+    expect(!world.overlapShape(shape,0).queried && !world.overlapShape(shape,8193).queried,
+        "overlap capacity must be explicitly bounded between one and 8192");
+    expect(!world.castShape(shape,{}).queried && !world.castShape(shape,{std::numeric_limits<float>::infinity(),0,0}).queried,
+        "zero and non-finite shape translations are rejected");
+}
+void testNativeShapeCasts() {
+    RigidBodyWorld world;
+    RigidBodyWorldConfig config; config.gravity = {};
+    if (!init(world,config)) return;
+    auto source = floorWorld();
+    source.addStaticCollider({"wall",SurfaceKind::Wall,{3,2,0},{.1F,2,2},true});
+    expect(world.step(source,1).stepped,"native query world derives canonical floor and wall");
+    const auto wall = world.raycast({-2,1,0},{6,0,0});
+    expect(wall && world.setBodyTags(wall->handle,8,9),"canonical query target receives owned application tags");
+    for (const auto type : {RigidBodyShape::Box,RigidBodyShape::Sphere,RigidBodyShape::Capsule}) {
+        RigidBodyQueryShape shape; shape.shape = type; shape.position = {-2,1,0};
+        const auto cast = world.castShape(shape,{6,0,0});
+        expect(cast.queried && cast.error.empty() && cast.hit && cast.hit->body.id == "wall" &&
+            cast.hit->body.canonicalCollider && cast.hit->body.materialId == 8 && cast.hit->body.surfaceId == 9 &&
+            near(cast.hit->fraction,.775F,.002F) && cast.hit->normal.x < -.99F &&
+            near(cast.hit->pointOnBody.x,2.9F,.002F) && !cast.hit->initialOverlap &&
+            cast.tick == 1 && cast.world == cast.hit->body.handle.world,
+            "box/sphere/capsule cast finds native wall, normalized outward normal, fraction, tags and world/tick");
+        shape.position = {0,2,0};
+        const auto floor = world.castShape(shape,{0,-4,0});
+        const float halfHeight = type == RigidBodyShape::Capsule ? .75F : .25F;
+        expect(floor.queried && floor.hit && floor.hit->body.id == "floor" && floor.hit->normal.y > .99F &&
+            near(floor.hit->fraction,(2-halfHeight)/4,.002F) && near(floor.hit->pointOnBody.y,0,.002F),
+            "all three native query shapes use their actual vertical extent against the authored floor");
+    }
+    RigidBodyQueryShape rotated; rotated.position = {-2,1,0}; rotated.halfExtents = {1,.2F,.2F};
+    const auto unrotated = world.castShape(rotated,{6,0,0});
+    rotated.rotation = {0,.70710678F,0,.70710678F};
+    const auto turned = world.castShape(rotated,{6,0,0});
+    expect(unrotated.hit && turned.hit && near(unrotated.hit->fraction,.65F,.002F) &&
+        near(turned.hit->fraction,4.7F/6,.002F),"oriented query box is rotated once and keeps its orientation during translation");
+    rotated.shape = RigidBodyShape::Capsule; rotated.rotation = {0,0,.70710678F,.70710678F};
+    const auto capsule = world.castShape(rotated,{6,0,0});
+    expect(capsule.hit && near(capsule.hit->fraction,4.15F/6,.002F),"rotated capsule uses cylindrical axis plus radius rather than AABB repair");
+    RigidBodyDesc target; target.id = "rotated_target"; target.motion = RigidBodyMotion::Static;
+    target.position = {0,1,4}; target.halfExtents = {1,.3F,.2F}; target.rotation = {0,.70710678F,0,.70710678F};
+    target.filter = {4,0}; target.materialId = 55; target.surfaceId = 66;
+    const auto targetHandle = add(world,target);
+    RigidBodyQueryShape query; query.position = {-3,1,4};
+    const auto targetCast = world.castShape(query,{6,0,0},1U<<4U);
+    expect(targetCast.hit && targetCast.hit->body.handle == targetHandle && near(targetCast.hit->fraction,.425F,.002F) &&
+        targetCast.hit->body.materialId == 55 && targetCast.hit->body.surfaceId == 66,
+        "query intersects actual rotated target and uses target category like ray, independently of pair-response mask");
+    query.position = {-.8F,1,4}; query.halfExtents = {.1F,.1F,.1F};
+    expect(world.overlapShape(query,1,1U<<4U).hits.empty(),"native overlap respects rotated target shape rather than its unrotated dimensions");
+    target = {}; target.id = "dynamic_target"; target.position = {-1,1,0}; target.filter = {1,0};
+    target.materialId = 75; target.surfaceId = 76;
+    const auto dynamic = add(world,target);
+    query = {}; query.shape = RigidBodyShape::Sphere; query.position = {-2,1,0};
+    const auto dynamicCast = world.castShape(query,{6,0,0});
+    expect(dynamicCast.hit && dynamicCast.hit->body.handle == dynamic && !dynamicCast.hit->body.canonicalCollider &&
+        dynamicCast.hit->body.materialId == 75 && near(dynamicCast.hit->fraction,.5F/6,.002F),
+        "closest shape cast selects a nearer dynamic body before the canonical wall");
+    const auto unchangedRay = world.raycast({-2,1,0},{6,0,0},1U<<0U);
+    expect(wall && unchangedRay && wall->handle == unchangedRay->handle && near(unchangedRay->fraction,wall->fraction,1.e-6F),
+        "new native queries do not replace or modify existing closest-ray behavior");
+    const auto before = world.body(dynamic);
+    expect(world.step(source,2).stepped && before && world.body(dynamic) &&
+        near(world.body(dynamic)->position.x,before->position.x,.00001F),"queries never consume a fixed tick or move a body");
+}
+void testOverlapBoundsSensorsAndLifetime() {
+    RigidBodyWorld world;
+    RigidBodyWorldConfig config; config.gravity = {}; config.maxContactEvents = 32;
+    if (!init(world,config)) return;
+    RigidBodyDesc desc; desc.id = "zeta"; desc.position = {}; desc.filter = {1,0};
+    desc.materialId = 10; desc.surfaceId = 20; (void)add(world,desc);
+    desc.id = "alpha"; desc.position = {.3F,0,0}; desc.materialId = 11; desc.surfaceId = 21;
+    const auto alpha = add(world,desc);
+    desc = {}; desc.id = "sensor"; desc.motion = RigidBodyMotion::Kinematic; desc.isSensor = true;
+    desc.halfExtents = {.5F,.5F,.5F}; desc.filter = {3,0}; desc.materialId = 12; desc.surfaceId = 22;
+    const auto sensor = add(world,desc);
+    const auto source = floorWorld();
+    expect(world.step(source,1).stepped,"overlap fixture synchronizes one canonical floor");
+    const auto floor = world.raycast({4,2,0},{0,-4,0},1U<<0U);
+    expect(floor && world.setBodyTags(floor->handle,99,199),"overlap canonical tag is assigned through public API");
+    RigidBodyQueryShape query; query.position = {0,.1F,0}; query.halfExtents = {1,1,1};
+    const auto overlap = world.overlapShape(query,3);
+    expect(overlap.queried && !overlap.overflow && overlap.hits.size() == 3 &&
+        overlap.hits[0].body.id == "alpha" && overlap.hits[1].body.id == "floor" && overlap.hits[2].body.id == "zeta" &&
+        overlap.hits[0].body.materialId == 11 && overlap.hits[1].body.materialId == 99,
+        "bounded overlap returns unique owned dynamic/canonical contacts in application-ID order, excluding sensors by default");
+    expect(overlap.hits.size() == 3 && near(overlap.hits[1].pointOnBody.y,0,.002F) && overlap.hits[1].normal.y > .99F,
+        "overlap adds the query-relative native base offset once and returns the floor's outward normal");
+    for (const auto& hit : overlap.hits) expect(hit.initialOverlap && hit.fraction == 0 && std::isfinite(hit.penetrationDepth) &&
+        near(hit.normal.lengthSquared(),1,.001F),"native overlap results carry finite depth and normalized outward body normals");
+    const auto includingSensor = world.overlapShape(query,4,0xff,true);
+    expect(includingSensor.queried && includingSensor.hits.size() == 4 &&
+        includingSensor.hits[2].body.handle == sensor && includingSensor.hits[2].body.isSensor,
+        "explicit sensor overlap includes the native sensor with its own world/generation identity");
+    const auto overflow = world.overlapShape(query,3,0xff,true);
+    expect(!overflow.queried && overflow.overflow && !overflow.error.empty() && overflow.hits.empty() && world.initialized() &&
+        overflow.world == overlap.world && overflow.tick == 1,"too many bodies fail the read-only query without a traversal subset or world invalidation");
+    const auto masked = world.overlapShape(query,1,1U<<0U);
+    expect(masked.queried && masked.hits.size() == 1 && masked.hits[0].body.id == "floor",
+        "overlap target mask can select canonical geometry independently of nearer dynamic bodies");
+    const auto none = world.overlapShape(query,1,1U<<7U);
+    expect(none.queried && none.hits.empty() && none.error.empty(),"valid empty overlap is distinct from invalid query and overflow");
+    query = {}; query.position = {-2,0,0};
+    const auto skippedSensor = world.castShape(query,{4,0,0},1U<<3U);
+    const auto sensorCast = world.castShape(query,{4,0,0},1U<<3U,true);
+    expect(skippedSensor.queried && !skippedSensor.hit && sensorCast.hit && sensorCast.hit->body.handle == sensor &&
+        sensorCast.hit->body.isSensor && sensorCast.hit->body.surfaceId == 22,
+        "shape casts default to physical targets and explicitly opt into tagged sensors");
+    expect(world.moveKinematic(sensor,{4,0,0},{}),"kinematic sensor receives bounded target for query timing check");
+    expect(world.overlapShape({},1,1U<<3U,true).hits.size() == 1,
+        "queued kinematic target does not invent a second current-pose query truth");
+    expect(world.step(source,2).stepped && world.overlapShape({},1,1U<<3U,true).hits.empty(),
+        "current-pose overlap follows actual native integration rather than the pre-solve contact event sample");
+    RigidBodyQueryShape movedSensor; movedSensor.position = {4,0,0};
+    expect(world.overlapShape(movedSensor,1,1U<<3U,true).hits.size() == 1,"integrated sensor is queryable at its actual new pose");
+    expect(world.removeBody(alpha) && !world.body(alpha),"removed overlap endpoint immediately fails live handle lookup");
+    desc = {}; desc.id = "alpha"; desc.position = {20,0,0}; desc.filter = {1,0};
+    const auto replacement = add(world,desc);
+    query.position = {0,.1F,0}; query.halfExtents = {1,1,1};
+    const auto afterRemoval = world.overlapShape(query,3);
+    expect(replacement.index == alpha.index && replacement.generation != alpha.generation && afterRemoval.queried &&
+        afterRemoval.hits.size() == 2 && overlap.hits[0].body.handle == alpha && overlap.hits[0].body.id == "alpha" &&
+        overlap.hits[0].body.materialId == 11,"owned hit survives removal while new query never aliases a reused slot generation");
+    expect(init(world,config),"query world can be reset after successful and overflow queries");
+    desc.id = "reset_target"; desc.position = {}; const auto resetTarget = add(world,desc);
+    const auto reset = world.overlapShape({},1);
+    expect(reset.queried && reset.tick == 0 && reset.world != overlap.world && reset.hits.size() == 1 &&
+        reset.hits[0].body.handle == resetTarget && !world.body(alpha) && !world.body(replacement),
+        "reset changes result world identity and invalidates every old query handle");
+    expect(world.step({},1).stepped,"reset queries do not advance simulation or require canonical dummy ticks");
+}
+void testNativeInitialOverlapAndSleepingQueries() {
+    RigidBodyWorld world;
+    RigidBodyWorldConfig config; config.gravity = {};
+    if (!init(world,config)) return;
+    RigidBodyDesc box; box.id = "box"; box.motion = RigidBodyMotion::Static; box.halfExtents = {1,1,1}; box.filter = {0,0};
+    (void)add(world,box);
+    RigidBodyQueryShape shape; shape.shape = RigidBodyShape::Sphere; shape.position = {.9F,0,0};
+    for (const auto type : {RigidBodyShape::Box,RigidBodyShape::Sphere,RigidBodyShape::Capsule}) {
+        shape.shape = type;
+        for (const auto displacement : {math::Vec3{2,0,0},math::Vec3{-2,0,0}}) {
+            const auto hit = world.castShape(shape,displacement,1U<<0U);
+            expect(hit.queried && hit.hit && hit.hit->initialOverlap && hit.hit->fraction == 0 &&
+                near(hit.hit->penetrationDepth,.35F,.005F) && hit.hit->normal.x > .99F &&
+                near(hit.hit->pointOnBody.x,1,.005F),"all native start-overlapping shapes report outward body normal even while casting out of it");
+        }
+        const auto overlap = world.overlapShape(shape,1,1U<<0U);
+        expect(overlap.queried && overlap.hits.size() == 1 && overlap.hits[0].initialOverlap &&
+            near(overlap.hits[0].penetrationDepth,.35F,.005F) && overlap.hits[0].normal.x > .99F,
+            "all three overlap shapes preserve native depth and outward-body normal");
+    }
+    shape.shape = RigidBodyShape::Sphere;
+    box.id = "deeper"; box.position = {.5F,0,0}; box.filter.layer = 1; (void)add(world,box);
+    const auto deepest = world.castShape(shape,{2,0,0});
+    expect(deepest.hit && deepest.hit->body.id == "deeper" && deepest.hit->initialOverlap &&
+        deepest.hit->penetrationDepth > .8F && deepest.hit->normal.x > .99F,
+        "native deepest initial penetration wins among zero-fraction cast hits without applying depenetration");
+
+    RigidBodyWorld sleeping;
+    if (!init(sleeping)) return;
+    RigidBodyDesc prop; prop.id = "sleeper"; prop.position = {0,1,0}; prop.restitution = 0;
+    const auto body = add(sleeping,prop);
+    steps(sleeping,floorWorld(),1,360);
+    expect(sleeping.body(body) && sleeping.body(body)->sleeping,"query fixture first reaches real native sleep");
+    shape = {}; shape.position = {0,.25F,0};
+    const auto overlap = sleeping.overlapShape(shape,1,1U<<1U);
+    shape.position = {-2,.25F,0};
+    const auto cast = sleeping.castShape(shape,{4,0,0},1U<<1U);
+    expect(overlap.queried && overlap.hits.size() == 1 && overlap.hits[0].body.handle == body &&
+        cast.hit && cast.hit->body.handle == body && sleeping.body(body)->sleeping,
+        "native overlap/cast detects sleeping dynamic body without waking it");
+}
 void testKccReplayIsUnchanged() {
     PhysicsWorld source;
     source.setBounds({12,8,12});
@@ -479,52 +668,187 @@ void testKccReplayIsUnchanged() {
         "dynamic adapter never mutates canonical source or competitive KCC replay");
     std::cout << "KCC unchanged replay ticks=" << before.simulatedTicks << " hash=" << before.deterministicHash << '\n';
 }
+bool finiteSnapshot(const RigidBodySnapshot& body) {
+    const auto finite3 = [](math::Vec3 value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+    return finite3(body.position) && finite3(body.linearVelocity) && finite3(body.angularVelocity) &&
+        std::isfinite(body.rotation.x) && std::isfinite(body.rotation.y) &&
+        std::isfinite(body.rotation.z) && std::isfinite(body.rotation.w);
+}
+void benchmarkQuery(std::string_view name, std::string_view mode, auto&& query) {
+    constexpr int warmup = 32, batches = 32, callsPerBatch = 16;
+    for (int i=0; i<warmup; ++i) expect(query(),"query benchmark warmup hits its actual target");
+    std::vector<double> times;
+    int hits = 0;
+    for (int batch=0; batch<batches; ++batch) {
+        const auto begin = std::chrono::steady_clock::now();
+        for (int i=0; i<callsPerBatch; ++i) hits += query() ? 1 : 0;
+        const auto end = std::chrono::steady_clock::now();
+        times.push_back(std::chrono::duration<double,std::micro>(end-begin).count()/callsPerBatch);
+    }
+    expect(hits == batches*callsPerBatch,"bounded hit-only query batches all succeed");
+    std::sort(times.begin(),times.end());
+    std::cout << "Jolt query grid_v2 bodies=32 mode=" << mode << " query=" << name
+        << " warmup_calls=" << warmup << " batches=" << batches << " calls_per_batch=" << callsPerBatch
+        << " hits=" << hits << " median_us_per_call=" << times[times.size()/2]
+        << " p95_us_per_call=" << times[times.size()*95/100] << '\n';
+}
+void benchmarkQueries(const RigidBodyWorld& world, const RigidBodySnapshot& target,
+    std::string_view mode, std::uint64_t tick) {
+    constexpr std::uint8_t mask = 1U<<1U; // Dynamic targets only; exclude the floor.
+    benchmarkQuery("ray_hit",mode,[&]() {
+        const auto hit = world.raycast(target.position+math::Vec3{0,2,0},{0,-4,0},mask);
+        return hit && hit->handle == target.handle;
+    });
+    for (const auto type : {RigidBodyShape::Box,RigidBodyShape::Sphere,RigidBodyShape::Capsule}) {
+        const std::string_view shape = type == RigidBodyShape::Box ? "box" :
+            type == RigidBodyShape::Sphere ? "sphere" : "capsule";
+        RigidBodyQueryShape query; query.shape = type; query.position = target.position+math::Vec3{0,2,0};
+        query.halfExtents = {.1F,.1F,.1F}; query.radius = .1F; query.capsuleHalfHeight = .1F;
+        benchmarkQuery(std::string(shape)+"_cast_hit",mode,[&]() {
+            const auto result = world.castShape(query,{0,-4,0},mask);
+            return result.queried && result.tick == tick && result.hit && result.hit->body.handle == target.handle;
+        });
+        query.position = target.position;
+        benchmarkQuery(std::string(shape)+"_overlap_hit",mode,[&]() {
+            const auto result = world.overlapShape(query,1,mask);
+            return result.queried && result.tick == tick && !result.overflow && result.hits.size() == 1 &&
+                result.hits.front().body.handle == target.handle;
+        });
+    }
+    const auto after = world.body(target.handle);
+    expect(after && after->sleeping == target.sleeping &&
+        near(after->position.x,target.position.x,1.e-5F) && near(after->position.y,target.position.y,1.e-5F) &&
+        near(after->position.z,target.position.z,1.e-5F),"query batches do not move or wake their target");
+}
 void benchmarkAndReplay() {
-    for (const int count : {32,128,256}) {
+    // grid_v2 uses separated boxes on one floor. It replaces the historical
+    // mixed falling-stack measurement; its timings are not directly comparable.
+    for (const int count : {32,128,256}) for (const bool sleeping : {false,true}) {
         RigidBodyWorld world;
         if (!init(world)) return;
         const auto source = floorWorld();
+        RigidBodyHandle queryTarget;
         for (int i=0; i<count; ++i) {
             RigidBodyDesc desc; desc.id = "bench_"+std::to_string(i);
-            desc.position = {static_cast<float>(i%16)-8,1.0F+0.6F*static_cast<float>(i/16),0};
-            (void)add(world,desc);
+            desc.position = {static_cast<float>(i%16)-8,1,static_cast<float>(i/16)-8};
+            desc.allowSleeping = sleeping;
+            const auto handle = add(world,desc);
+            if (i == 0) queryTarget = handle;
         }
+        std::uint64_t tick = 1;
+        auto last = world.step(source,tick);
+        expect(last.stepped && last.staticBodiesCreated == 1 && last.staticBodiesRemoved == 0 &&
+            last.staticBodiesUpdated == 0,"benchmark first step derives exactly one canonical floor");
+        if (!last.stepped) return;
+        const auto untimedStep = [&]() {
+            auto result = world.step(source,++tick);
+            expect(result.stepped && result.staticBodiesCreated == 0 && result.staticBodiesRemoved == 0 &&
+                result.staticBodiesUpdated == 0,"benchmark warmup reuses the unchanged canonical floor");
+            return result;
+        };
+        int settleTicks = 0;
+        while (sleeping && last.activeDynamicCount != 0 && settleTicks < 600 && last.stepped) {
+            last = untimedStep(); ++settleTicks;
+        }
+        expect(!sleeping || (last.stepped && last.activeDynamicCount == 0),"sleeping benchmark reaches native sleep before timing");
+        if (!last.stepped || (sleeping && last.activeDynamicCount != 0)) return;
+        for (int i=0; i<30; ++i) last = untimedStep();
+        if (!last.stepped) return;
         std::vector<double> times;
-        for (std::uint64_t tick=1; tick<=300; ++tick) {
+        std::uint32_t minimumActive = count, maximumActive = 0, created = 0, removed = 0, updated = 0;
+        for (int sample=0; sample<270; ++sample) {
             const auto begin = std::chrono::steady_clock::now();
-            expect(world.step(source,tick).stepped,"bounded object count benchmark step succeeds");
+            last = world.step(source,++tick);
             const auto end = std::chrono::steady_clock::now();
-            if (tick>30) times.push_back(std::chrono::duration<double,std::micro>(end-begin).count());
+            expect(last.stepped,"bounded object count benchmark step succeeds");
+            if (!last.stepped) return;
+            minimumActive = std::min(minimumActive,last.activeDynamicCount);
+            maximumActive = std::max(maximumActive,last.activeDynamicCount);
+            created += last.staticBodiesCreated; removed += last.staticBodiesRemoved; updated += last.staticBodiesUpdated;
+            times.push_back(std::chrono::duration<double,std::micro>(end-begin).count());
         }
+        const std::string_view mode = sleeping ? "sleeping_verified" : "active_no_sleep";
+        expect(minimumActive == (sleeping ? 0U : static_cast<std::uint32_t>(count)) && minimumActive == maximumActive,
+            "timed steps retain the declared native active/sleeping body count");
+        expect(created == 0 && removed == 0 && updated == 0,"timed steps never recreate or update unchanged statics");
         std::sort(times.begin(),times.end());
-        std::cout << "Jolt single-thread fixed60Hz bodies=" << count << " warmup=30 samples=270 median_us="
-            << times[times.size()/2] << " p95_us=" << times[times.size()*95/100] << '\n';
-        for (const auto& body : world.bodies()) expect(std::isfinite(body.position.y) && std::isfinite(body.rotation.w),
-            "stack benchmark ends with finite snapshots");
+        std::cout << "Jolt step grid_v2 single-thread fixed60Hz bodies=" << count << " mode=" << mode
+            << " initial_statics=1 settle_ticks=" << settleTicks << " warmup=30 samples=270 active_min=" << minimumActive
+            << " active_max=" << maximumActive << " static_created=" << created << " static_removed=" << removed
+            << " static_updated=" << updated << " median_us=" << times[times.size()/2]
+            << " p95_us=" << times[times.size()*95/100] << '\n';
+        for (const auto& body : world.bodies()) {
+            expect(finiteSnapshot(body),"benchmark ends with finite full poses and velocities");
+            if (body.motion == RigidBodyMotion::Dynamic)
+                expect(body.sleeping == sleeping,"snapshot sleeping flags agree with measured native activity");
+        }
+        if (count == 32) {
+            const auto target = world.body(queryTarget);
+            expect(target.has_value(),"query benchmark retains its actual dynamic target");
+            if (target) benchmarkQueries(world,*target,mode,tick);
+        }
     }
-    std::vector<RigidBodySnapshot> first;
+    std::vector<std::vector<RigidBodySnapshot>> first;
+    bool observedZMotion = false, observedAngularMotion = false;
     for (int repeat=0; repeat<2; ++repeat) {
         RigidBodyWorld world;
         if (!init(world)) return;
+        RigidBodyHandle impulseTarget;
         for (int i=0; i<8; ++i) {
             RigidBodyDesc desc; desc.id = "replay"+std::to_string(i); desc.position = {0,1.0F+static_cast<float>(i)*0.6F,0};
-            (void)add(world,desc);
+            desc.materialId = 100+i; desc.surfaceId = 200;
+            impulseTarget = add(world,desc);
         }
-        steps(world,floorWorld(),1,300);
-        const auto state = world.bodies();
-        if (repeat==0) first=state;
-        else {
-            expect(state.size()==first.size(),"same authored replay has same snapshot identities");
-            if (state.size()==first.size()) for (std::size_t i=0;i<state.size();++i)
-                expect(state[i].id == first[i].id && near(state[i].position.x,first[i].position.x,1.0e-5F) &&
-                    near(state[i].position.y,first[i].position.y,1.0e-5F) && near(state[i].rotation.w,first[i].rotation.w,1.0e-5F),
-                    "same build and fixed inputs repeat bounded rigid-body state");
+        const auto source = floorWorld();
+        std::size_t checkpoint = 0;
+        for (std::uint64_t tick=1; tick<=300; ++tick) {
+            if (tick == 179) {
+                const auto target = world.body(impulseTarget);
+                expect(target && world.applyImpulse(impulseTarget,{3,2,-1},target->position+math::Vec3{.12F,.18F,.07F}),
+                    "authored replay applies the same off-centre impulse before its moving checkpoint");
+            }
+            expect(world.step(source,tick).stepped,"same-build replay advances each authored fixed tick");
+            if (tick != 60 && tick != 180 && tick != 300) continue;
+            const auto state = world.bodies();
+            for (const auto& body : state) {
+                expect(finiteSnapshot(body) && world.body(body.handle).has_value(),"replay checkpoints contain finite live owned snapshots");
+                observedZMotion |= std::abs(body.linearVelocity.z) > .001F;
+                observedAngularMotion |= body.angularVelocity.lengthSquared() > .001F;
+            }
+            if (repeat==0) first.push_back(state);
+            else {
+                const auto& expected = first[checkpoint];
+                expect(state.size()==expected.size(),"same authored replay has same checkpoint snapshot count");
+                if (state.size()==expected.size()) for (std::size_t i=0;i<state.size();++i) {
+                    const auto& a = state[i]; const auto& b = expected[i];
+                    const auto same3 = [](math::Vec3 x, math::Vec3 y) {
+                        return near(x.x,y.x,1.e-5F) && near(x.y,y.y,1.e-5F) && near(x.z,y.z,1.e-5F);
+                    };
+                    expect(a.id == b.id && a.handle.world != b.handle.world,"replay matches application IDs across independent world identities");
+                    expect(same3(a.position,b.position),"same-build replay repeats full XYZ position");
+                    expect(near(a.rotation.x,b.rotation.x,1.e-5F) && near(a.rotation.y,b.rotation.y,1.e-5F) &&
+                        near(a.rotation.z,b.rotation.z,1.e-5F) && near(a.rotation.w,b.rotation.w,1.e-5F),
+                        "same-build replay repeats all four quaternion components");
+                    expect(same3(a.linearVelocity,b.linearVelocity) && same3(a.angularVelocity,b.angularVelocity),
+                        "same-build replay repeats full linear and angular velocities");
+                    expect(a.motion == b.motion && a.sleeping == b.sleeping && a.canonicalCollider == b.canonicalCollider &&
+                        a.isSensor == b.isSensor && a.materialId == b.materialId && a.surfaceId == b.surfaceId,
+                        "same-build replay repeats motion/sleep/canonical/sensor flags and application tags");
+                }
+            }
+            ++checkpoint;
         }
     }
+    expect(first.size() == 3 && observedZMotion && observedAngularMotion,
+        "full-state replay includes three checkpoints and real out-of-plane/angular motion");
+    std::cout << "Jolt same-build replay checkpoints=3 full_pose_and_velocities=true tolerance=1e-5\n";
 }
 } // namespace
 int main() {
     testUnavailableAndInvalidWorld();
+    testShapeQueryBoundaryAndUnavailable();
     PhysicsWorld replaySource;
     replaySource.setBounds({12,8,12});
     for (auto collider : makeDefaultPhysicsSandboxColliders()) replaySource.addStaticCollider(std::move(collider));
@@ -538,6 +862,7 @@ int main() {
         testRemovedSupportWakesSleepingBody(); testKccReplayIsUnchanged(); benchmarkAndReplay();
         testSensorLifecycleTagsAndReuse(); testSleepingSensorAndCanonicalMaterialTags(); testContactCaptureBoundsAndSensorValidation();
         testCanonicalSensorReplacementAndSortedReplay();
+        testNativeShapeCasts(); testOverlapBoundsSensorsAndLifetime(); testNativeInitialOverlapAndSleepingQueries();
     }
     if (failures) { std::cerr << failures << " rigid-body test(s) failed\n"; return 1; }
     std::cout << "NovaCore rigid-body tests passed (backend=" << (RigidBodyWorld::backendAvailable() ? "Jolt5.6.0" : "disabled") << ")\n";

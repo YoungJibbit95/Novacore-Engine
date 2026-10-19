@@ -1,5 +1,27 @@
 # Recovery progress
 
+## 2026-10-19 Combined Armed Idle consumer and PH-7 evidence
+
+- Public runtime `383505fbf283c14ded424dc7a1d6c1be47ee09e9` now has a complete
+  Nemisis consumer gate at `7d6b9a57a3091bfb014d455b2aec4811d482e8d4`
+  ([Draft game #37](https://github.com/YoungJibbit95/Nemisis/pull/37)). Full
+  212-step Release/native-UI game build and all48 non-GPU suites pass in131.64s.
+  The separate actual SDL3/Vulkan game target builds completely in310 steps.
+  Combined headless Ready/material/shadow/props smoke exits0 with111 pose/skin/
+  CPU-update samples per subset, one owner, zero invalid/unreachable IK and six
+  props/111 native ticks. Null-backend GPU readiness remains zero.
+- Merge `a211cb4` imports test-only PH-7 #27 (`c649c86`). Runtime, API, shaders
+  and CMake are unchanged from383505f. Incremental complete headless build and
+  all10 CPU suites pass in10.72s. Concurrent compilation makes these elapsed
+  durations unsuitable as performance acceptance. Frozen public383 packages
+  and the approved game EXE were not reinstalled or overwritten.
+- All four hosted default/Jolt MSVC/Clang jobs pass at prior documentation head
+  `4e5d7ba`; PH-7 component #27 also passes all four. Final combined test/doc
+  head checks follow publication. The user granted the exact frozen game launch
+  and is inspecting manually; automation is paused again at their request.
+  The single uncontrolled movement/firing capture does not establish Idle,
+  material, shadow, device-validation or timing acceptance. R5 is separate.
+
 ## 2026-10-19 Combined material-texture candidate
 
 - R3 final `22a421010d2e1329db54329464e1775f3f3b9f57` is integrated with #21's
@@ -28,6 +50,64 @@
   Full game regression is running. This record-only commit changes no API/runtime.
 - The prior `cca45a41` Vulkan runtime/shader/package paths remain frozen during
   user inspection. No new sensor Vulkan build or GPU acceptance is claimed.
+
+## 2026-10-19 Phase 5 PH-7 bounded replay/measurement tests
+
+- Branch `recovery/phase5-physics-ph7-acceptance` starts at final query head
+  `87f9d77b3e06708f1ae0be00f847df4bc1628e75` (#24). Only the existing rigid-body
+  test and recovery records change. Runtime/API, KCC, game, CMake, network and
+  frozen packages remain unchanged.
+- Same-build replay compares full position/quaternion and linear/angular velocity
+  at three fixed checkpoints, plus motion/sleep/canonical/sensor flags and tags.
+  A fixed off-centre impulse exercises real Z/angular motion. Owned world IDs
+  deliberately differ. No cross-platform determinism or network claim.
+- `grid_v2` separates awake/no-sleep and verified native-sleep scenes with the
+  same 32/128/256-box placements. Thirty warmup/270 measured steps log actual
+  active counts and zero static resync. The historical mixed-stack measurements
+  are retained but are not directly comparable. There are no timing pass limits.
+- Bounded hit-only ray and three-shape cast/overlap batches run on the 32-body
+  scene in both modes: all 512 timed calls/group hit, without moving/waking the
+  target. Logs report per-call median/p95 batch averages, including owned result
+  costs. Miss/initial-overlap-cast performance and game-fixture timing stay open.
+- Local GCC13.2/O2: exactly two testtarget build steps, first native run plus five
+  serial repetitions pass, full cached 8/8 CPU suites pass in2.05s. KCC720 stays
+  17925562298706474255. No new local default-off build was scheduled; prior
+  disabled binary is baseline evidence only. Exact-source hosted default-off and
+  Jolt MSVC/Clang gates follow publication. No GUI/graphics test or package edit.
+- [Conditions and measured ranges](PHYSICS_ADOPTION.md#ph-7-local-replay-and-measurement-acceptance)
+  distinguish local physics evidence from still-unimplemented prop replication.
+
+## 2026-10-19 Phase 5 native shape query slice
+
+- Published Draft [engine PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24),
+  runtime `765da36906ef0c69581a6c928f7f4c3c16d2f1a2`. Exact runtime complete
+  default-off MSVC/Clang [run 39176871616](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871616)
+  and Jolt MSVC/Clang [run 39176871535](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871535)
+  all pass. Main-agent source review found no actionable issue. This following
+  record-only commit changes no runtime, API or frozen package.
+- Isolated `recovery/phase5-physics-shape-queries` starts at exact sensor head
+  `778f64a4930e786d077fe4ef5728760cb382c893` (#20). Only RigidBodyWorld,
+  its existing tests and recovery documentation change; no CMake, renderer,
+  game, canonical-source, ray or KCC implementation edits.
+- Append native translation-only closest box/sphere/capsule casts and bounded
+  unique-body overlap queries. Reuse body shape/pose validation and the same
+  Jolt world; owned results include material/surface tags, stable identities,
+  current world/tick, native contact points, depth and outward body normals.
+- Start contacts are explicitly included even when casting out; the deepest
+  initial penetration has priority. Overlaps sort by application ID/handle,
+  and explicit maxHits=1..8192 fails with no partial subset on overflow while
+  leaving the read-only world valid. Sensors remain excluded unless requested;
+  target-category filtering matches the unchanged closest ray.
+- Complete local GCC 13.2/O2 headless build and final 8/8 tests pass in 1.19 s.
+  Added native coverage checks all shapes, floor/wall/dynamic/rotated targets,
+  outward initial-overlap normals, sensor/filter/tags, sleeping, current
+  kinematic integration timing, stable bounded extraction, reset/stale handles
+  and unchanged tick ownership. KCC720 hash remains 17925562298706474255.
+- Jolt-disabled adapter compiles/links/runs without Jolt. A separate public
+  installed consumer runs real casts, sorted overlaps, fail-closed overflow and
+  owned stale results against unchanged installed Jolt. C: query variant keeps
+  all earlier frozen packages intact. Hosted CI passes; exact game revision
+  remains a separate gate. No GUI or graphical application was launched.
 
 ## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
 
@@ -648,3 +728,66 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Final package lib hashes supersede the intermediate hashes above:
   headless 566a5aba40c10b3f54a283966808e7fb9d7b05b2b749e084000ccbd0737f2f34;
   Vulkan d493c60db46fdea131bb926b6190de7429b44e7d97517ea68b83e9b6073cd337.
+
+## 2026-10-19 Phase 5 R4 direct light source candidate
+
+- Isolated recovery/phase5-material-direct-light starts at frozen R3
+  22a421010d2e1329db54329464e1775f3f3b9f57. Changed only the opt-in textured
+  fragment light response: actual world-space eye direction, GGX/correlated
+  Smith/Schlick/Lambert dielectric-metal mixture, existing unitless sun/fill,
+  diffuse ambient approximation and R2 whole-sun visibility. MR/UV/normal,
+  emission, Reinhard and sRGB contracts stay intact. No public API/resource/
+  layout/asset/lifetime rewrite or renderer framework.
+- Initial small SDK shader gate passes all 27 modules with Vulkan 1.0
+  spirv-val. Compared with frozen R3, all 23 legacy modules and two textured
+  vertex modules are byte-identical; only the two textured fragments change.
+  Separate CPU reference calculations agree with analytic normal-incidence
+  endpoint values and reciprocal BRDF examples; they are not GPU execution.
+- Complete new C: CPU/Vulkan builds and hosted gates wait for the coordinated
+  build slot. Combined consumer/device/readback/visual acceptance remain open.
+  No R3 package or shader output was overwritten, and no GUI action occurred.
+- Completed full fresh GCC 13.2 Release headless engine/server/sandbox and
+  9/9 CPU suites (1.38 seconds), plus the complete separate actual SDL3/Vulkan
+  engine/server/sandbox 73-step build/install at runtime
+  92394956a26d74dd18c9bb2e00292bc02ea169ad. All 27 generated modules validate
+  for Vulkan 1.0; all 23 legacy and two textured vertex modules remain byte-
+  identical to frozen R3. Only the two opt-in textured fragments change.
+  Source review found no actionable issue. No C++/public header/test source
+  changed, and no test/warning was disabled; the inherited unused sandbox
+  helper warning remains.
+- Separate frozen packages: C:/Users/Administrator/.codex/tmp/phase5-render-r4/
+  package-headless and package-vulkan, lib/libnovacore_engine.a SHA-256:
+  headless 33a61fb9baa0b36dddc157ce46e8494dfb674b442787a13be2400beb5dab5c6a;
+  Vulkan cc295cb11259f4bec891d6ed62ba01afcd7ced64c146df38e093c30ea8029f58.
+  These are standalone R3/R4 packages; the integration lead combines physics
+  before the full consumer gate. Actual shader numerical/device execution,
+  visual response and GPU timing remain open after the paused GUI gate.
+- Published [Draft PR #25](https://github.com/YoungJibbit95/Novacore-Engine/pull/25),
+  stacked on R3 recovery/phase5-gltf-material-textures. Exact tested runtime is
+  92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
+  evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
+
+## 2026-10-19 Phase 5 combined material light / native query gate
+
+- Resumed the existing Phase 5 work after the user's overnight pause. GUI
+  automation remains paused; no new graphical launch or input was performed.
+- Combined final PH-2 #24 at 87f9d77b3e06708f1ae0be00f847df4bc1628e75 and
+  R4 #25 at 68bc16db711fb373e26cc21ffaae700a94404df6 on the reviewed R3/UI/
+  sensor/shadow integration #23. Exact runtime/source is
+  383505fbf283c14ded424dc7a1d6c1be47ee09e9. No further runtime resolution.
+- Complete Release headless engine/server/sandbox build and 10/10 CPU suites
+  pass in 2.60 s. Fresh complete 74-step SDL3/Vulkan engine/server/sandbox build
+  and install pass; all 27 modules validate for Vulkan 1.0. Only both textured
+  fragment modules change from 14d33a7; the remaining 25 are byte-identical.
+- New isolated public packages are C:/Users/Administrator/.codex/tmp/
+  phase5-engine-material-query-combined/{headless,package-vulkan}. Archive SHA256:
+  headless 206c18974025b215360892accf263fe9f3c18e3ffb0e2f8bb6466af668d268ad;
+  Vulkan 69c7374a66bb2dcf37c611033c26adfdc210b57caa6d35d95ed5a8d6fdf5bde2.
+  Frozen earlier packages/shaders and the inspected game EXE were not overwritten.
+- All four hosted #23 jobs and all six Game #35 jobs pass at their published
+  heads. The prior material consumer runtime60cd259 passed full211-step build,
+  48/48 CPU suites and combined headless Ready/material/props smoke against14d33a7.
+  Those results do not test the new383505f combined consumer; that is next.
+- Native query bounds/owned results and direct light are technically tested.
+  Real GPU execution, visual/material/shadow quality, reflection and timing
+  gates remain open. The previous actual Ready framing review failed.
