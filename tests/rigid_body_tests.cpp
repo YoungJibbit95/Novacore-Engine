@@ -668,48 +668,182 @@ void testKccReplayIsUnchanged() {
         "dynamic adapter never mutates canonical source or competitive KCC replay");
     std::cout << "KCC unchanged replay ticks=" << before.simulatedTicks << " hash=" << before.deterministicHash << '\n';
 }
+bool finiteSnapshot(const RigidBodySnapshot& body) {
+    const auto finite3 = [](math::Vec3 value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+    return finite3(body.position) && finite3(body.linearVelocity) && finite3(body.angularVelocity) &&
+        std::isfinite(body.rotation.x) && std::isfinite(body.rotation.y) &&
+        std::isfinite(body.rotation.z) && std::isfinite(body.rotation.w);
+}
+void benchmarkQuery(std::string_view name, std::string_view mode, auto&& query) {
+    constexpr int warmup = 32, batches = 32, callsPerBatch = 16;
+    for (int i=0; i<warmup; ++i) expect(query(),"query benchmark warmup hits its actual target");
+    std::vector<double> times;
+    int hits = 0;
+    for (int batch=0; batch<batches; ++batch) {
+        const auto begin = std::chrono::steady_clock::now();
+        for (int i=0; i<callsPerBatch; ++i) hits += query() ? 1 : 0;
+        const auto end = std::chrono::steady_clock::now();
+        times.push_back(std::chrono::duration<double,std::micro>(end-begin).count()/callsPerBatch);
+    }
+    expect(hits == batches*callsPerBatch,"bounded hit-only query batches all succeed");
+    std::sort(times.begin(),times.end());
+    std::cout << "Jolt query grid_v2 bodies=32 mode=" << mode << " query=" << name
+        << " warmup_calls=" << warmup << " batches=" << batches << " calls_per_batch=" << callsPerBatch
+        << " hits=" << hits << " median_us_per_call=" << times[times.size()/2]
+        << " p95_us_per_call=" << times[times.size()*95/100] << '\n';
+}
+void benchmarkQueries(const RigidBodyWorld& world, const RigidBodySnapshot& target,
+    std::string_view mode, std::uint64_t tick) {
+    constexpr std::uint8_t mask = 1U<<1U; // Dynamic targets only; exclude the floor.
+    benchmarkQuery("ray_hit",mode,[&]() {
+        const auto hit = world.raycast(target.position+math::Vec3{0,2,0},{0,-4,0},mask);
+        return hit && hit->handle == target.handle;
+    });
+    for (const auto type : {RigidBodyShape::Box,RigidBodyShape::Sphere,RigidBodyShape::Capsule}) {
+        const std::string_view shape = type == RigidBodyShape::Box ? "box" :
+            type == RigidBodyShape::Sphere ? "sphere" : "capsule";
+        RigidBodyQueryShape query; query.shape = type; query.position = target.position+math::Vec3{0,2,0};
+        query.halfExtents = {.1F,.1F,.1F}; query.radius = .1F; query.capsuleHalfHeight = .1F;
+        benchmarkQuery(std::string(shape)+"_cast_hit",mode,[&]() {
+            const auto result = world.castShape(query,{0,-4,0},mask);
+            return result.queried && result.tick == tick && result.hit && result.hit->body.handle == target.handle;
+        });
+        query.position = target.position;
+        benchmarkQuery(std::string(shape)+"_overlap_hit",mode,[&]() {
+            const auto result = world.overlapShape(query,1,mask);
+            return result.queried && result.tick == tick && !result.overflow && result.hits.size() == 1 &&
+                result.hits.front().body.handle == target.handle;
+        });
+    }
+    const auto after = world.body(target.handle);
+    expect(after && after->sleeping == target.sleeping &&
+        near(after->position.x,target.position.x,1.e-5F) && near(after->position.y,target.position.y,1.e-5F) &&
+        near(after->position.z,target.position.z,1.e-5F),"query batches do not move or wake their target");
+}
 void benchmarkAndReplay() {
-    for (const int count : {32,128,256}) {
+    // grid_v2 uses separated boxes on one floor. It replaces the historical
+    // mixed falling-stack measurement; its timings are not directly comparable.
+    for (const int count : {32,128,256}) for (const bool sleeping : {false,true}) {
         RigidBodyWorld world;
         if (!init(world)) return;
         const auto source = floorWorld();
+        RigidBodyHandle queryTarget;
         for (int i=0; i<count; ++i) {
             RigidBodyDesc desc; desc.id = "bench_"+std::to_string(i);
-            desc.position = {static_cast<float>(i%16)-8,1.0F+0.6F*static_cast<float>(i/16),0};
-            (void)add(world,desc);
+            desc.position = {static_cast<float>(i%16)-8,1,static_cast<float>(i/16)-8};
+            desc.allowSleeping = sleeping;
+            const auto handle = add(world,desc);
+            if (i == 0) queryTarget = handle;
         }
+        std::uint64_t tick = 1;
+        auto last = world.step(source,tick);
+        expect(last.stepped && last.staticBodiesCreated == 1 && last.staticBodiesRemoved == 0 &&
+            last.staticBodiesUpdated == 0,"benchmark first step derives exactly one canonical floor");
+        if (!last.stepped) return;
+        const auto untimedStep = [&]() {
+            auto result = world.step(source,++tick);
+            expect(result.stepped && result.staticBodiesCreated == 0 && result.staticBodiesRemoved == 0 &&
+                result.staticBodiesUpdated == 0,"benchmark warmup reuses the unchanged canonical floor");
+            return result;
+        };
+        int settleTicks = 0;
+        while (sleeping && last.activeDynamicCount != 0 && settleTicks < 600 && last.stepped) {
+            last = untimedStep(); ++settleTicks;
+        }
+        expect(!sleeping || (last.stepped && last.activeDynamicCount == 0),"sleeping benchmark reaches native sleep before timing");
+        if (!last.stepped || (sleeping && last.activeDynamicCount != 0)) return;
+        for (int i=0; i<30; ++i) last = untimedStep();
+        if (!last.stepped) return;
         std::vector<double> times;
-        for (std::uint64_t tick=1; tick<=300; ++tick) {
+        std::uint32_t minimumActive = count, maximumActive = 0, created = 0, removed = 0, updated = 0;
+        for (int sample=0; sample<270; ++sample) {
             const auto begin = std::chrono::steady_clock::now();
-            expect(world.step(source,tick).stepped,"bounded object count benchmark step succeeds");
+            last = world.step(source,++tick);
             const auto end = std::chrono::steady_clock::now();
-            if (tick>30) times.push_back(std::chrono::duration<double,std::micro>(end-begin).count());
+            expect(last.stepped,"bounded object count benchmark step succeeds");
+            if (!last.stepped) return;
+            minimumActive = std::min(minimumActive,last.activeDynamicCount);
+            maximumActive = std::max(maximumActive,last.activeDynamicCount);
+            created += last.staticBodiesCreated; removed += last.staticBodiesRemoved; updated += last.staticBodiesUpdated;
+            times.push_back(std::chrono::duration<double,std::micro>(end-begin).count());
         }
+        const std::string_view mode = sleeping ? "sleeping_verified" : "active_no_sleep";
+        expect(minimumActive == (sleeping ? 0U : static_cast<std::uint32_t>(count)) && minimumActive == maximumActive,
+            "timed steps retain the declared native active/sleeping body count");
+        expect(created == 0 && removed == 0 && updated == 0,"timed steps never recreate or update unchanged statics");
         std::sort(times.begin(),times.end());
-        std::cout << "Jolt single-thread fixed60Hz bodies=" << count << " warmup=30 samples=270 median_us="
-            << times[times.size()/2] << " p95_us=" << times[times.size()*95/100] << '\n';
-        for (const auto& body : world.bodies()) expect(std::isfinite(body.position.y) && std::isfinite(body.rotation.w),
-            "stack benchmark ends with finite snapshots");
+        std::cout << "Jolt step grid_v2 single-thread fixed60Hz bodies=" << count << " mode=" << mode
+            << " initial_statics=1 settle_ticks=" << settleTicks << " warmup=30 samples=270 active_min=" << minimumActive
+            << " active_max=" << maximumActive << " static_created=" << created << " static_removed=" << removed
+            << " static_updated=" << updated << " median_us=" << times[times.size()/2]
+            << " p95_us=" << times[times.size()*95/100] << '\n';
+        for (const auto& body : world.bodies()) {
+            expect(finiteSnapshot(body),"benchmark ends with finite full poses and velocities");
+            if (body.motion == RigidBodyMotion::Dynamic)
+                expect(body.sleeping == sleeping,"snapshot sleeping flags agree with measured native activity");
+        }
+        if (count == 32) {
+            const auto target = world.body(queryTarget);
+            expect(target.has_value(),"query benchmark retains its actual dynamic target");
+            if (target) benchmarkQueries(world,*target,mode,tick);
+        }
     }
-    std::vector<RigidBodySnapshot> first;
+    std::vector<std::vector<RigidBodySnapshot>> first;
+    bool observedZMotion = false, observedAngularMotion = false;
     for (int repeat=0; repeat<2; ++repeat) {
         RigidBodyWorld world;
         if (!init(world)) return;
+        RigidBodyHandle impulseTarget;
         for (int i=0; i<8; ++i) {
             RigidBodyDesc desc; desc.id = "replay"+std::to_string(i); desc.position = {0,1.0F+static_cast<float>(i)*0.6F,0};
-            (void)add(world,desc);
+            desc.materialId = 100+i; desc.surfaceId = 200;
+            impulseTarget = add(world,desc);
         }
-        steps(world,floorWorld(),1,300);
-        const auto state = world.bodies();
-        if (repeat==0) first=state;
-        else {
-            expect(state.size()==first.size(),"same authored replay has same snapshot identities");
-            if (state.size()==first.size()) for (std::size_t i=0;i<state.size();++i)
-                expect(state[i].id == first[i].id && near(state[i].position.x,first[i].position.x,1.0e-5F) &&
-                    near(state[i].position.y,first[i].position.y,1.0e-5F) && near(state[i].rotation.w,first[i].rotation.w,1.0e-5F),
-                    "same build and fixed inputs repeat bounded rigid-body state");
+        const auto source = floorWorld();
+        std::size_t checkpoint = 0;
+        for (std::uint64_t tick=1; tick<=300; ++tick) {
+            if (tick == 179) {
+                const auto target = world.body(impulseTarget);
+                expect(target && world.applyImpulse(impulseTarget,{3,2,-1},target->position+math::Vec3{.12F,.18F,.07F}),
+                    "authored replay applies the same off-centre impulse before its moving checkpoint");
+            }
+            expect(world.step(source,tick).stepped,"same-build replay advances each authored fixed tick");
+            if (tick != 60 && tick != 180 && tick != 300) continue;
+            const auto state = world.bodies();
+            for (const auto& body : state) {
+                expect(finiteSnapshot(body) && world.body(body.handle).has_value(),"replay checkpoints contain finite live owned snapshots");
+                observedZMotion |= std::abs(body.linearVelocity.z) > .001F;
+                observedAngularMotion |= body.angularVelocity.lengthSquared() > .001F;
+            }
+            if (repeat==0) first.push_back(state);
+            else {
+                const auto& expected = first[checkpoint];
+                expect(state.size()==expected.size(),"same authored replay has same checkpoint snapshot count");
+                if (state.size()==expected.size()) for (std::size_t i=0;i<state.size();++i) {
+                    const auto& a = state[i]; const auto& b = expected[i];
+                    const auto same3 = [](math::Vec3 x, math::Vec3 y) {
+                        return near(x.x,y.x,1.e-5F) && near(x.y,y.y,1.e-5F) && near(x.z,y.z,1.e-5F);
+                    };
+                    expect(a.id == b.id && a.handle.world != b.handle.world,"replay matches application IDs across independent world identities");
+                    expect(same3(a.position,b.position),"same-build replay repeats full XYZ position");
+                    expect(near(a.rotation.x,b.rotation.x,1.e-5F) && near(a.rotation.y,b.rotation.y,1.e-5F) &&
+                        near(a.rotation.z,b.rotation.z,1.e-5F) && near(a.rotation.w,b.rotation.w,1.e-5F),
+                        "same-build replay repeats all four quaternion components");
+                    expect(same3(a.linearVelocity,b.linearVelocity) && same3(a.angularVelocity,b.angularVelocity),
+                        "same-build replay repeats full linear and angular velocities");
+                    expect(a.motion == b.motion && a.sleeping == b.sleeping && a.canonicalCollider == b.canonicalCollider &&
+                        a.isSensor == b.isSensor && a.materialId == b.materialId && a.surfaceId == b.surfaceId,
+                        "same-build replay repeats motion/sleep/canonical/sensor flags and application tags");
+                }
+            }
+            ++checkpoint;
         }
     }
+    expect(first.size() == 3 && observedZMotion && observedAngularMotion,
+        "full-state replay includes three checkpoints and real out-of-plane/angular motion");
+    std::cout << "Jolt same-build replay checkpoints=3 full_pose_and_velocities=true tolerance=1e-5\n";
 }
 } // namespace
 int main() {
