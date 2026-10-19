@@ -767,27 +767,58 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
   evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
 
-## 2026-10-19 Phase 5 combined material light / native query gate
+### Phase 5 R5a source handoff: global specular sky IBL (default off)
 
-- Resumed the existing Phase 5 work after the user's overnight pause. GUI
-  automation remains paused; no new graphical launch or input was performed.
-- Combined final PH-2 #24 at 87f9d77b3e06708f1ae0be00f847df4bc1628e75 and
-  R4 #25 at 68bc16db711fb373e26cc21ffaae700a94404df6 on the reviewed R3/UI/
-  sensor/shadow integration #23. Exact runtime/source is
-  383505fbf283c14ded424dc7a1d6c1be47ee09e9. No further runtime resolution.
-- Complete Release headless engine/server/sandbox build and 10/10 CPU suites
-  pass in 2.60 s. Fresh complete 74-step SDL3/Vulkan engine/server/sandbox build
-  and install pass; all 27 modules validate for Vulkan 1.0. Only both textured
-  fragment modules change from 14d33a7; the remaining 25 are byte-identical.
-- New isolated public packages are C:/Users/Administrator/.codex/tmp/
-  phase5-engine-material-query-combined/{headless,package-vulkan}. Archive SHA256:
-  headless 206c18974025b215360892accf263fe9f3c18e3ffb0e2f8bb6466af668d268ad;
-  Vulkan 69c7374a66bb2dcf37c611033c26adfdc210b57caa6d35d95ed5a8d6fdf5bde2.
-  Frozen earlier packages/shaders and the inspected game EXE were not overwritten.
-- All four hosted #23 jobs and all six Game #35 jobs pass at their published
-  heads. The prior material consumer runtime60cd259 passed full211-step build,
-  48/48 CPU suites and combined headless Ready/material/props smoke against14d33a7.
-  Those results do not test the new383505f combined consumer; that is next.
-- Native query bounds/owned results and direct light are technically tested.
-  Real GPU execution, visual/material/shadow quality, reflection and timing
-  gates remain open. The previous actual Ready framing review failed.
+- Isolated recovery/phase5-sky-specular-ibl starts from frozen R4 68bc16d.
+  Appends only the approved opt-in frame flag and two actual draw/readiness
+  stats. A fixed CPU GGX-prefiltered float cubemap and correlated-Smith BRDF
+  LUT feed a private global two-binding set 2; existing material UBO/push
+  layouts, UI/R2 ownership and public aggregate prefixes remain intact.
+- Source is the actually active procedural world sky before display mapping,
+  including exposure once, gradient, haze and clouds, excluding direct solar
+  disc/glow. Two equal snapshots plus a fixed two-second attempt interval
+  prevent per-frame generation. Changed/invalid/unavailable maps use R4;
+  existing pending-upload completion and actual allocation budgets are reused.
+- Small standalone GCC 13.2 production generator/contracts test passes with
+  -Wall -Wextra -Wpedantic -Werror, about 1.53 seconds for two generations.
+  All 29 SDK shaders compile/spirv-val for Vulkan 1.0; all 27 previous modules
+  are byte-identical to frozen R4. SPIR-V confirms set 2 bindings 0/1, cube
+  sampling and the existing material frame member offset 64 (y/z 68/72).
+- This source handoff has not run a full engine/consumer/hosted build or actual
+  Vulkan device. Lifecycle/source review and the resource-coordinated fresh
+  C: builds are next. No frozen package was overwritten and no GUI was used.
+  Device/visual/timing/OOM acceptance is open. R6 remains a separate slice.
+- Independent source/lifetime review found no additional ownership, budget,
+  descriptor, pending-upload or teardown issue. Root identified two functional
+  boundaries: retrying a transient failed unchanged source, and avoiding a cube
+  lookup at nonpositive NdotV/zero view. Follow-up adds explicit successful
+  attempt completion, three-attempt/two-second bounded retry, suspension versus
+  actual off transitions, and a pre-lookup shader guard. Functional CPU tests
+  cover failure/cooldown/success, pending-camera suspension, exhausted retries,
+  explicit off/on recovery and successful-cache reuse. Typed Vulkan cube flags
+  also avoid enum/non-enum conditional warnings. Device fault injection stays open.
+- A final fail-closed guard passes actual optional sky-pipeline availability
+  through the private material prepare call. Enabled settings alone cannot
+  generate/use reflections when the sky graphics pipeline failed to create;
+  R4 remains active and failure-attempt limits are preserved. Public API and
+  all shader layouts stay unchanged. Missing-pipeline device injection is open.
+- Final runtime 58752506783976541f78fad47a0dd09e4350791f passes complete fresh
+  GCC 13.2 Release headless engine/server/sandbox build/install and 10/10 CPU
+  suites (2.99 seconds), plus the complete separate actual SDL3/Vulkan engine/
+  server/sandbox 76-step build/install. All 29 generated modules validate for
+  Vulkan 1.0; all 27 prior modules are byte-identical to frozen R4. No new
+  warnings; inherited unused sandbox helper warning remains.
+- Frozen C:/Users/Administrator/.codex/tmp/phase5-render-r5/package-headless and
+  package-vulkan lib/libnovacore_engine.a SHA-256 values:
+  be05b8428ea808a796db59628adf5634f6e90e305c6c85a0f2df3daa685ab358 and
+  280a92e97f6f62bf0dec8b20254ddc0ca3191f52e8a7c7190f4613f93826e52f.
+  frozen-candidate.json records runtime, paths, all shader hashes and open
+  gates. Hosted/combined-consumer, real device sampling/readback, visual,
+  GPU timing and fault-injection gates remain open. No GUI/device was launched
+  by this rendering subagent and frozen R3/R4/root review packages stay intact.
+- Published [Draft PR #28](https://github.com/YoungJibbit95/Novacore-Engine/pull/28),
+  stacked on R4 #25. Exact tested runtime is 58752506783976541f78fad47a0dd09e4350791f;
+  later commits only record evidence. Final tiny private sky-availability guard
+  passed root review; no remaining actionable source/lifetime finding. Hosted
+  checks run on the final PR head. The exact combined consumer and actual
+  device/visual/timing/fault-injection gates remain open. No automatic merge.

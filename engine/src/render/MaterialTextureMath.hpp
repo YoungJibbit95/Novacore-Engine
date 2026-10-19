@@ -81,10 +81,12 @@ struct MaterialFrameUniforms final {
     std::array<float, 4> down{};
     std::array<float, 4> forward{};
     std::array<float, 4> eye{};
-    std::array<float, 4> parameters{}; // manual sRGB encoding for a UNORM presentation attachment
+    std::array<float, 4> parameters{}; // manual sRGB encoding, sky IBL enabled, maximum sky mip, reserved
 };
 static_assert(sizeof(MaterialFrameUniforms) == 80);
 static_assert(offsetof(MaterialFrameUniforms, parameters) == 64);
+static_assert(offsetof(MaterialFrameUniforms, parameters) + sizeof(float) == 68);
+static_assert(offsetof(MaterialFrameUniforms, parameters) + 2 * sizeof(float) == 72);
 
 [[nodiscard]] inline MaterialFrameUniforms materialFrameUniforms(const RenderCamera3D& camera, std::uint32_t width,
                                                                  std::uint32_t height, bool encodeSrgb) {
