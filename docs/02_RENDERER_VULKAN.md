@@ -702,6 +702,24 @@ and is not a GPU/real-frame timing. Full engine/hosted/consumer builds and actua
 device sampling, validation layers, OOM injection, GPU numerical comparison and
 visual/timing gates are still pending at this source handoff.
 
+At final runtime 58752506783976541f78fad47a0dd09e4350791f, the complete fresh
+GCC 13.2 Release headless engine/server/sandbox build and all 10/10 CPU suites
+pass (2.99 seconds). The complete separate actual SDL3/Vulkan engine/server/
+sandbox build/install passes all 76 steps. All 29 generated modules validate
+for Vulkan 1.0 and all 27 previous modules remain byte-identical to frozen R4.
+There are no new compiler warnings; the inherited unused sandbox helper warning
+remains. Source/lifetime review covered ownership/budget/pending/descriptor/
+teardown, retry transitions and the shader's nonpositive-NdotV guard. These
+checks do not execute a Vulkan device or sample a cube on the GPU.
+
+Frozen standalone packages are under
+`C:/Users/Administrator/.codex/tmp/phase5-render-r5/package-headless` and
+`package-vulkan`; their `lib/libnovacore_engine.a` SHA-256 values are respectively
+`be05b8428ea808a796db59628adf5634f6e90e305c6c85a0f2df3daa685ab358` and
+`280a92e97f6f62bf0dec8b20254ddc0ca3191f52e8a7c7190f4613f93826e52f`.
+Hosted final-head checks and the combined consumer gate remain separate. No R3,
+R4 or integration review package/shader directory was overwritten.
+
 Matched future captures must hold geometry, material tint, lighting, camera and
 exposure fixed while toggling R4/R5a. Neutral-tint metal/dielectric patches and
 actual weapon materials should show the authored sky/ground directions,
