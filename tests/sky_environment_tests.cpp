@@ -61,15 +61,43 @@ int main() {
     const auto now = detail::SkyEnvironmentGenerationGate::Clock::time_point{};
     expect(!gate.observe(source, now) && gate.observe(source, now),
            "generation requires two consecutive equal snapshots");
-    expect(!gate.observe(source, now + std::chrono::seconds(10)), "unchanged source is not regenerated each frame");
+    gate.finishAttempt(false);
+    expect(!gate.observe(source, now + std::chrono::seconds(1)), "transient failure respects the retry cooldown");
+    expect(gate.observe(source, now + std::chrono::seconds(2)), "unchanged failed source gets a bounded retry");
+    gate.finishAttempt(true);
+    expect(!gate.observe(source, now + std::chrono::milliseconds(2001)), "unchanged source is not regenerated each frame");
     auto changed = source;
     changed.exposure = 1;
-    expect(!gate.observe(changed, now + std::chrono::milliseconds(10)) &&
-               !gate.observe(changed, now + std::chrono::milliseconds(20)),
+    expect(!gate.observe(changed, now + std::chrono::milliseconds(2010)) &&
+               !gate.observe(changed, now + std::chrono::milliseconds(2020)),
            "rapid source changes cannot generate every other frame");
-    expect(gate.observe(changed, now + std::chrono::seconds(2)),
+    expect(gate.observe(changed, now + std::chrono::seconds(4)),
            "stable changed source becomes eligible after bounded cooldown");
-    expect(!gate.observe(std::nullopt, now + std::chrono::seconds(3)), "inactive source is never generated");
+    gate.finishAttempt(false);
+    expect(!gate.observe(std::nullopt, now + std::chrono::seconds(5)), "inactive source is never generated");
+    gate.suspend(); // unconfirmed upload / invalid camera, not a user off
+    expect(!gate.observe(changed, now + std::chrono::seconds(6)) &&
+               gate.observe(changed, now + std::chrono::seconds(6)) && gate.attemptCount == 2,
+           "pending/camera suspension preserves failure count and requires two fresh observations");
+    gate.finishAttempt(false);
+    gate.suspend();
+    expect(!gate.observe(changed, now + std::chrono::seconds(8)) &&
+               gate.observe(changed, now + std::chrono::seconds(8)) && gate.attemptCount == 3,
+           "last bounded retry survives pending suspension");
+    gate.finishAttempt(false);
+    gate.suspend();
+    expect(!gate.observe(changed, now + std::chrono::seconds(10)) &&
+               !gate.observe(changed, now + std::chrono::seconds(10)),
+           "persistent failure cannot bypass the three-attempt limit through pending/camera suspension");
+    gate.deactivate(); // explicit user feature or source off
+    expect(!gate.observe(changed, now + std::chrono::seconds(12)) &&
+               gate.observe(changed, now + std::chrono::seconds(12)) && gate.attemptCount == 1,
+           "explicit off/on allows recovery after the bounded attempts are exhausted");
+    gate.finishAttempt(true);
+    gate.deactivate();
+    expect(!gate.observe(changed, now + std::chrono::seconds(20)) &&
+               !gate.observe(changed, now + std::chrono::seconds(20)),
+           "successful matching cache never regenerates after off/on");
     auto constant = source;
     constant.zenith = constant.horizon = constant.ground = {.25F, .5F, 1};
     constant.exposure = 1;

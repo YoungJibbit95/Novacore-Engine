@@ -567,3 +567,12 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Vulkan device. Lifecycle/source review and the resource-coordinated fresh
   C: builds are next. No frozen package was overwritten and no GUI was used.
   Device/visual/timing/OOM acceptance is open. R6 remains a separate slice.
+- Independent source/lifetime review found no additional ownership, budget,
+  descriptor, pending-upload or teardown issue. Root identified two functional
+  boundaries: retrying a transient failed unchanged source, and avoiding a cube
+  lookup at nonpositive NdotV/zero view. Follow-up adds explicit successful
+  attempt completion, three-attempt/two-second bounded retry, suspension versus
+  actual off transitions, and a pre-lookup shader guard. Functional CPU tests
+  cover failure/cooldown/success, pending-camera suspension, exhausted retries,
+  explicit off/on recovery and successful-cache reuse. Typed Vulkan cube flags
+  also avoid enum/non-enum conditional warnings. Device fault injection stays open.

@@ -33,14 +33,19 @@ struct SkyEnvironmentPixels final {
 [[nodiscard]] std::size_t skyCubeFloatCount();
 [[nodiscard]] SkyEnvironmentPixels generateSkyEnvironment(const SkyRadianceSnapshot& sky, bool includeBrdf);
 
-// A source must remain equal for two prepares. Failed attempts also consume the
-// two-second interval; an animated/toggling source cannot trigger per-frame work.
-// Previous maps may only be used when their immutable snapshot matches exactly.
+// Two equal observations and a two-second cooldown; at most three attempts per
+// source activation. Suspension (pending upload/invalid camera) does not reset
+// attempts. Only explicit feature/source off resets that limit. Successful maps
+// are never regenerated while their immutable source still matches.
 struct SkyEnvironmentGenerationGate final {
     using Clock = std::chrono::steady_clock;
-    std::optional<SkyRadianceSnapshot> observed, attempted;
+    std::optional<SkyRadianceSnapshot> observed, attempted, completed;
     std::uint32_t stableCount = 0;
+    std::uint32_t attemptCount = 0;
     std::optional<Clock::time_point> lastAttempt;
+    void suspend();
+    void deactivate();
+    void finishAttempt(bool success);
     bool observe(const std::optional<SkyRadianceSnapshot>& source, Clock::time_point now);
 };
 

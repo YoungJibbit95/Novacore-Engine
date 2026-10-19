@@ -175,18 +175,39 @@ SkyEnvironmentPixels generateSkyEnvironment(const SkyRadianceSnapshot& sky, bool
     return result;
 }
 bool SkyEnvironmentGenerationGate::observe(const std::optional<SkyRadianceSnapshot>& source, Clock::time_point now) {
+    if (!source) {
+        suspend();
+        return false;
+    }
     if (source != observed) {
         observed = source;
-        stableCount = source ? 1U : 0U;
-    } else if (source) {
+        stableCount = 1;
+        if (source != attempted) {
+            attemptCount = 0;
+        }
+    } else {
         stableCount = std::min(2U, stableCount + 1);
     }
-    if (!source || stableCount < 2 || source == attempted ||
+    if (stableCount < 2 || source == completed || attemptCount >= 3 ||
         (lastAttempt && now - *lastAttempt < std::chrono::seconds(2))) {
         return false;
     }
     attempted = source;
+    ++attemptCount;
     lastAttempt = now;
     return true;
+}
+void SkyEnvironmentGenerationGate::suspend() {
+    observed.reset();
+    stableCount = 0;
+}
+void SkyEnvironmentGenerationGate::deactivate() {
+    suspend();
+    attemptCount = 0;
+}
+void SkyEnvironmentGenerationGate::finishAttempt(bool success) {
+    if (success) {
+        completed = attempted;
+    }
 }
 } // namespace novacore::render::detail

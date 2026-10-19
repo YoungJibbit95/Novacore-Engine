@@ -237,7 +237,7 @@ struct VulkanMaterialTextures::Impl final {
         VkImageCreateInfo image{};
         image.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         image.imageType = VK_IMAGE_TYPE_2D;
-        image.flags = layers == 6 ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0;
+        image.flags = layers == 6 ? VkImageCreateFlags{VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT} : VkImageCreateFlags{0};
         image.format = format;
         image.extent = {width, height, 1};
         image.mipLevels = result->mipLevels;
@@ -377,7 +377,8 @@ struct VulkanMaterialTextures::Impl final {
         VkImageFormatProperties image{};
         return vkGetPhysicalDeviceImageFormatProperties(physical, format, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
                                                         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                        cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0,
+                                                        cube ? VkImageCreateFlags{VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT}
+                                                             : VkImageCreateFlags{0},
                                                         &image) == VK_SUCCESS &&
                image.maxExtent.width >= size && image.maxExtent.height >= size && image.maxMipLevels >= levels &&
                image.maxArrayLayers >= (cube ? 6U : 1U);
@@ -454,6 +455,7 @@ struct VulkanMaterialTextures::Impl final {
             return;
         }
         const auto fallback = [&]() {
+            environmentGate.finishAttempt(false);
             if (!loggedEnvironmentFallback) {
                 core::logWarning("render", "Sky specular IBL generation/format/upload/budget unavailable; using R4");
                 loggedEnvironmentFallback = true;
@@ -521,6 +523,7 @@ struct VulkanMaterialTextures::Impl final {
         vkUpdateDescriptorSets(device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
         environmentImage = image;
         environmentSource = source;
+        environmentGate.finishAttempt(true);
         environmentPrepared = true;
         loggedEnvironmentFallback = false;
         const auto elapsed =
@@ -697,13 +700,16 @@ void VulkanMaterialTextures::shutdown() {
 bool VulkanMaterialTextures::prepare(std::uint32_t slot, const RenderFrameInfo& frame, VkExtent2D extent,
                                      VkFormat outputFormat, VkCommandPool pool, VkQueue queue) {
     impl_->environmentPrepared = false;
+    if (!frame.materialTexturesEnabled || !frame.skyEnvironmentReflectionsEnabled || !frame.sky.enabled) {
+        impl_->environmentGate.deactivate();
+    }
     if (!impl_->retirePendingUpload()) {
-        (void)impl_->environmentGate.observe(std::nullopt, detail::SkyEnvironmentGenerationGate::Clock::now());
+        impl_->environmentGate.suspend();
         return false;
     }
     if (!frame.materialTexturesEnabled || !frame.camera3D.enabled || slot >= impl_->slotCount ||
         !detail::validShadowReceiverCamera(frame.camera3D)) {
-        (void)impl_->environmentGate.observe(std::nullopt, detail::SkyEnvironmentGenerationGate::Clock::now());
+        impl_->environmentGate.suspend();
         return false;
     }
     if (outputFormat != VK_FORMAT_B8G8R8A8_UNORM && outputFormat != VK_FORMAT_R8G8B8A8_UNORM &&

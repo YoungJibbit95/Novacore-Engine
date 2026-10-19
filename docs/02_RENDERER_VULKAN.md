@@ -655,11 +655,14 @@ provide the primary method references. This slice does not include their
 multiple-scattering compensation or additional material lobes.
 
 The source must match on two consecutive prepares. Attempts are separated by
-at least two seconds, including failed attempts; an unchanged attempted source
-is not regenerated. A changed/invalid source immediately stops using a cached
-map that does not match. Failed snapshots keep R4 until another source change;
-there is no hidden per-frame generation/retry. The first LUT is reused across
-source changes. Raw generated data is 2,129,888 bytes with LUT (under 2.1 MiB),
+at least two seconds, including failures. Successful matching sources never
+regenerate. Transient failures get at most three attempts per source activation;
+after that R4 remains until a source change or explicit feature/source off/on.
+Pending-upload or camera suspension only breaks consecutive observation and
+cannot reset/bypass that attempt limit. A changed/invalid source immediately
+stops using a cached map that does not match. There is no per-frame generation
+or retry. The first LUT is reused across source changes. Raw generated data is
+2,129,888 bytes with LUT (under 2.1 MiB),
 and work/sample counts are fixed. Generation and synchronous upload can stall
 the opt-in/configuration frame; runtime logging records their combined CPU
 elapsed time and actual shared image residency. These logs are not GPU timings.
