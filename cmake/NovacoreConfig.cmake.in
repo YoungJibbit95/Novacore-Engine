@@ -1,4 +1,9 @@
 @PACKAGE_INIT@
 
+if(@NOVACORE_HAS_JOLT@)
+    include(CMakeFindDependencyMacro)
+    find_dependency(Jolt CONFIG)
+endif()
+
 include("${CMAKE_CURRENT_LIST_DIR}/NovacoreTargets.cmake")
 

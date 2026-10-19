@@ -1,5 +1,206 @@
 # Recovery progress
 
+## 2026-10-19 Combined Armed Idle consumer and PH-7 evidence
+
+- Public runtime `383505fbf283c14ded424dc7a1d6c1be47ee09e9` now has a complete
+  Nemisis consumer gate at `7d6b9a57a3091bfb014d455b2aec4811d482e8d4`
+  ([Draft game #37](https://github.com/YoungJibbit95/Nemisis/pull/37)). Full
+  212-step Release/native-UI game build and all48 non-GPU suites pass in131.64s.
+  The separate actual SDL3/Vulkan game target builds completely in310 steps.
+  Combined headless Ready/material/shadow/props smoke exits0 with111 pose/skin/
+  CPU-update samples per subset, one owner, zero invalid/unreachable IK and six
+  props/111 native ticks. Null-backend GPU readiness remains zero.
+- Merge `a211cb4` imports test-only PH-7 #27 (`c649c86`). Runtime, API, shaders
+  and CMake are unchanged from383505f. Incremental complete headless build and
+  all10 CPU suites pass in10.72s. Concurrent compilation makes these elapsed
+  durations unsuitable as performance acceptance. Frozen public383 packages
+  and the approved game EXE were not reinstalled or overwritten.
+- All four hosted default/Jolt MSVC/Clang jobs pass at prior documentation head
+  `4e5d7ba`; PH-7 component #27 also passes all four. Final combined test/doc
+  head checks follow publication. The user granted the exact frozen game launch
+  and is inspecting manually; automation is paused again at their request.
+  The single uncontrolled movement/firing capture does not establish Idle,
+  material, shadow, device-validation or timing acceptance. R5 is separate.
+
+## 2026-10-19 Combined material-texture candidate
+
+- R3 final `22a421010d2e1329db54329464e1775f3f3b9f57` is integrated with #21's
+  sensor/contact stack and refreshed upstream main `06d813f`. GitHub now shows
+  engine #14..#18 merged externally; #19/#20/#21/#22 remain open Drafts.
+  The main merge duplicated one UI include; retain its existing single include.
+- Independent source review found and closed two real R3 defects: valid emission
+  disappeared on unsupported-material fallback; failed upload waits could free
+  pending resources. Retention now precedes child teardown, only confirmed
+  completion/device loss permits release, and unattempted assets remain retryable.
+  Real OOM injection, GPU resize/validation and performance remain open gates.
+- The initial combined runtime `a54050e` builds engine/server/sandbox completely
+  and passes all10 CPU suites in1.05s. The final upstream/caller-recovery delta is
+  undergoing fresh headless and separate Vulkan builds before game pin migration.
+  Existing frozen `cca45a41` shader/runtime paths are not changed.
+
+## 2026-10-19 Combined public sensor package
+
+- Local combined runtime `130c4fdadd05d7cb0e7d8f808deeec35f29f10fa` adds the
+  reviewed #20 API to #19's UI, proper camera, R2 and Jolt integration. The merge
+  retains both recovery records; no runtime conflict resolution was needed.
+- Complete Release headless engine/server/sandbox build and all nine CPU suites
+  pass in 1.91s. A separate installed public package builds/runs the real Nemisis
+  sensor/material/impact fixture: six props, tagged floor contacts, native player
+  Enter/Exit, physical closest-hit tags, reset and a 1.21828m walked crate push.
+  Full game regression is running. This record-only commit changes no API/runtime.
+- The prior `cca45a41` Vulkan runtime/shader/package paths remain frozen during
+  user inspection. No new sensor Vulkan build or GPU acceptance is claimed.
+
+## 2026-10-19 Phase 5 PH-7 bounded replay/measurement tests
+
+- Branch `recovery/phase5-physics-ph7-acceptance` starts at final query head
+  `87f9d77b3e06708f1ae0be00f847df4bc1628e75` (#24). Only the existing rigid-body
+  test and recovery records change. Runtime/API, KCC, game, CMake, network and
+  frozen packages remain unchanged.
+- Same-build replay compares full position/quaternion and linear/angular velocity
+  at three fixed checkpoints, plus motion/sleep/canonical/sensor flags and tags.
+  A fixed off-centre impulse exercises real Z/angular motion. Owned world IDs
+  deliberately differ. No cross-platform determinism or network claim.
+- `grid_v2` separates awake/no-sleep and verified native-sleep scenes with the
+  same 32/128/256-box placements. Thirty warmup/270 measured steps log actual
+  active counts and zero static resync. The historical mixed-stack measurements
+  are retained but are not directly comparable. There are no timing pass limits.
+- Bounded hit-only ray and three-shape cast/overlap batches run on the 32-body
+  scene in both modes: all 512 timed calls/group hit, without moving/waking the
+  target. Logs report per-call median/p95 batch averages, including owned result
+  costs. Miss/initial-overlap-cast performance and game-fixture timing stay open.
+- Local GCC13.2/O2: exactly two testtarget build steps, first native run plus five
+  serial repetitions pass, full cached 8/8 CPU suites pass in2.05s. KCC720 stays
+  17925562298706474255. No new local default-off build was scheduled; prior
+  disabled binary is baseline evidence only. Exact-source hosted default-off and
+  Jolt MSVC/Clang gates follow publication. No GUI/graphics test or package edit.
+- [Conditions and measured ranges](PHYSICS_ADOPTION.md#ph-7-local-replay-and-measurement-acceptance)
+  distinguish local physics evidence from still-unimplemented prop replication.
+
+## 2026-10-19 Phase 5 native shape query slice
+
+- Published Draft [engine PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24),
+  runtime `765da36906ef0c69581a6c928f7f4c3c16d2f1a2`. Exact runtime complete
+  default-off MSVC/Clang [run 39176871616](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871616)
+  and Jolt MSVC/Clang [run 39176871535](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39176871535)
+  all pass. Main-agent source review found no actionable issue. This following
+  record-only commit changes no runtime, API or frozen package.
+- Isolated `recovery/phase5-physics-shape-queries` starts at exact sensor head
+  `778f64a4930e786d077fe4ef5728760cb382c893` (#20). Only RigidBodyWorld,
+  its existing tests and recovery documentation change; no CMake, renderer,
+  game, canonical-source, ray or KCC implementation edits.
+- Append native translation-only closest box/sphere/capsule casts and bounded
+  unique-body overlap queries. Reuse body shape/pose validation and the same
+  Jolt world; owned results include material/surface tags, stable identities,
+  current world/tick, native contact points, depth and outward body normals.
+- Start contacts are explicitly included even when casting out; the deepest
+  initial penetration has priority. Overlaps sort by application ID/handle,
+  and explicit maxHits=1..8192 fails with no partial subset on overflow while
+  leaving the read-only world valid. Sensors remain excluded unless requested;
+  target-category filtering matches the unchanged closest ray.
+- Complete local GCC 13.2/O2 headless build and final 8/8 tests pass in 1.19 s.
+  Added native coverage checks all shapes, floor/wall/dynamic/rotated targets,
+  outward initial-overlap normals, sensor/filter/tags, sleeping, current
+  kinematic integration timing, stable bounded extraction, reset/stale handles
+  and unchanged tick ownership. KCC720 hash remains 17925562298706474255.
+- Jolt-disabled adapter compiles/links/runs without Jolt. A separate public
+  installed consumer runs real casts, sorted overlaps, fail-closed overflow and
+  owned stale results against unchanged installed Jolt. C: query variant keeps
+  all earlier frozen packages intact. Hosted CI passes; exact game revision
+  remains a separate gate. No GUI or graphical application was launched.
+
+## 2026-10-19 Phase 5 bounded sensor and tagged-contact slice
+
+- Published Draft [engine PR #20](https://github.com/YoungJibbit95/Novacore-Engine/pull/20),
+  runtime `34e87207f0219e1e8901e5b192703fa2adbb2d31`. Exact runtime complete
+  default-off MSVC/Clang [run 39174235581](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235581)
+  and Jolt MSVC/Clang [run 39174235602](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39174235602)
+  all pass. This following record-only commit changes no runtime or API.
+- Branch `recovery/phase5-physics-sensors` starts at immutable adoption head
+  `0da8ba32eed6617238c6a8f45553c7e5ec037c23`, stacked on Draft PR #17.
+  Only RigidBodyWorld, its tests and recovery records change; CMake, canonical
+  derivation, KCC, renderer and game source remain unchanged.
+- Append application material/surface IDs to descriptions/snapshots/rays; allow
+  live tag edits, retaining tags across canonical geometry replacement.
+  Game-owned presets still supply the explicit friction/restitution values.
+- Optional bounded extraction uses native Jolt Added/Persisted contact callbacks
+  and active kinematic sensor bodies. Extract sorted owned pre-solve contact
+  records and Enter/Stay/Exit after fixed Update. Sensor target poses are sampled
+  on the following tick; no continuous sensor/CCD or solved impulse is claimed.
+- Removal/replacement exits retain old world/generation identity, reset clears
+  queues, symmetric filters remain explicit, default rays skip sensors, and any
+  capture overflow invalidates the world without a partial successful packet.
+  Event capture remains disabled by default; no implicit canonical triggers.
+- Local GCC 13.2/O2 complete headless build plus 8/8 suites pass in 1.18 s,
+  including sleeping overlap, actual kinematic-player detection, removal/reuse,
+  tags, replacement/reset, stable ordering and both overflow paths. Final
+  Jolt-disabled adapter compiles/links/runs without Jolt. KCC720 hash remains
+  17925562298706474255 with capture off/on and after dynamics.
+- New C: variant public CMake package configures/builds/links/runs native sensor
+  Enter/Exit and tagged rays against unchanged installed Jolt. Earlier installed
+  artifacts remain untouched. Hosted CI passes; exact Nemisis combined revision
+  remains a separate acceptance gate. No graphical application was launched.
+
+## 2026-10-19 Main integration: UI, proper camera, shadows and rigid bodies
+
+- Exact combined source `cca45a41aded8b13171943553e27f85071c76ed3` retains
+  UI #15, proper camera #16, R2 #18 and the optional Jolt adapter #17.
+  Integration merges changed no runtime implementation or shared API by hand.
+- Complete Release engine/server/sandbox builds pass with Jolt enabled, both
+  headless and SDL3/Vulkan. All nine CPU suites pass in 1.80s; all 23 shader
+  modules compile and pass SPIR-V validation for Vulkan 1.0.
+- Installed public packages were used for the real Nemisis Dev Range fixture
+  test: six bodies settle, accept a closest-hit impulse, render the existing
+  crate geometry with physical rotation, respond to bounded KCC walking and
+  reset safely. The real headless game fixture smoke also passes after fixing
+  its pre-existing mismatch between spawn transform and movement position.
+- Full game regression and combined hosted CI are pending. GUI was not started;
+  Vulkan execution, shadow/contact quality, resource resizing and GPU timing
+  remain separate acceptance gates. R3 texture sampling is a subsequent branch.
+
+## 2026-10-19 Phase 5 optional rigid-body adoption
+
+- Published Draft [engine PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
+  runtime `b17ff125f9d0b6a0a5150155f067e9e92ed6ed91`. Exact runtime head passes
+  complete default-off MSVC/Clang [run 39171464412](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464412)
+  and optional Jolt MSVC/Clang [run 39171464486](https://github.com/YoungJibbit95/Novacore-Engine/actions/runs/39171464486).
+  This following record-only commit changes no runtime or API. No automatic merge.
+- Isolated `recovery/phase5-physics-adoption` starts at exact main
+  `38e718bad65001879b482f8039bff338855e5f0b`. No original dirty worktree,
+  character/KCC source, renderer/UI source or existing tests changed.
+- PH-1 gate adopts MIT Jolt 5.6.0 at immutable
+  `e77f175595e64cb44218cc9d9d56fc365ad0e36a` for optional CPU dynamics.
+  See [capability audit and authority contract](PHYSICS_ADOPTION.md).
+- New public PIMPL `RigidBodyWorld` supports real boxes/spheres/capsules,
+  oriented boxes, mass/inertia/angular motion, gravity, contact friction,
+  restitution/damping, sleeping/waking, CCD, generation/world-owned handles,
+  static/kinematic/dynamic modes, symmetrical 8-layer masks and closest rays.
+  Canonical blocking boxes/four ramp wedges derive from existing StaticCollider
+  data; unchanged fixtures persist, changed/removed support wakes nearby bodies.
+  A real kinematic capsule pushes dynamic props without applying impulses to
+  the unchanged competitive motor. Prop-blocked KCC movement is not implemented.
+- Complete local GCC 13.2/O2 default-off 8/8 pass in 1.67 s and Jolt-on 8/8 pass in 2.74 s.
+  Existing 720-tick KCC replay hash remains 17925562298706474255 in both configs
+  and after dynamic-world simulation. Jolt default 2 cm slop caused measured
+  two-box penetration 0.229792/0.709549 m; explicit 5 mm slop improves centres to
+  0.244805/0.739578 m without weakening the original 2.5 cm test assertion.
+- Single-thread 60 Hz CPU benchmark (30 warmup/270 samples), median/p95 us:
+  32 props 6.2/76.9, 128 props 87.7/431.1, 256 props 726.2/1184.5. One local run;
+  no GPU/frame-time or cross-platform determinism claim.
+- Installed public CMake consumer actually builds/links/runs a dropped box
+  using only NovaCore headers/target (Y=0.245 m, sleeping). Jolt static dependency
+  and MIT notice install correctly. Hosted default-off plus opt-in MSVC/Clang
+  workflows pass; exact Nemisis Dev Range integration and visual review remain gates.
+- Final trigger-kind exclusion retains the existing KCC's nonblocking semantics
+  even for inconsistent trigger flags; closest-ray regression covers this.
+  Complete final Jolt-on 8/8 suites pass in 5.03 s. Final disabled adapter also
+  compiles/runs without linking Jolt. No existing suite/assertion was removed.
+- No GUI launched. Next executable step: main-agent exact-pin Dev Range
+  integration/tests against the existing UI/camera engine changes;
+  preserve default-off adoption until accepted. Trigger events, shape casts,
+  two-way KCC contact, materials/impact event tags and prop replication remain
+  explicit later slices. No general solver/constraint engine was reinvented.
+
 ## 2026-10-18 Phase 2B dynamic mesh frame slots
 
 - Published DRAFT https://github.com/YoungJibbit95/Novacore-Engine/pull/11;
@@ -234,6 +435,26 @@ cook/catalog migration. Preserve active offline fixups and both GLBs until CPU
 contracts plus hip/held ADS/muzzle/grips/scale/procedural-motion review pass.
 The documented authored glTF socket-offset gap needs a separate engine fixture/
 fix and exact cross-repo validation if pursued; do not mix it into this audit.
+
+## 2026-10-18 UI geometry adapter (UI-0)
+
+Separate worktree/branch `ui/00-overlay-adapter`, based on Nemisis' compatible
+engine pin a687c8816fbcc8a7f4d313cf092c6dc17a59f8f7. Adds a public indexed UI draw
+packet and an isolated Vulkan renderer recorded after legacy overlays in the
+existing render pass. No new instance/device/swapchain/fence owner. Shared
+VulkanBackend integration is limited to lifecycle, prepare, record and stats.
+
+CPU textures are immutable premultiplied RGBA8 sources; completed frame slots
+retain them until safe release. Host-visible vertex/index buffers are reused
+per slot. First-time atlas upload currently waits for the existing graphics
+queue. Advanced filters, offscreen layers and backdrop blur are not provided.
+Window's existing snapshot adds wheel delta on mouse axis 2 for UI scrolling.
+
+Validation: full GCC13.2 Release SDL3/Vulkan build, new shaders compiled by SDK
+1.4.350.0 glslc, all 5 engine suites pass, including malformed UI packet tests.
+Game integration and visual evidence are recorded in the dependent Nemisis UI
+PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
+
 
 ## 2026-10-18 Phase 4 R0 sky/sun projection
 
