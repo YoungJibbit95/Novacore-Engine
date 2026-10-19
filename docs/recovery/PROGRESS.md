@@ -576,3 +576,8 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   cover failure/cooldown/success, pending-camera suspension, exhausted retries,
   explicit off/on recovery and successful-cache reuse. Typed Vulkan cube flags
   also avoid enum/non-enum conditional warnings. Device fault injection stays open.
+- A final fail-closed guard passes actual optional sky-pipeline availability
+  through the private material prepare call. Enabled settings alone cannot
+  generate/use reflections when the sky graphics pipeline failed to create;
+  R4 remains active and failure-attempt limits are preserved. Public API and
+  all shader layouts stay unchanged. Missing-pipeline device injection is open.

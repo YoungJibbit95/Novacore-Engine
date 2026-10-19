@@ -698,7 +698,7 @@ void VulkanMaterialTextures::shutdown() {
 }
 
 bool VulkanMaterialTextures::prepare(std::uint32_t slot, const RenderFrameInfo& frame, VkExtent2D extent,
-                                     VkFormat outputFormat, VkCommandPool pool, VkQueue queue) {
+                                     VkFormat outputFormat, VkCommandPool pool, VkQueue queue, bool skyAvailable) {
     impl_->environmentPrepared = false;
     if (!frame.materialTexturesEnabled || !frame.skyEnvironmentReflectionsEnabled || !frame.sky.enabled) {
         impl_->environmentGate.deactivate();
@@ -732,7 +732,13 @@ bool VulkanMaterialTextures::prepare(std::uint32_t slot, const RenderFrameInfo& 
         return false;
     }
     const bool encode = outputFormat != VK_FORMAT_B8G8R8A8_SRGB && outputFormat != VK_FORMAT_R8G8B8A8_SRGB;
-    impl_->prepareEnvironment(frame, pool, queue);
+    if (skyAvailable) {
+        impl_->prepareEnvironment(frame, pool, queue);
+    } else {
+        // An enabled sky setting is not an actual sky when its optional
+        // graphics pipeline could not be created. Keep the R4 material path.
+        impl_->environmentGate.suspend();
+    }
     if (impl_->pendingUpload) {
         // Preserve the existing suspended-upload behavior. Do not let the mesh
         // prepare loop permanently mark an unattempted asset as failed while a

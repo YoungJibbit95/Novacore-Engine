@@ -626,7 +626,9 @@ baked nonuniform source normals and HDR/exposure redesign are outside scope.
 
 `RenderFrameInfo.skyEnvironmentReflectionsEnabled` is appended and defaults to
 false. It requires the existing material texture path, a valid perspective
-camera, SDR attachment and an enabled finite procedural sky. This bounded step
+camera, SDR attachment and an enabled finite procedural sky with its actual
+graphics pipeline available. A missing/failed sky pipeline suspends generation
+and uses R4, without resetting failed-attempt limits. This bounded step
 adds global sky reflections to the R4 material BRDF; it supplies no local-object
 reflections, transmission/glass, diffuse irradiance, reflection probes or LOD.
 

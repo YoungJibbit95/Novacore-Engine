@@ -3010,7 +3010,7 @@ struct VulkanBackend::Impl final {
         skyEnvironmentReflectionsReady = false;
         lastSkyEnvironmentDrawCount = 0;
         materialTexturesPrepared = materialTextureOwner.prepare(currentFrame, frame, swapchainExtent, swapchainFormat,
-                                                                commandPool, graphicsQueue);
+                                                                commandPool, graphicsQueue, skyPipeline != VK_NULL_HANDLE);
         materialTexturesReady = false;
         lastMaterialTextureDrawCount = 0;
         lastMaterialFallbackDrawCount = 0;
