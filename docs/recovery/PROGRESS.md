@@ -595,3 +595,9 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   gates. Hosted/combined-consumer, real device sampling/readback, visual,
   GPU timing and fault-injection gates remain open. No GUI/device was launched
   by this rendering subagent and frozen R3/R4/root review packages stay intact.
+- Published [Draft PR #28](https://github.com/YoungJibbit95/Novacore-Engine/pull/28),
+  stacked on R4 #25. Exact tested runtime is 58752506783976541f78fad47a0dd09e4350791f;
+  later commits only record evidence. Final tiny private sky-availability guard
+  passed root review; no remaining actionable source/lifetime finding. Hosted
+  checks run on the final PR head. The exact combined consumer and actual
+  device/visual/timing/fault-injection gates remain open. No automatic merge.
