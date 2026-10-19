@@ -680,3 +680,41 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   Final package lib hashes supersede the intermediate hashes above:
   headless 566a5aba40c10b3f54a283966808e7fb9d7b05b2b749e084000ccbd0737f2f34;
   Vulkan d493c60db46fdea131bb926b6190de7429b44e7d97517ea68b83e9b6073cd337.
+
+## 2026-10-19 Phase 5 R4 direct light source candidate
+
+- Isolated recovery/phase5-material-direct-light starts at frozen R3
+  22a421010d2e1329db54329464e1775f3f3b9f57. Changed only the opt-in textured
+  fragment light response: actual world-space eye direction, GGX/correlated
+  Smith/Schlick/Lambert dielectric-metal mixture, existing unitless sun/fill,
+  diffuse ambient approximation and R2 whole-sun visibility. MR/UV/normal,
+  emission, Reinhard and sRGB contracts stay intact. No public API/resource/
+  layout/asset/lifetime rewrite or renderer framework.
+- Initial small SDK shader gate passes all 27 modules with Vulkan 1.0
+  spirv-val. Compared with frozen R3, all 23 legacy modules and two textured
+  vertex modules are byte-identical; only the two textured fragments change.
+  Separate CPU reference calculations agree with analytic normal-incidence
+  endpoint values and reciprocal BRDF examples; they are not GPU execution.
+- Complete new C: CPU/Vulkan builds and hosted gates wait for the coordinated
+  build slot. Combined consumer/device/readback/visual acceptance remain open.
+  No R3 package or shader output was overwritten, and no GUI action occurred.
+- Completed full fresh GCC 13.2 Release headless engine/server/sandbox and
+  9/9 CPU suites (1.38 seconds), plus the complete separate actual SDL3/Vulkan
+  engine/server/sandbox 73-step build/install at runtime
+  92394956a26d74dd18c9bb2e00292bc02ea169ad. All 27 generated modules validate
+  for Vulkan 1.0; all 23 legacy and two textured vertex modules remain byte-
+  identical to frozen R3. Only the two opt-in textured fragments change.
+  Source review found no actionable issue. No C++/public header/test source
+  changed, and no test/warning was disabled; the inherited unused sandbox
+  helper warning remains.
+- Separate frozen packages: C:/Users/Administrator/.codex/tmp/phase5-render-r4/
+  package-headless and package-vulkan, lib/libnovacore_engine.a SHA-256:
+  headless 33a61fb9baa0b36dddc157ce46e8494dfb674b442787a13be2400beb5dab5c6a;
+  Vulkan cc295cb11259f4bec891d6ed62ba01afcd7ced64c146df38e093c30ea8029f58.
+  These are standalone R3/R4 packages; the integration lead combines physics
+  before the full consumer gate. Actual shader numerical/device execution,
+  visual response and GPU timing remain open after the paused GUI gate.
+- Published [Draft PR #25](https://github.com/YoungJibbit95/Novacore-Engine/pull/25),
+  stacked on R3 recovery/phase5-gltf-material-textures. Exact tested runtime is
+  92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
+  evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
