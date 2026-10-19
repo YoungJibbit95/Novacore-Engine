@@ -1,22 +1,5 @@
 # Recovery progress
 
-## 2026-10-19 Main integration: UI, proper camera, shadows and rigid bodies
-
-- Exact combined source `cca45a41aded8b13171943553e27f85071c76ed3` retains
-  UI #15, proper camera #16, R2 #18 and the optional Jolt adapter #17.
-  Integration merges changed no runtime implementation or shared API by hand.
-- Complete Release engine/server/sandbox builds pass with Jolt enabled, both
-  headless and SDL3/Vulkan. All nine CPU suites pass in 1.80s; all 23 shader
-  modules compile and pass SPIR-V validation for Vulkan 1.0.
-- Installed public packages were used for the real Nemisis Dev Range fixture
-  test: six bodies settle, accept a closest-hit impulse, render the existing
-  crate geometry with physical rotation, respond to bounded KCC walking and
-  reset safely. The real headless game fixture smoke also passes after fixing
-  its pre-existing mismatch between spawn transform and movement position.
-- Full game regression and combined hosted CI are pending. GUI was not started;
-  Vulkan execution, shadow/contact quality, resource resizing and GPU timing
-  remain separate acceptance gates. R3 texture sampling is a subsequent branch.
-
 ## 2026-10-19 Phase 5 optional rigid-body adoption
 
 - Published Draft [engine PR #17](https://github.com/YoungJibbit95/Novacore-Engine/pull/17),
@@ -294,6 +277,26 @@ cook/catalog migration. Preserve active offline fixups and both GLBs until CPU
 contracts plus hip/held ADS/muzzle/grips/scale/procedural-motion review pass.
 The documented authored glTF socket-offset gap needs a separate engine fixture/
 fix and exact cross-repo validation if pursued; do not mix it into this audit.
+
+## 2026-10-18 UI geometry adapter (UI-0)
+
+Separate worktree/branch `ui/00-overlay-adapter`, based on Nemisis' compatible
+engine pin a687c8816fbcc8a7f4d313cf092c6dc17a59f8f7. Adds a public indexed UI draw
+packet and an isolated Vulkan renderer recorded after legacy overlays in the
+existing render pass. No new instance/device/swapchain/fence owner. Shared
+VulkanBackend integration is limited to lifecycle, prepare, record and stats.
+
+CPU textures are immutable premultiplied RGBA8 sources; completed frame slots
+retain them until safe release. Host-visible vertex/index buffers are reused
+per slot. First-time atlas upload currently waits for the existing graphics
+queue. Advanced filters, offscreen layers and backdrop blur are not provided.
+Window's existing snapshot adds wheel delta on mouse axis 2 for UI scrolling.
+
+Validation: full GCC13.2 Release SDL3/Vulkan build, new shaders compiled by SDK
+1.4.350.0 glslc, all 5 engine suites pass, including malformed UI packet tests.
+Game integration and visual evidence are recorded in the dependent Nemisis UI
+PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
+
 
 ## 2026-10-18 Phase 4 R0 sky/sun projection
 
