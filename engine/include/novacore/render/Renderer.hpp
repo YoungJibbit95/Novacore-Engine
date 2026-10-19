@@ -102,9 +102,11 @@ struct RenderBackendFrameStats final {
     std::size_t residentMaterialImageCount = 0;
     std::size_t lastMaterialTextureDrawCount = 0;
     std::size_t lastMaterialFallbackDrawCount = 0;
-    std::uint64_t residentMaterialImageBytes = 0;
+    std::uint64_t residentMaterialImageBytes = 0; // actual shared allocations, including opt-in sky environment images
     std::uint64_t materialImageBudgetBytes = 0;
     std::uint64_t materialImageBudgetRejectCount = 0;
+    bool skyEnvironmentReflectionsReady = false;
+    std::size_t lastSkyEnvironmentDrawCount = 0; // indexed draws recorded with the actual sky descriptors/pipeline
 };
 
 struct MeshResourceView final {
@@ -302,6 +304,7 @@ struct RenderFrameInfo final {
     UiDrawData ui;
     RenderDirectionalShadows directionalShadows{};
     bool materialTexturesEnabled = false;
+    bool skyEnvironmentReflectionsEnabled = false; // requires materialTexturesEnabled and a valid active sky
 };
 
 class Renderer final {

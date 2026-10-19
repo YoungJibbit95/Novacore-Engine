@@ -89,6 +89,7 @@ add_library(novacore_engine
     engine/src/render/VulkanUiRenderer.cpp
     engine/src/render/VulkanDirectionalShadowMap.cpp
     engine/src/render/VulkanMaterialTextures.cpp
+    engine/src/render/SkyEnvironment.cpp
     engine/src/render/Renderer.cpp
     engine/src/render/VulkanBackend.cpp
     engine/src/render/VulkanRuntime.cpp
@@ -186,6 +187,8 @@ if(NOVACORE_ENABLE_VULKAN)
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_shadowed.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_shadowed.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_environment.frag"
+                "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_textured_shadowed_environment.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.vert"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_geometry.frag"
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/ui_rect.vert"
@@ -207,6 +210,8 @@ if(NOVACORE_ENABLE_VULKAN)
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_sampling.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_frame.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_textures.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_direct_light.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_environment.glsl"
                     VERBATIM
                 )
                 list(APPEND NOVACORE_SHADER_SPV_FILES "${shader_output}")
@@ -266,6 +271,10 @@ if(NOVACORE_BUILD_TESTS)
     target_link_libraries(novacore_gltf_material_texture_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_gltf_material_texture_tests)
     add_test(NAME novacore_gltf_material_texture_tests COMMAND novacore_gltf_material_texture_tests)
+    add_executable(novacore_sky_environment_tests tests/sky_environment_tests.cpp)
+    target_link_libraries(novacore_sky_environment_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_sky_environment_tests)
+    add_test(NAME novacore_sky_environment_tests COMMAND novacore_sky_environment_tests)
 
     add_executable(novacore_smoke_tests tests/novacore_smoke_tests.cpp)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)

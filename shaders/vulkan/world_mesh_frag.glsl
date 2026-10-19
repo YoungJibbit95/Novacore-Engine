@@ -16,6 +16,10 @@ layout(location = 6) in vec3 v_world_position;
 #ifdef MATERIAL_TEXTURES
 #include "material_frame.glsl"
 #include "material_textures.glsl"
+#include "material_direct_light.glsl"
+#ifdef MATERIAL_ENVIRONMENT
+#include "material_environment.glsl"
+#endif
 layout(location = 7) in vec2 v_uv1;
 #endif
 
@@ -26,8 +30,10 @@ void main() {
     vec3 fillDir = normalize(v_fill_direction_intensity.xyz);
     float ambient = clamp(v_light_direction_ambient.w, 0.02, 0.95);
     float fill = clamp(v_fill_direction_intensity.w, 0.0, 1.0);
+#ifndef MATERIAL_TEXTURES
     float rimStrength = clamp(v_material_response.x, 0.0, 1.0);
     float specStrength = clamp(v_material_response.y, 0.0, 1.0);
+#endif
     float metallic = clamp(v_material_response.z, 0.0, 1.0);
     float roughness = clamp(v_material_response.w, 0.04, 1.0);
 #ifdef MATERIAL_TEXTURES
@@ -54,6 +60,24 @@ void main() {
     }
 #endif
 
+#ifdef MATERIAL_TEXTURES
+    vec3 view = materialSafeDirection(material_frame.eye.xyz - v_world_position);
+    float keyVisibility = 1.0;
+#ifdef DIRECTIONAL_SHADOW_RECEIVER
+    keyVisibility = directionalVisibility(v_world_position, normal);
+#endif
+    vec3 lit = materialDirectLight(normal, view, lightDir, albedo, metallic, roughness)
+        * (1.0 - ambient) * keyVisibility;
+    lit += materialDirectLight(normal, view, fillDir, albedo, metallic, roughness) * fill;
+    // Existing unitless ambient control remains a diffuse approximation.
+    // There is no fabricated metallic environment response or artistic rim.
+    lit += albedo * (1.0 - metallic) * ambient;
+#ifdef MATERIAL_ENVIRONMENT
+    if (material_frame.parameters.y > 0.5) {
+        lit += materialSkyEnvironment(normal, view, albedo, metallic, roughness);
+    }
+#endif
+#else
     float keyDiffuse = max(dot(normal, lightDir), 0.0);
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
     float keyVisibility = directionalVisibility(v_world_position, normal);
@@ -71,6 +95,7 @@ void main() {
     vec3 diffuseColor = albedo * (1.0 - metallic * 0.72);
     vec3 lit = diffuseColor * (ambient + keyDiffuse * (1.0 - ambient) + fillDiffuse);
     lit += fresnelColor * (specular + rim * 0.28);
+#endif
 #ifdef MATERIAL_TEXTURES
     vec3 emissive = material.emissive_normal_scale.rgb;
     if (material.enabled_maps.w > 0.5) {
