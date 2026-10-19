@@ -1,5 +1,31 @@
 # Recovery progress
 
+## 2026-10-19 Phase 5 PH-7 bounded replay/measurement tests
+
+- Branch `recovery/phase5-physics-ph7-acceptance` starts at final query head
+  `87f9d77b3e06708f1ae0be00f847df4bc1628e75` (#24). Only the existing rigid-body
+  test and recovery records change. Runtime/API, KCC, game, CMake, network and
+  frozen packages remain unchanged.
+- Same-build replay compares full position/quaternion and linear/angular velocity
+  at three fixed checkpoints, plus motion/sleep/canonical/sensor flags and tags.
+  A fixed off-centre impulse exercises real Z/angular motion. Owned world IDs
+  deliberately differ. No cross-platform determinism or network claim.
+- `grid_v2` separates awake/no-sleep and verified native-sleep scenes with the
+  same 32/128/256-box placements. Thirty warmup/270 measured steps log actual
+  active counts and zero static resync. The historical mixed-stack measurements
+  are retained but are not directly comparable. There are no timing pass limits.
+- Bounded hit-only ray and three-shape cast/overlap batches run on the 32-body
+  scene in both modes: all 512 timed calls/group hit, without moving/waking the
+  target. Logs report per-call median/p95 batch averages, including owned result
+  costs. Miss/initial-overlap-cast performance and game-fixture timing stay open.
+- Local GCC13.2/O2: exactly two testtarget build steps, first native run plus five
+  serial repetitions pass, full cached 8/8 CPU suites pass in2.05s. KCC720 stays
+  17925562298706474255. No new local default-off build was scheduled; prior
+  disabled binary is baseline evidence only. Exact-source hosted default-off and
+  Jolt MSVC/Clang gates follow publication. No GUI/graphics test or package edit.
+- [Conditions and measured ranges](PHYSICS_ADOPTION.md#ph-7-local-replay-and-measurement-acceptance)
+  distinguish local physics evidence from still-unimplemented prop replication.
+
 ## 2026-10-19 Phase 5 native shape query slice
 
 - Published Draft [engine PR #24](https://github.com/YoungJibbit95/Novacore-Engine/pull/24),
