@@ -271,6 +271,93 @@ all pass. The main agent reviewed the complete implementation without actionable
 findings; exact combined Nemisis acceptance remains separate. No renderer,
 Vulkan or GUI validation was performed.
 
+## PH-7 local replay and measurement acceptance
+
+This test-only slice starts at query head
+`87f9d77b3e06708f1ae0be00f847df4bc1628e75` (#24). It changes the existing
+`rigid_body_tests.cpp` and recovery records, with no library/API, KCC, game,
+network, CMake or installed-package changes.
+
+The same-build authored replay now samples ticks 60, 180 and 300. A fixed
+off-centre impulse before tick 179 produces real Z/angular motion. Compare all
+XYZ positions, all XYZW quaternion components, XYZ linear/angular velocities
+at absolute tolerance 1e-5, and exact motion/sleep/canonical/sensor flags and
+material/surface IDs. Every sampled pose/velocity component must be finite and
+each current handle must resolve. Application IDs match between the independent
+worlds; process-local world IDs deliberately differ. This is sampled same-build
+repeatability, not cross-platform determinism, rollback or network acceptance.
+
+The old falling grid/stack benchmark mixed active and sleeping phases. Its
+historical numbers below remain recorded, but are not a comparison baseline
+for **grid_v2**. The new scene places 32/128/256 separated boxes at Y=1 m on one
+canonical floor, using the same placements in both modes:
+
+- `active_no_sleep`: body sleeping is disabled; every measured step must report
+  exactly N active dynamic bodies, including when bodies are resting on the floor.
+- `sleeping_verified`: native activity must reach zero within 600 untimed settling
+  steps before warmup. Every measured step must still report zero active bodies;
+  final dynamic snapshots must actually have `sleeping=true`.
+
+After initial static synchronization and any required settling, both modes use
+30 untimed warmup steps and 270 timed public `step()` calls at fixed 60 Hz with
+single-thread jobs. Initial synchronization must create one floor. Subsequent
+warmup steps and the complete measurement must create/remove/update zero statics.
+Logs include settling ticks, actual minimum/maximum active counts, static resync
+counts, median and p95 CPU microseconds. Timed calls include adapter work and
+owned extraction; contact/sensor capture is disabled in this scene. Timing values
+never decide test success.
+
+The same 32-body worlds also run bounded hit-only ray, box/sphere/capsule cast and
+box/sphere/capsule overlap batches. Each group has 32 warmup calls, then 32 batches
+of 16 calls; all 512 timed calls must return the actual dynamic target. Layer mask
+2 excludes the floor; sensors retain the default exclusion. Overlaps use explicit
+`maxHits=1`. Timings include owned result construction/destruction and hit checks;
+reported p95 is the p95 **batch average per call**, not a tail-latency estimate for
+individual queries. No tick advances, target movement or waking is permitted.
+Misses, initially-overlapping casts, query object-count scaling, sensor/contact
+capture overhead and the complete six-prop game fixture remain unmeasured here.
+Their functional tests remain separate; there is no frame/FPS or GPU claim.
+
+Local GCC 13.2/O2 on Ryzen 5 5500: the existing test target compiled/relinked in
+two steps, initial native run plus five serial repetitions pass, and all 8/8
+cached CPU suites pass in 2.05 s. KCC720 remains **17925562298706474255**. The five
+repetitions reported these ranges of per-run median/p95 CPU microseconds:
+
+| Bodies | Active median | Active p95 | Sleeping median | Sleeping p95 |
+| --- | --- | --- | --- | --- |
+| 32 | 31.7..33.6 | 44.3..60.6 | 7.3..7.6 | 7.7..9.4 |
+| 128 | 121.6..158.9 | 165.7..222.3 | 18.5..19.8 | 19.2..29.5 |
+| 256 | 253.0..337.4 | 354.1..848.1 | 33.6..39.3 | 37.9..47.8 |
+
+All sleeping fixtures settled after 52 steps; active minima/maxima were exactly
+N or zero as specified, and every timed static resync count was zero. Query median
+batch averages ranged 0.55..0.65 us for rays, 0.875..1.71875 us for casts and
+1.75625..11.9437 us for overlaps across the modes/shapes/runs. Other agent streams
+paused compilers/cooks during these repetitions, but clocks/background OS work
+were not locked. These establish a local baseline, not an improvement claim or
+portable timing guarantee. Source/scope validation is separate from performance.
+
+Reproduce after configuring the existing headless cache with Jolt enabled:
+
+```powershell
+cmake --build build/phase5-headless --target novacore_rigid_body_tests --parallel 1
+ctest --test-dir build/phase5-headless -R '^novacore_rigid_body_tests$' -V
+ctest --test-dir build/phase5-headless --output-on-failure
+```
+
+Record exact revision/compiler/options/CPU with the output and repeat the native
+test serially five times without concurrent builds for comparisons. Hosted
+MSVC/Clang default-off and Jolt CI must test this exact new source. The earlier
+local disabled-backend binary passed before this slice; it is only baseline
+evidence and was not rebuilt from the PH-7 test source. No frozen package changed.
+
+Nemisis props remain an opt-in local developer fixture. Current player prediction
+and snapshot packets do not carry rigid-body state. A future authoritative prop
+path needs server-owned validated impulses, stable application/network identity,
+bounded body-state serialization, reconciliation and latency/loss tests; native
+solver handles must not become wire IDs. These are remaining gates, not features
+implemented by this test-only change.
+
 ## Build and validation
 
 Default dependency-light configure/build/CTest remains supported without Jolt.
