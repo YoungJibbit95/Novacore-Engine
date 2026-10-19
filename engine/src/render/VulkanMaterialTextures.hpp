@@ -23,6 +23,9 @@ class VulkanMaterialTextures final {
     [[nodiscard]] std::shared_ptr<Asset> upload(const assets::GltfMeshData& mesh, VkCommandPool pool, VkQueue queue);
     [[nodiscard]] VkDescriptorSetLayout layout() const;
     [[nodiscard]] VkDescriptorSetLayout emptyLayout() const;
+    [[nodiscard]] VkDescriptorSetLayout environmentLayout() const;
+    [[nodiscard]] bool environmentReady() const;
+    void bindEnvironment(VkCommandBuffer command, VkPipelineLayout pipeline) const;
     void bind(VkCommandBuffer command, VkPipelineLayout pipeline, const Asset& asset, int material,
               std::uint32_t slot) const;
     [[nodiscard]] bool hasTextures(const Asset& asset, int material) const;

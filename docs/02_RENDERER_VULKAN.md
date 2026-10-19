@@ -622,6 +622,95 @@ metals without environment illumination are a limitation of this direct-only
 step. IBL, probes, material extensions, transparency, two-sided normal policy,
 baked nonuniform source normals and HDR/exposure redesign are outside scope.
 
+## R5a: opt-in scene-global specular sky IBL
+
+`RenderFrameInfo.skyEnvironmentReflectionsEnabled` is appended and defaults to
+false. It requires the existing material texture path, a valid perspective
+camera, SDR attachment and an enabled finite procedural sky. This bounded step
+adds global sky reflections to the R4 material BRDF; it supplies no local-object
+reflections, transmission/glass, diffuse irradiance, reflection probes or LOD.
+
+The immutable source reproduces the actual sky's world-direction gradient,
+horizon height/power, haze and directional cloud function **before** display
+mapping. RGB inputs are linear, finite, nonnegative and bounded to 64; values
+outside that slice limit explicitly fall back to R4. Horizon/power/haze/cloud
+and exposure use exactly the existing sky clamps. Sky exposure multiplies this
+radiance once. The sky's exponential display mapping is excluded; material
+lighting still uses its existing Reinhard and single sRGB conversion. The entire
+direct sun disc/glow term is excluded to avoid adding R4 sun lighting twice.
+Camera position/yaw/pitch/roll and sun motion cannot invalidate this sun-free
+source. The source is a global distant sky, so objects and nearby covers cannot
+appear in these reflections or occlude this environment term.
+
+Fixed CPU generation produces a 128-square six-face RGBA32F cube with eight
+GGX-prefiltered roughness mips, 64 Hammersley samples per filtered texel, and a
+64-square RG32F BRDF LUT using 128 samples per texel. The LUT integrates the
+same height-correlated Smith GGX/Schlick response as R4. The shader evaluates
+prefiltered radiance along `reflect(-V,N)` at roughness times maximum mip,
+multiplied by the split-sum `F0*A+B`. No image codec, third-party asset,
+additional queue or new renderer framework is involved. The established
+[Khronos sample IBL path](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/74aaf40853dd92c554101e4f9f17ba1a13d12367/source/Renderer/shaders/ibl.glsl)
+and [Khronos IBL sampler](https://github.com/KhronosGroup/glTF-IBL-Sampler)
+provide the primary method references. This slice does not include their
+multiple-scattering compensation or additional material lobes.
+
+The source must match on two consecutive prepares. Attempts are separated by
+at least two seconds, including failed attempts; an unchanged attempted source
+is not regenerated. A changed/invalid source immediately stops using a cached
+map that does not match. Failed snapshots keep R4 until another source change;
+there is no hidden per-frame generation/retry. The first LUT is reused across
+source changes. Raw generated data is 2,129,888 bytes with LUT (under 2.1 MiB),
+and work/sample counts are fixed. Generation and synchronous upload can stall
+the opt-in/configuration frame; runtime logging records their combined CPU
+elapsed time and actual shared image residency. These logs are not GPU timings.
+
+Float cube/LUT sampled-image and linear-filter capabilities, image dimensions,
+mip/layer limits and image-format support are checked before generation.
+Unsupported formats use R4 without a fake LDR/HDR substitute. All image memory
+uses the existing actual `VkMemoryRequirements.size` budget with rollback;
+`residentMaterialImageBytes` and budget/reject counters include environment
+allocations and retained pending uploads. `residentMaterialImageCount` still
+counts cached glTF source images. The last valid cube/LUT remain cached while
+the feature is off, bounded to one of each plus at most one replacement/pending
+upload. Old images/sets are replaced only after a successful graphics-queue
+completion wait. A submitted upload with an unconfirmed wait retains its image,
+staging and command in the existing pending owner, stops subsequent uploads,
+and uses the existing early resize/shutdown completion guard. No UI or R2
+descriptor/lifetime ownership changes.
+
+Two additional fragment variants reuse the existing textured vertices and the
+unchanged 128-byte push constants. Private global set 2 has exactly two sampled
+bindings. Existing 80-byte frame UBO offsets stay intact; previously unused
+parameters y/z at byte offsets 68/72 carry readiness/maximum mip.
+`skyEnvironmentReflectionsReady` is true only when an indexed draw was actually
+recorded with the matching sky pipeline/descriptors; its draw counter measures
+those commands, not requested instances or proof of GPU execution.
+
+The small initial gate passes the production CPU generator/contracts and all
+29 compiled Vulkan 1.0 SPIR-V modules. All 27 existing modules are byte-identical
+to frozen R4, including both textured fragments. The production CPU tests cover
+world cube axes/shared edges, exact pre-tone sky poles/exposure, immutable
+source rejection and rate limits, constant-radiance conservation at every mip,
+finite LUT endpoints and roughness broadening. Their measured total was about
+1.53 seconds on this machine; this includes two complete CPU cube generations
+and is not a GPU/real-frame timing. Full engine/hosted/consumer builds and actual
+device sampling, validation layers, OOM injection, GPU numerical comparison and
+visual/timing gates are still pending at this source handoff.
+
+Matched future captures must hold geometry, material tint, lighting, camera and
+exposure fixed while toggling R4/R5a. Neutral-tint metal/dielectric patches and
+actual weapon materials should show the authored sky/ground directions,
+eye-dependent Fresnel and broader rough reflections without arbitrary white
+metal boosts. Check yaw/pitch/roll, 180-degree mesh rotation, nonuniform scale,
+normal maps, R2 shadows, sky changes/off, resize and both SDR output formats;
+the UI must remain stable. Reference S01
+([clear sky](https://polyhaven.com/a/hausdorf_clear_sky)), S02
+([sunset](https://polyhaven.com/a/bambanani_sunset)) and M02
+([metal](https://polyhaven.com/textures/metal)) motivate sky orientation and
+roughness contrast. No reference image is copied into assets. Historical
+screenshots are not a matched baseline, and sky IBL cannot meet local-object or
+glass aspirations in P01/P02. GPU/visual gates remain open while GUI is paused.
+
 ## Performance Goals
 
 Target hardware:

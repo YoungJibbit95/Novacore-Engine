@@ -545,3 +545,25 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   stacked on R3 recovery/phase5-gltf-material-textures. Exact tested runtime is
   92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
   evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
+
+### Phase 5 R5a source handoff: global specular sky IBL (default off)
+
+- Isolated recovery/phase5-sky-specular-ibl starts from frozen R4 68bc16d.
+  Appends only the approved opt-in frame flag and two actual draw/readiness
+  stats. A fixed CPU GGX-prefiltered float cubemap and correlated-Smith BRDF
+  LUT feed a private global two-binding set 2; existing material UBO/push
+  layouts, UI/R2 ownership and public aggregate prefixes remain intact.
+- Source is the actually active procedural world sky before display mapping,
+  including exposure once, gradient, haze and clouds, excluding direct solar
+  disc/glow. Two equal snapshots plus a fixed two-second attempt interval
+  prevent per-frame generation. Changed/invalid/unavailable maps use R4;
+  existing pending-upload completion and actual allocation budgets are reused.
+- Small standalone GCC 13.2 production generator/contracts test passes with
+  -Wall -Wextra -Wpedantic -Werror, about 1.53 seconds for two generations.
+  All 29 SDK shaders compile/spirv-val for Vulkan 1.0; all 27 previous modules
+  are byte-identical to frozen R4. SPIR-V confirms set 2 bindings 0/1, cube
+  sampling and the existing material frame member offset 64 (y/z 68/72).
+- This source handoff has not run a full engine/consumer/hosted build or actual
+  Vulkan device. Lifecycle/source review and the resource-coordinated fresh
+  C: builds are next. No frozen package was overwritten and no GUI was used.
+  Device/visual/timing/OOM acceptance is open. R6 remains a separate slice.
