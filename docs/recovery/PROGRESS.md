@@ -1,5 +1,27 @@
 # Recovery progress
 
+## 2026-10-19 Combined Armed Idle consumer and PH-7 evidence
+
+- Public runtime `383505fbf283c14ded424dc7a1d6c1be47ee09e9` now has a complete
+  Nemisis consumer gate at `7d6b9a57a3091bfb014d455b2aec4811d482e8d4`
+  ([Draft game #37](https://github.com/YoungJibbit95/Nemisis/pull/37)). Full
+  212-step Release/native-UI game build and all48 non-GPU suites pass in131.64s.
+  The separate actual SDL3/Vulkan game target builds completely in310 steps.
+  Combined headless Ready/material/shadow/props smoke exits0 with111 pose/skin/
+  CPU-update samples per subset, one owner, zero invalid/unreachable IK and six
+  props/111 native ticks. Null-backend GPU readiness remains zero.
+- Merge `a211cb4` imports test-only PH-7 #27 (`c649c86`). Runtime, API, shaders
+  and CMake are unchanged from383505f. Incremental complete headless build and
+  all10 CPU suites pass in10.72s. Concurrent compilation makes these elapsed
+  durations unsuitable as performance acceptance. Frozen public383 packages
+  and the approved game EXE were not reinstalled or overwritten.
+- All four hosted default/Jolt MSVC/Clang jobs pass at prior documentation head
+  `4e5d7ba`; PH-7 component #27 also passes all four. Final combined test/doc
+  head checks follow publication. The user granted the exact frozen game launch
+  and is inspecting manually; automation is paused again at their request.
+  The single uncontrolled movement/firing capture does not establish Idle,
+  material, shadow, device-validation or timing acceptance. R5 is separate.
+
 ## 2026-10-19 Combined material-texture candidate
 
 - R3 final `22a421010d2e1329db54329464e1775f3f3b9f57` is integrated with #21's
