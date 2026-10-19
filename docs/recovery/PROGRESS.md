@@ -718,3 +718,28 @@ PR after its native RmlUi build. No gameplay, PBR, lighting or weapon changes.
   stacked on R3 recovery/phase5-gltf-material-textures. Exact tested runtime is
   92394956a26d74dd18c9bb2e00292bc02ea169ad; subsequent commits only record
   evidence. Hosted checks run on the final PR head. No remote merge or GUI action.
+
+## 2026-10-19 Phase 5 combined material light / native query gate
+
+- Resumed the existing Phase 5 work after the user's overnight pause. GUI
+  automation remains paused; no new graphical launch or input was performed.
+- Combined final PH-2 #24 at 87f9d77b3e06708f1ae0be00f847df4bc1628e75 and
+  R4 #25 at 68bc16db711fb373e26cc21ffaae700a94404df6 on the reviewed R3/UI/
+  sensor/shadow integration #23. Exact runtime/source is
+  383505fbf283c14ded424dc7a1d6c1be47ee09e9. No further runtime resolution.
+- Complete Release headless engine/server/sandbox build and 10/10 CPU suites
+  pass in 2.60 s. Fresh complete 74-step SDL3/Vulkan engine/server/sandbox build
+  and install pass; all 27 modules validate for Vulkan 1.0. Only both textured
+  fragment modules change from 14d33a7; the remaining 25 are byte-identical.
+- New isolated public packages are C:/Users/Administrator/.codex/tmp/
+  phase5-engine-material-query-combined/{headless,package-vulkan}. Archive SHA256:
+  headless 206c18974025b215360892accf263fe9f3c18e3ffb0e2f8bb6466af668d268ad;
+  Vulkan 69c7374a66bb2dcf37c611033c26adfdc210b57caa6d35d95ed5a8d6fdf5bde2.
+  Frozen earlier packages/shaders and the inspected game EXE were not overwritten.
+- All four hosted #23 jobs and all six Game #35 jobs pass at their published
+  heads. The prior material consumer runtime60cd259 passed full211-step build,
+  48/48 CPU suites and combined headless Ready/material/props smoke against14d33a7.
+  Those results do not test the new383505f combined consumer; that is next.
+- Native query bounds/owned results and direct light are technically tested.
+  Real GPU execution, visual/material/shadow quality, reflection and timing
+  gates remain open. The previous actual Ready framing review failed.
