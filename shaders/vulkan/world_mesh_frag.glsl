@@ -17,6 +17,9 @@ layout(location = 6) in vec3 v_world_position;
 #include "material_frame.glsl"
 #include "material_textures.glsl"
 #include "material_direct_light.glsl"
+#ifdef MATERIAL_ENVIRONMENT
+#include "material_environment.glsl"
+#endif
 layout(location = 7) in vec2 v_uv1;
 #endif
 
@@ -69,6 +72,11 @@ void main() {
     // Existing unitless ambient control remains a diffuse approximation.
     // There is no fabricated metallic environment response or artistic rim.
     lit += albedo * (1.0 - metallic) * ambient;
+#ifdef MATERIAL_ENVIRONMENT
+    if (material_frame.parameters.y > 0.5) {
+        lit += materialSkyEnvironment(normal, view, albedo, metallic, roughness);
+    }
+#endif
 #else
     float keyDiffuse = max(dot(normal, lightDir), 0.0);
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
