@@ -142,11 +142,28 @@ void testSkeletonValidationAndSockets() {
 
     auto cyclic = skeleton;
     cyclic.joints[0].parent = 2;
-    expect(!validateSkeleton(cyclic).valid(), "hierarchy cycle is rejected");
+    const auto hasOnlyError = [](const ValidationResult& result, std::string_view path, std::string_view message) {
+        return result.issues.size() == 1 && result.issues.front().severity == ValidationSeverity::Error &&
+               result.issues.front().path == path && result.issues.front().message == message;
+    };
+    expect(hasOnlyError(validateSkeleton(cyclic), "joints[0].parent", "hierarchy contains a cycle"),
+           "cycle is reported once at the first starting joint that reaches it");
 
     auto invalidParent = skeleton;
-    invalidParent.joints[1].parent = 99;
-    expect(!validateSkeleton(invalidParent).valid(), "out-of-range parent is rejected");
+    for (const auto index : {99, -2}) {
+        invalidParent.joints[1].parent = index;
+        expect(hasOnlyError(validateSkeleton(invalidParent), "joints[1].parent", "parent index is outside the skeleton"),
+               "out-of-range parent is rejected without walking to it");
+    }
+
+    SkeletonValidationLimits limits;
+    limits.maxHierarchyDepth = 3;
+    expect(validateSkeleton(skeleton, limits).valid(), "ancestors shared by several walks fit the exact depth limit");
+    limits.maxHierarchyDepth = 2;
+    for (const auto* tooDeep : {&skeleton, &cyclic}) {
+        expect(hasOnlyError(validateSkeleton(*tooDeep, limits), "joints", "hierarchy exceeds the configured maximum depth"),
+               "depth diagnostic still takes precedence when a walk reaches the limit before revisiting a joint");
+    }
 
     auto duplicateNames = skeleton;
     duplicateNames.joints[2].name = "spine";

@@ -69,18 +69,21 @@ ValidationResult validateSkeleton(const Skeleton& skeleton, const SkeletonValida
 
     bool cycleReported = false;
     bool depthReported = false;
+    // Parent indices are dense. Stamp each visit with its starting joint to
+    // reuse the same storage for every walk while checking depth in walk order.
+    std::vector<std::size_t> visitedFrom(skeleton.joints.size(), skeleton.joints.size());
     for (std::size_t start = 0; start < skeleton.joints.size(); ++start) {
-        std::unordered_set<std::size_t> path;
         std::size_t cursor = start;
         std::size_t depth = 0U;
         while (cursor < skeleton.joints.size()) {
-            if (!path.insert(cursor).second) {
+            if (visitedFrom[cursor] == start) {
                 if (!cycleReported) {
                     result.addError("joints[" + std::to_string(start) + "].parent", "hierarchy contains a cycle");
                     cycleReported = true;
                 }
                 break;
             }
+            visitedFrom[cursor] = start;
             if (++depth > limits.maxHierarchyDepth) {
                 if (!depthReported) {
                     result.addError("joints", "hierarchy exceeds the configured maximum depth");
