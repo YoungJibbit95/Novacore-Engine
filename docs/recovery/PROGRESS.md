@@ -1,5 +1,24 @@
 # Recovery progress
 
+## 2026-11-20 Skeleton hierarchy validation hot path
+
+- [NovaCore #29](https://github.com/YoungJibbit95/Novacore-Engine/pull/29),
+  runtime `7a987212022ba34962bf3fe2d40c97185bd20bad` on `50eb844`, reuses
+  dense visit storage across ancestor walks. The animation test checks the
+  exact diagnostics for cycles, invalid parents, and depth cutoffs.
+- GNU 13.2 on Ryzen 5 5500 ran CPU benchmarks with cooked M4 Ready assets.
+  Median validation of the 86-joint arms skeleton fell from 0.122 to 0.019 ms
+  in Release and from 0.657 to 0.167 ms with unoptimized animation and skinning
+  code. The Release mixed-locomotion pose, hand IK, and skinning median went
+  from 5.07 to 3.20 ms. The Debug run still spent more than a 60 FPS frame
+  interval on a pose. These measurements exclude uploads and Vulkan.
+- The standard dependency-light Debug engine build passed all 70 steps and
+  11 CTests. Nemisis `4338fe2` passed the Release scene and both 350-tick Ready
+  sequences linked with the candidate skeleton implementation and unchanged
+  base objects. Both sequences retained the prior palm-contact results.
+- The game still pins `50eb844`. Recheck frame presentation on an authorized
+  Vulkan build when the candidate is selected for integration.
+
 ## 2026-10-19 Combined Armed Idle consumer and PH-7 evidence
 
 - Public runtime `383505fbf283c14ded424dc7a1d6c1be47ee09e9` now has a complete
