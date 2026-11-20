@@ -1,7 +1,8 @@
 #version 450
 
 layout(push_constant) uniform UiPushConstants {
-    vec4 viewport;
+    vec2 viewport;
+    uvec2 glyphRows;
     vec4 line;
     vec4 color;
 } pc;
