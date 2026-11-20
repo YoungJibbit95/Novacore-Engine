@@ -2944,7 +2944,8 @@ struct VulkanBackend::Impl final {
             0,
             static_cast<std::uint32_t>(sizeof(UiPushConstants)),
             &constants);
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        const auto instances = (glyphMask[0] | glyphMask[1]) != 0 ? 35U : 1U;
+        vkCmdDraw(commandBuffer, 6, instances, 0, 0);
     }
 
     void drawUiLine(VkCommandBuffer commandBuffer, const DebugLine& line) const {
@@ -2976,7 +2977,7 @@ struct VulkanBackend::Impl final {
                 mask[row / 4] |= static_cast<std::uint32_t>(rows[row]) << (5 * (row % 4));
             }
             if ((mask[0] | mask[1]) != 0) {
-                drawUiRect(commandBuffer, {cursorX, text.y, 5.0F * pixel, 7.0F * pixel, text.color}, mask);
+                drawUiRect(commandBuffer, {cursorX, text.y, pixel, pixel, text.color}, mask);
             }
             cursorX += step;
         }
