@@ -403,10 +403,12 @@ GltfAnimationBridgeResult skinGltfMesh(
             math::Vec3 position{};
             math::Vec3 normal{};
             float weightSum = 0.0F;
+            const auto* weights = primitive.weights[vertexIndex].data();
+            const auto* joints = primitive.joints[vertexIndex].data();
 
             for (std::size_t influence = 0; influence < 4; ++influence) {
-                const float weight = primitive.weights[vertexIndex][influence];
-                const auto joint = primitive.joints[vertexIndex][influence];
+                const float weight = weights[influence];
+                const auto joint = joints[influence];
                 if (!std::isfinite(weight) || weight <= 0.0F) {
                     continue;
                 }
@@ -416,8 +418,17 @@ GltfAnimationBridgeResult skinGltfMesh(
                         " outside the selected skin");
                     continue;
                 }
-                position = position + (animation::transformPoint(palette[joint], sourcePosition) * weight);
-                normal = normal + (animation::transformDirection(palette[joint], sourceNormal) * weight);
+                // Each row contributes one output component. Translation affects positions only.
+                const auto* matrix = palette[joint].values.data();
+                const auto accumulateRow = [&](const float* row, float& positionComponent, float& normalComponent) {
+                    positionComponent += (row[0] * sourcePosition.x + row[1] * sourcePosition.y +
+                        row[2] * sourcePosition.z + row[3]) * weight;
+                    normalComponent += (row[0] * sourceNormal.x + row[1] * sourceNormal.y +
+                        row[2] * sourceNormal.z) * weight;
+                };
+                accumulateRow(matrix, position.x, normal.x);
+                accumulateRow(matrix + 4, position.y, normal.y);
+                accumulateRow(matrix + 8, position.z, normal.z);
                 weightSum += weight;
             }
 

@@ -22,6 +22,25 @@
   The single uncontrolled movement/firing capture does not establish Idle,
   material, shadow, device-validation or timing acceptance. R5 is separate.
 
+## 2026-11-20 CPU skinning of the Ready rig
+
+Compared with engine `50eb84408f6c8e8401ff37967aee8561f419cf36`, each
+positive influence now reads one palette matrix and applies its three rows to
+the source position and normal together. Positions retain translation, normals
+use the linear part, and both preserve the original weighted accumulation order.
+
+On the Nemisis cooked Ready arms and body (50,068 skinned vertices), repeated
+GNU x64 runs gave debug median skinning time of 34.14–36.62 ms before and
+13.00–13.14 ms after. Release medians were 3.25–4.18 ms before and 1.85–2.25 ms
+after. Each run used 12 warmups and 96 measured updates with reusable outputs,
+alternating bind and deformed poses. Compilation elsewhere on the host ran
+concurrently. These timings cover the CPU skinning call only.
+
+All four geometry dumps (before/after, debug/release) produced the same SHA-256
+for positions, normals and indices over both poses. The Nemisis Ready direct
+and production-input gates each passed 350 samples. The integration playtest
+still needs a full-frame CPU and GPU measurement.
+
 ## 2026-10-19 Combined material-texture candidate
 
 - R3 final `22a421010d2e1329db54329464e1775f3f3b9f57` is integrated with #21's
