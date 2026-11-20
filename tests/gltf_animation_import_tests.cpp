@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -443,6 +444,41 @@ void testTextGltfExternalBuffer(const std::filesystem::path& directory) {
         "text glTF mesh attributes import from external buffer");
 }
 
+void testWeightedSkinningRows() {
+    using namespace novacore;
+    assets::GltfAnimationAsset asset;
+    asset.skeleton.joints.resize(2);
+    asset.inverseBindMatrices.resize(2);
+    animation::GlobalPose pose;
+    pose.joints.resize(2);
+    pose.joints[0].values = {0, 2, 0, 7, -1, 0, 0, 8, 0, 0, 3, 9, 0, 0, 0, 1};
+    pose.joints[1].values = {1, 0, 1, -4, 0, 3, 0, -2, 2, 0, 0, 5, 0, 0, 0, 1};
+    assets::GltfMeshData source, output;
+    auto& primitive = source.primitives.emplace_back();
+    primitive.skinIndex = 0;
+    primitive.positions = {{1, 2, 3}};
+    primitive.normals = {{1, 1, 0}};
+    primitive.joints = {{0, 1, 99, 99}};
+    primitive.weights = {{2, 3, 0, std::numeric_limits<float>::quiet_NaN()}};
+    const auto result = assets::skinGltfMesh(source, asset, pose, output);
+    expect(result.ok(), "zero and non-finite influences are ignored before joint range checking");
+    const auto& vertex = output.primitives[0];
+    const math::Vec3 expectedPosition{4.4F, 5.2F, 11.4F};
+    const math::Vec3 weightedNormal{7, 7, 6};
+    const auto expectedNormal = weightedNormal * (1.0F / std::sqrt(weightedNormal.lengthSquared()));
+    expect((vertex.positions[0] - expectedPosition).lengthSquared() < 0.000001F,
+           "two affine point transforms blend translation and normalize total weight");
+    expect((vertex.normals[0] - expectedNormal).lengthSquared() < 0.000001F,
+           "blended directions exclude translation and normalize once after all influences");
+    primitive.weights[0][2] = 0.5F;
+    output = {};
+    const auto invalid = assets::skinGltfMesh(source, asset, pose, output);
+    expect(containsError(invalid.errors, "references joint 99 outside the selected skin"),
+           "positive out-of-range influences retain the joint diagnostic");
+    expect((output.primitives[0].positions[0] - expectedPosition).lengthSquared() < 0.000001F,
+           "invalid joints do not dilute valid contributions");
+}
+
 void testDiagnostics(const std::filesystem::path& directory) {
     const auto badJointPath = directory / "bad_joint.glb";
     writeGlb(badJointPath, makeAnimationJson(), makeAnimationBinary(2));
@@ -483,6 +519,7 @@ int main() {
 
     testGlbSkeletonAnimationAndSkinningAttributes(directory);
     testTextGltfExternalBuffer(directory);
+    testWeightedSkinningRows();
     testDiagnostics(directory);
     testAuthoredSocketHierarchy(directory);
     testAnimatedSocketAndIntermediate(directory);
