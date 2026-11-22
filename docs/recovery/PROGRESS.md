@@ -1,5 +1,12 @@
 # Recovery progress
 
+## 2026-11-22 IPv4 match transport
+
+- Added nonblocking IPv4 datagrams with explicit source endpoints and retained
+  the legacy loopback socket API. The Windows dependency-light engine suite
+  passed all 11 CTests with the transport change. The Nemisis headless and
+  graphical integration gates are in progress against the engine change.
+
 ## 2026-11-20 Skeleton hierarchy validation hot path
 
 - [NovaCore #29](https://github.com/YoungJibbit95/Novacore-Engine/pull/29),

@@ -1,15 +1,19 @@
 #include "novacore/net/BitStream.hpp"
 #include "novacore/net/InterpolationBuffer.hpp"
+#include "novacore/net/LocalDatagram.hpp"
 #include "novacore/net/Protocol.hpp"
 #include "novacore/net/Reconciliation.hpp"
 #include "novacore/net/SnapshotReplication.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -26,6 +30,61 @@ void expect(bool condition, std::string_view message) {
 
 void expectNear(double actual, double expected, double tolerance, std::string_view message) {
     expect(std::abs(actual - expected) <= tolerance, message);
+}
+
+template <typename Socket>
+auto receiveDatagram(const Socket& socket) {
+    using namespace std::chrono_literals;
+    const auto deadline = std::chrono::steady_clock::now() + 1s;
+    do {
+        if (auto packet = socket.receive()) return packet;
+        std::this_thread::sleep_for(1ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+    return decltype(socket.receive()){};
+}
+
+void testDatagramTransport() {
+    using namespace novacore::net;
+
+    expect(DatagramEndpoint::parse("127.0.0.1", 42) == DatagramEndpoint::loopback(42),
+        "numeric loopback parse uses host byte order");
+    expect(DatagramEndpoint::parse("192.0.2.1", 42) == DatagramEndpoint{0xc0000201, 42},
+        "numeric address parse preserves all address octets");
+    expect(DatagramEndpoint::parse("0.0.0.0", 0) == DatagramEndpoint::any(0),
+        "numeric wildcard parse matches any-address bind");
+    expect(DatagramEndpoint::loopback(42) != DatagramEndpoint::loopback(43)
+        && DatagramEndpoint::loopback(42) != DatagramEndpoint::any(42),
+        "endpoint equality includes both address and port");
+    for (const auto* invalid : {"localhost", "::1", "127.1", "256.0.0.1", "127.0.0.1.",
+             "127.0.0.01", "127.0.0.1:42", "127..0.1", " 127.0.0.1"}) {
+        expect(!DatagramEndpoint::parse(invalid, 42), "endpoint parse rejects malformed numeric IPv4");
+    }
+
+    const DatagramSocket receiver{DatagramEndpoint::any(0)};
+    const LocalDatagramSocket sender;
+    expect(receiver.port() != 0 && sender.port() != 0, "UDP sockets expose their assigned ports");
+    expect(!receiver.receive(), "nonblocking socket returns empty before any send");
+
+    std::vector<std::uint8_t> payload(4096, 0xa5);
+    sender.send(receiver.port(), payload);
+    const auto request = receiveDatagram(receiver);
+    expect(request && request->bytes == payload
+        && request->source == DatagramEndpoint::loopback(sender.port()),
+        "wildcard UDP socket receives a maximum-size datagram and its full source endpoint");
+    if (request) {
+        receiver.send(request->source, {});
+        const auto reply = receiveDatagram(sender);
+        expect(reply && reply->sourcePort == receiver.port() && reply->bytes.empty(),
+            "legacy loopback socket receives an empty datagram sent to its endpoint");
+    }
+
+    payload.push_back(0x5a);
+    try {
+        sender.send(receiver.port(), payload);
+        expect(false, "socket rejects datagrams above the protocol byte limit");
+    } catch (const std::length_error&) {
+        expect(!receiver.receive(), "oversized outgoing datagram is never sent");
+    }
 }
 
 novacore::net::ReplicatedComponent component(
@@ -395,6 +454,7 @@ void testServerTickEstimator() {
 } // namespace
 
 int main() {
+    testDatagramTransport();
     testStrictBitStreamSpanReads();
     testPacketEnvelopeRoundTripAndStrictFailures();
     testSequenceComparisonAcrossWrap();
