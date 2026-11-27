@@ -1,5 +1,6 @@
 #include "novacore/Novacore.hpp"
 #include "../engine/src/render/DynamicMeshUpdates.hpp"
+#include "../engine/src/render/SwapchainPresentSemaphores.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -902,6 +903,45 @@ void testRendererMeshResourceRegistry() {
     renderer.releaseMeshResource(dynamic);
 }
 
+void testSwapchainPresentSemaphores() {
+    novacore::render::detail::SwapchainPresentSemaphores<std::uint32_t> present;
+    std::uint32_t next = 1;
+    const auto create = [&] { return next++; };
+    std::vector<std::uint32_t> destroyed;
+    const auto destroy = [&](std::uint32_t handle) { destroyed.push_back(handle); };
+    expect(!present.create(0, create, destroy) && next == 1,
+           "a swapchain without enumerated images allocates no present semaphores");
+    if (!present.create(3, create, destroy)) {
+        expect(false, "a three-image swapchain creates a semaphore for each image");
+        return;
+    }
+    // Graphics slots alternate 0, 1, 0, 1, independently of image acquisition.
+    expect(present.forImage(2) == 3 && present.forImage(0) == 1 && present.forImage(1) == 2 &&
+               present.forImage(2) == 3,
+           "present semaphore reuse follows the acquired image instead of the graphics slot");
+    present.clear(destroy);
+    expect(destroyed == std::vector<std::uint32_t>{1, 2, 3},
+           "resize retires every semaphore belonging to the old swapchain");
+
+    unsigned attempts = 0;
+    const auto failThird = [&]() -> std::uint32_t { return ++attempts == 3 ? 0 : create(); };
+    expect(!present.create(4, failThird, destroy) && attempts == 3 &&
+               destroyed == std::vector<std::uint32_t>{1, 2, 3, 4, 5},
+           "partial creation frees only the semaphores that were successfully created");
+    present.clear(destroy);
+    expect(destroyed.size() == 5, "cleanup after a rolled-back create avoids duplicate destruction");
+    if (!present.create(4, create, destroy)) {
+        expect(false, "a replacement swapchain may enumerate a different image count");
+        return;
+    }
+    expect(present.forImage(0) == 6 && present.forImage(3) == 9,
+           "a replacement swapchain has new semaphores and its own image count");
+    present.clear(destroy);
+    present.clear(destroy);
+    expect(destroyed == std::vector<std::uint32_t>{1, 2, 3, 4, 5, 6, 7, 8, 9},
+           "shutdown releases all replacement semaphores exactly once");
+}
+
 void testDynamicMeshPoseReachesEveryFrameSlot() {
     using namespace novacore::render;
     using namespace novacore::render::detail;
@@ -1396,6 +1436,7 @@ int main() {
     testGltfMeshAndMarkersShareNestedTransform();
     testGltfMetadataAndMeshCatalog();
     testRendererMeshResourceRegistry();
+    testSwapchainPresentSemaphores();
     testDynamicMeshPoseReachesEveryFrameSlot();
     testPhysicsCharacterControllerSurfaces();
     testPhysicsSystemCharacterMotor();
