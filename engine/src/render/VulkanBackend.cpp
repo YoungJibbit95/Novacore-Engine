@@ -3,6 +3,7 @@
 #include "CameraMath.hpp"
 #include "DirectionalShadowMath.hpp"
 #include "DynamicMeshUpdates.hpp"
+#include "SwapchainPresentSemaphores.hpp"
 #include "MeshLighting.hpp"
 #include "VulkanDirectionalShadowMap.hpp"
 #include "VulkanMaterialTextures.hpp"
@@ -739,7 +740,7 @@ struct VulkanBackend::Impl final {
     VkCommandPool commandPool = VK_NULL_HANDLE;
     std::array<VkCommandBuffer, kMaxFramesInFlight> commandBuffers{};
     std::array<VkSemaphore, kMaxFramesInFlight> imageAvailable{};
-    std::array<VkSemaphore, kMaxFramesInFlight> renderFinished{};
+    detail::SwapchainPresentSemaphores<VkSemaphore> renderFinished;
     std::array<VkFence, kMaxFramesInFlight> inFlight{};
     std::unordered_map<std::uint64_t, GpuMeshAsset> gpuMeshes;
     std::vector<PendingMeshUpload> pendingMeshUploads;
@@ -1087,20 +1088,62 @@ struct VulkanBackend::Impl final {
         }
         setObjectName(vulkanObjectHandle(swapchain), VK_OBJECT_TYPE_SWAPCHAIN_KHR, "NovaCore Swapchain");
 
-        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, nullptr);
-        swapchainImages.resize(imageCount);
-        vkGetSwapchainImagesKHR(device, swapchain, &imageCount, swapchainImages.data());
+        if (!querySwapchainImages()) {
+            return false;
+        }
+        const auto actualImageCount = swapchainImages.size();
 
         swapchainFormat = surfaceFormat.format;
         swapchainExtent = extent;
         requestedSwapchainWidth = extent.width;
         requestedSwapchainHeight = extent.height;
-        imageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
+        imageLayouts.assign(actualImageCount, VK_IMAGE_LAYOUT_UNDEFINED);
 
         core::logInfo(
             "render",
             "Vulkan swapchain created: " + std::to_string(extent.width) + "x" + std::to_string(extent.height) +
-                " images=" + std::to_string(imageCount));
+                " images=" + std::to_string(actualImageCount));
+        return true;
+    }
+
+    [[nodiscard]] bool querySwapchainImages() {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            std::uint32_t count = 0;
+            if (!vkOk(vkGetSwapchainImagesKHR(device, swapchain, &count, nullptr), "vkGetSwapchainImagesKHR(count)") ||
+                count == 0) {
+                break;
+            }
+            swapchainImages.resize(count);
+            const auto result = vkGetSwapchainImagesKHR(device, swapchain, &count, swapchainImages.data());
+            if (result == VK_INCOMPLETE) {
+                continue;
+            }
+            if (vkOk(result, "vkGetSwapchainImagesKHR(images)") && count != 0) {
+                swapchainImages.resize(count);
+                return true;
+            }
+            break;
+        }
+        core::logWarning("render", "Unable to enumerate a complete Vulkan swapchain image list");
+        return false;
+    }
+
+    [[nodiscard]] bool createPresentSemaphores() {
+        VkSemaphoreCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+        const auto create = [&]() -> VkSemaphore {
+            VkSemaphore semaphore = VK_NULL_HANDLE;
+            return vkOk(vkCreateSemaphore(device, &info, nullptr, &semaphore), "vkCreateSemaphore(present)")
+                ? semaphore : VK_NULL_HANDLE;
+        };
+        if (!renderFinished.create(swapchainImages.size(), create,
+                                  [&](VkSemaphore semaphore) { vkDestroySemaphore(device, semaphore, nullptr); })) {
+            return false;
+        }
+        for (std::size_t image = 0; image < swapchainImages.size(); ++image) {
+            setObjectName(vulkanObjectHandle(renderFinished.forImage(image)), VK_OBJECT_TYPE_SEMAPHORE,
+                          "NovaCore Present Wait Semaphore " + std::to_string(image));
+        }
         return true;
     }
 
@@ -1248,14 +1291,19 @@ struct VulkanBackend::Impl final {
         dependency.dstSubpass = 0;
         dependency.srcStageMask =
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.srcAccessMask = 0;
-        dependency.dstStageMask =
-            VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.dstAccessMask =
+            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+            VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        // Successive frames share the depth image. Its previous store can run in late depth tests.
+        dependency.srcAccessMask =
             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dependency.dstStageMask = dependency.srcStageMask;
+        dependency.dstAccessMask =
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        dependency.dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 
         const std::array<VkAttachmentDescription, 2> attachments{colorAttachment, depthAttachment};
 
@@ -2895,19 +2943,21 @@ struct VulkanBackend::Impl final {
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
         for (std::size_t index = 0; index < kMaxFramesInFlight; ++index) {
-            if (!vkOk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailable[index]), "vkCreateSemaphore(imageAvailable)") ||
-                !vkOk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinished[index]), "vkCreateSemaphore(renderFinished)") ||
-                !vkOk(vkCreateFence(device, &fenceInfo, nullptr, &inFlight[index]), "vkCreateFence")) {
+            VkSemaphore acquireSemaphore = VK_NULL_HANDLE;
+            if (!vkOk(vkCreateSemaphore(device, &semaphoreInfo, nullptr, &acquireSemaphore),
+                      "vkCreateSemaphore(imageAvailable)")) {
                 return false;
             }
+            imageAvailable[index] = acquireSemaphore;
+            VkFence fence = VK_NULL_HANDLE;
+            if (!vkOk(vkCreateFence(device, &fenceInfo, nullptr, &fence), "vkCreateFence")) {
+                return false;
+            }
+            inFlight[index] = fence;
             setObjectName(
                 vulkanObjectHandle(imageAvailable[index]),
                 VK_OBJECT_TYPE_SEMAPHORE,
                 "NovaCore ImageAvailable Semaphore " + std::to_string(index));
-            setObjectName(
-                vulkanObjectHandle(renderFinished[index]),
-                VK_OBJECT_TYPE_SEMAPHORE,
-                "NovaCore RenderFinished Semaphore " + std::to_string(index));
             setObjectName(
                 vulkanObjectHandle(inFlight[index]),
                 VK_OBJECT_TYPE_FENCE,
@@ -3578,6 +3628,7 @@ struct VulkanBackend::Impl final {
         swapchainImages.clear();
         imageLayouts.clear();
 
+        renderFinished.clear([&](VkSemaphore semaphore) { vkDestroySemaphore(device, semaphore, nullptr); });
         if (swapchain != VK_NULL_HANDLE) {
             vkDestroySwapchainKHR(device, swapchain, nullptr);
             swapchain = VK_NULL_HANDLE;
@@ -3586,6 +3637,7 @@ struct VulkanBackend::Impl final {
 
     [[nodiscard]] bool createSwapchainResources(platform::Window& window) {
         if (!createSwapchain(window) ||
+            !createPresentSemaphores() ||
             !createImageViews() ||
             !createRenderPass() ||
             !createDepthResources() ||
@@ -3777,7 +3829,7 @@ void VulkanBackend::endFrame() {
 
     const VkSemaphore waitSemaphores[] = {impl_->imageAvailable[impl_->currentFrame]};
     const VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-    const VkSemaphore signalSemaphores[] = {impl_->renderFinished[impl_->currentFrame]};
+    const VkSemaphore signalSemaphores[] = {impl_->renderFinished.forImage(impl_->acquiredImageIndex)};
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -3933,10 +3985,6 @@ void VulkanBackend::shutdown() {
             if (impl_->imageAvailable[index] != VK_NULL_HANDLE) {
                 vkDestroySemaphore(impl_->device, impl_->imageAvailable[index], nullptr);
                 impl_->imageAvailable[index] = VK_NULL_HANDLE;
-            }
-            if (impl_->renderFinished[index] != VK_NULL_HANDLE) {
-                vkDestroySemaphore(impl_->device, impl_->renderFinished[index], nullptr);
-                impl_->renderFinished[index] = VK_NULL_HANDLE;
             }
             if (impl_->inFlight[index] != VK_NULL_HANDLE) {
                 vkDestroyFence(impl_->device, impl_->inFlight[index], nullptr);

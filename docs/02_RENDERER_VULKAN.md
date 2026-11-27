@@ -205,12 +205,16 @@ Production:
 
 ## Synchronization
 
-Per-frame synchronization uses:
+Each frame slot owns an image-acquired semaphore and a fence for graphics
+completion. Each enumerated swapchain image owns a separate presentation
+semaphore. The graphics submission signals the semaphore for the acquired image
+and the presentation queue waits on that same handle. Reacquiring the image
+orders its next signal after the preceding presentation wait. Swapchain
+recreation replaces the image semaphores along with the other swapchain resources.
 
-* Acquire semaphore
-* Graphics submission semaphore
-* Present semaphore
-* Fence for CPU reuse
+The main render pass depends on prior color and depth attachment writes. The
+source and destination stage masks include early and late depth tests so that
+the next frame can safely clear and reuse the shared depth image.
 
 Timeline semaphores should be preferred when available.
 
