@@ -85,11 +85,25 @@ test, record its original contract, current validity, and replacement coverage.
 Never disable failures merely to obtain green CI. Separate passed, failed before
 the change, not run, and environment-blocked checks in reports.
 
-Work on focused recovery branches, never directly on `main`. When authorized,
-commit, push, and open PRs with validation evidence. Never auto-merge, force-push
-protected branches, rewrite history, or delete irreplaceable source assets
-without separate explicit authorization. Do not message others or update project
-boards without authorization.
+## Continuous studio delivery
+
+For YoungJibbit95/Novacore-Engine and YoungJibbit95/Nemisis the owner authorizes studio development, local integration, topic commits, pushes, pull requests and individually gated merges. The integration lead owns publication and final merges. Keep all other projects and user edits outside that authority.
+
+Read the supported Codex account rate limits at start, at package boundaries, before increasing concurrency and before shutdown. Record the reported windows, remaining percentages and reset times. Use the lowest remaining percentage across applicable windows. When a window is unavailable, record that, work in small checkpoints and request a reading if needed. Context capacity is a different measurement. Never buy credits, reset the account or change billing.
+
+| Remaining allowance | Studio action |
+| --- | --- |
+| Above 30% | Coordinate normal production and checkpoint regularly. |
+| Above 15% through 30% | Reduce package size and publish verified increments continuously. |
+| Above 10% through 15% | Finish existing increments, collect reviews and prepare releases. |
+| Above 5% through 10% | Enter shutdown. Start no new agents. Preserve unfinished branches, complete essential validation and publish eligible work. |
+| 5% reserve | Return the final checkpoint before reaching the reserve. Allow for concurrent use and reporting delays. |
+
+Inspect local changes, existing aggregate PRs, the reachable engine pin and the last verified playable baseline before new production. Audit the intended diff, asset rights, large files, credentials, private paths and generated output. Publish validated packages through focused topic PRs. Record both revisions, the department, dependencies, local tests, head-specific CI, reproducible evidence and limitations. Use repository-accessible images, motion evidence or matched performance measurements as applicable.
+
+Only the lead may merge after independent review, relevant local suites, real Vulkan and visual acceptance where applicable, successful current-head CI, clean scope, mergeability, satisfied dependencies and compatibility with the target. Preserve branch protection, reviews and tests. Avoid force-pushes, duplicate aggregate integration and history rewrites. Validate NovaCore independently and its exact candidate in Nemisis. Merge the engine first, pin Nemisis to the reachable integrated commit and repeat consumer validation. Verify main revisions and post-merge CI. At shutdown record pending CI, open PRs, exact identities, unfinished work and the next executable action.
+
+Preserve irreplaceable source assets and existing communication safeguards.
 
 Update the lightweight recovery record with commits/PRs, exact engine revisions,
 validation, baseline failures, blockers, and the next executable step. Keep
