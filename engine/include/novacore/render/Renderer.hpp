@@ -289,6 +289,9 @@ struct RenderDirectionalShadows final {
     float normalBias = 0.002F; // Additional slope-dependent depth bias, 0..0.05.
 };
 
+#define NOVACORE_RENDER_HAS_DEBUG_VIEW 1
+enum class RenderDebugView : std::uint8_t { Lit = 0, WorldNormals = 1, BaseColor = 2 };
+
 struct RenderFrameInfo final {
     std::array<float, 4> clearColor{0.03F, 0.04F, 0.06F, 1.0F};
     RenderSky sky{};
@@ -305,6 +308,7 @@ struct RenderFrameInfo final {
     RenderDirectionalShadows directionalShadows{};
     bool materialTexturesEnabled = false;
     bool skyEnvironmentReflectionsEnabled = false; // requires materialTexturesEnabled and a valid active sky
+    RenderDebugView debugView = RenderDebugView::Lit;
 };
 
 class Renderer final {

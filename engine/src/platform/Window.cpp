@@ -25,6 +25,8 @@ namespace {
         return 32;
     case SDLK_F1:
         return 112;
+    case SDLK_F2:
+        return 113;
     case SDLK_UP:
         return 1000;
     case SDLK_DOWN:

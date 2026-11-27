@@ -51,8 +51,3 @@ vec3 materialNormal(vec3 position, vec3 normal, vec2 uv) {
     vec3 mapped = tangent * sampled.x + bitangent * sampled.y + normal * sampled.z;
     return dot(mapped, mapped) > 1e-12 ? normalize(mapped) : normal;
 }
-
-vec3 materialEncodeSrgb(vec3 linear_color) {
-    return mix(1.055 * pow(linear_color, vec3(1.0 / 2.4)) - 0.055,
-               12.92 * linear_color, lessThanEqual(linear_color, vec3(0.0031308)));
-}

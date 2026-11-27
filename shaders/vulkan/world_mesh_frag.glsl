@@ -5,6 +5,8 @@ layout(location = 2) in vec2 v_uv;
 layout(location = 3) in vec4 v_light_direction_ambient;
 layout(location = 4) in vec4 v_fill_direction_intensity;
 layout(location = 5) in vec4 v_material_response;
+layout(location = 8) flat in uint v_inspection;
+#include "surface_inspection.glsl"
 layout(location = 0) out vec4 out_color;
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
 #include "shadow_data.glsl"
@@ -48,6 +50,17 @@ void main() {
         roughness = clamp(roughness * mr.g, 0.04, 1.0);
     }
 #endif
+
+    if (v_inspection != 0u) {
+        vec3 baseColor = v_color.rgb;
+#ifdef MATERIAL_TEXTURES
+        if (surfaceMode(v_inspection) == surfaceBaseColor && material.enabled_maps.x > 0.5) {
+            baseColor *= texture(base_color_map, uv_base).rgb;
+        }
+#endif
+        out_color = vec4(inspectSurface(v_inspection, normal, baseColor), v_color.a);
+        return;
+    }
 
     vec2 tiled = v_uv * mix(10.0, 34.0, roughness);
     float weave = sin(tiled.x * 6.28318) * sin(tiled.y * 6.28318);
