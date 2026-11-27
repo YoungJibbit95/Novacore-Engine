@@ -811,3 +811,7 @@ The renderer is considered production-ready for its milestone when:
 `RenderFrameInfo::debugView` selects Lit, WorldNormals or BaseColor on the next submitted frame. WorldNormals displays the world-space shading normal, including supported normal maps. BaseColor displays the instance tint, glTF base factor and enabled base texture before lighting or emission. Boxes and untextured materials use their surface factors. UI colours stay independent. F2 produces platform key code 113 for consumers that expose the selector.
 
 Build the manual `novacore_surface_inspection_probe` target in a Vulkan and SDL3 test configuration. Run it on the private test desktop with the SDK screenshot layer enabled, `VK_SCREENSHOT_FRAMES=7,11,15,19,23,27,31` and `VK_SCREENSHOT_DIR` pointing to an empty capture directory. Run `python tests/check_surface_inspection.py <capture-directory>` to compare the sampled texel, world normals, fallback, overlay coverage and restored Lit frame.
+
+At 640 × 360 on a GeForce RTX 3070 Ti, the original triangle texture returned RGB (64, 128, 224) on 11,031 pixels in BaseColor. Its +Y shading normal returned RGB (188, 255, 188) over the same area. All seven captures retained 512 magenta HUD pixels. Switching back to Lit twice reproduced the first Lit image byte for byte.
+
+![Three private Vulkan fixture captures showing the same triangle and box in Lit, WorldNormals and BaseColor](renderer/surface-inspection.png)
