@@ -805,3 +805,9 @@ The renderer is considered production-ready for its milestone when:
 * Multiple frames in flight execute correctly.
 * Debug overlays and menu/HUD primitive UI coexist with world rendering.
 * Dedicated servers continue functioning without renderer initialization.
+
+## Surface inspection
+
+`RenderFrameInfo::debugView` selects Lit, WorldNormals or BaseColor on the next submitted frame. WorldNormals displays the world-space shading normal, including supported normal maps. BaseColor displays the instance tint, glTF base factor and enabled base texture before lighting or emission. Boxes and untextured materials use their surface factors. UI colours stay independent. F2 produces platform key code 113 for consumers that expose the selector.
+
+Build the manual `novacore_surface_inspection_probe` target in a Vulkan and SDL3 test configuration. Run it on the private test desktop with the SDK screenshot layer enabled, `VK_SCREENSHOT_FRAMES=7,11,15,19,23,27,31` and `VK_SCREENSHOT_DIR` pointing to an empty capture directory. Run `python tests/check_surface_inspection.py <capture-directory>` to compare the sampled texel, world normals, fallback, overlay coverage and restored Lit frame.

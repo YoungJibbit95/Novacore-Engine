@@ -8,10 +8,13 @@ layout(push_constant) uniform PushConstants {
 } pc;
 
 layout(location = 0) out vec4 v_color;
+layout(location = 2) out vec3 v_world_normal;
+layout(location = 4) flat out uint v_inspection;
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
 layout(location = 1) out vec3 v_world_position;
-layout(location = 2) out vec3 v_world_normal;
 layout(location = 3) out vec2 v_ambient_diffuse;
+#else
+layout(location = 5) flat out vec3 v_base_color;
 #endif
 
 #include "box_geometry.glsl"
@@ -24,12 +27,14 @@ void main() {
     float diffuse = clamp(dot(normal, light_dir), 0.0, 1.0);
     float shade = clamp(ambient + diffuse * (1.0 - ambient), 0.0, 1.0);
     gl_Position = pc.view_projection * vec4(world_position, 1.0);
-    #ifdef DIRECTIONAL_SHADOW_RECEIVER
+    v_world_normal = normal;
+    v_inspection = uint(gl_InstanceIndex);
+#ifdef DIRECTIONAL_SHADOW_RECEIVER
     v_color = pc.color;
     v_world_position = world_position;
-    v_world_normal = normal;
     v_ambient_diffuse = vec2(ambient, diffuse * (1.0 - ambient));
 #else
     v_color = vec4(pc.color.rgb * shade, pc.color.a);
+    v_base_color = pc.color.rgb;
 #endif
 }

@@ -149,6 +149,15 @@ using detail::Mat4;
 using detail::identity;
 using detail::multiply;
 
+// Every world-box and indexed surface draw below submits one instance and no instance-rate
+// vertex attributes. firstInstance therefore carries this per-draw tag without expanding
+// the 128-byte mesh push block or requiring descriptors on the material fallback path.
+[[nodiscard]] std::uint32_t surfaceInspectionInstance(RenderDebugView view, VkFormat outputFormat) {
+    if (view != RenderDebugView::WorldNormals && view != RenderDebugView::BaseColor) return 0;
+    const bool manualSrgb = outputFormat != VK_FORMAT_B8G8R8A8_SRGB && outputFormat != VK_FORMAT_R8G8B8A8_SRGB;
+    return static_cast<std::uint32_t>(view) | (manualSrgb ? 4U : 0U);
+}
+
 struct SkyPushConstants final {
     std::array<float, 4> zenithColor{};
     std::array<float, 4> horizonColor{};
@@ -3174,6 +3183,7 @@ struct VulkanBackend::Impl final {
         RenderMeshLayer layer,
         const Mat4& viewProjection) {
         const bool shadowed = directionalShadowsPrepared && layer == RenderMeshLayer::World;
+        const auto inspection = surfaceInspectionInstance(frame.debugView, swapchainFormat);
         for (const auto& mesh : frame.worldMeshes) {
             if (mesh.layer != layer || !mesh.mesh.isValid()) {
                 continue;
@@ -3229,7 +3239,7 @@ struct VulkanBackend::Impl final {
                     for (std::size_t component = 0; component < primitiveColor.size(); ++component) {
                         primitiveColor[component] *= gltfMaterial->baseColorFactor[component];
                     }
-                    if (!textured) {
+                    if (!textured && inspection == 0) {
                         primitiveColor[0] =
                             std::clamp(primitiveColor[0] + gltfMaterial->emissiveFactor.x * 0.35F, 0.0F, 1.0F);
                         primitiveColor[1] =
@@ -3256,7 +3266,7 @@ struct VulkanBackend::Impl final {
                 const VkDeviceSize offsets[] = {0};
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
                 vkCmdBindIndexBuffer(commandBuffer, primitive.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-                vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, 0);
+                vkCmdDrawIndexed(commandBuffer, primitive.indexCount, 1, 0, 0, inspection);
                 if (environment) {
                     ++lastSkyEnvironmentDrawCount;
                 }
@@ -3281,7 +3291,8 @@ struct VulkanBackend::Impl final {
         lastMaterialFallbackDrawCount = 0;
         materialTexturesReady = false;
         lastSkyDrawCount = (skyPipeline != VK_NULL_HANDLE && frame.sky.enabled) ? 1U : 0U;
-        lastContactShadowCount = contactShadowPipeline != VK_NULL_HANDLE && frame.lighting.contactShadowsEnabled
+        lastContactShadowCount = frame.debugView == RenderDebugView::Lit && contactShadowPipeline &&
+                frame.camera3D.enabled && frame.lighting.contactShadowsEnabled
             ? frame.contactShadows.size()
             : 0U;
         lastWorldBoxCount = frame.worldBoxes.size();
@@ -3342,6 +3353,7 @@ struct VulkanBackend::Impl final {
             beginDebugRegion(commandBuffer, "World Boxes", {0.24F, 0.72F, 0.42F, 1.0F});
             const auto viewProjection = viewProjectionForCamera(frame.camera3D, swapchainExtent);
             const auto boxLayout = directionalShadowsPrepared ? worldBoxShadowedPipelineLayout : worldBoxPipelineLayout;
+            const auto inspection = surfaceInspectionInstance(frame.debugView, swapchainFormat);
             vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                               directionalShadowsPrepared ? worldBoxShadowedPipeline : worldBoxPipeline);
             for (const auto& box : frame.worldBoxes) {
@@ -3351,13 +3363,12 @@ struct VulkanBackend::Impl final {
                 const auto constants = pushConstantsForBox(viewProjection, box, frame.lighting);
                 vkCmdPushConstants(commandBuffer, boxLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                                    0, static_cast<std::uint32_t>(sizeof(WorldBoxPushConstants)), &constants);
-                vkCmdDraw(commandBuffer, 36, 1, 0, 0);
+                vkCmdDraw(commandBuffer, 36, 1, 0, inspection);
             }
             endDebugRegion(commandBuffer);
         }
 
-        if (contactShadowPipeline != VK_NULL_HANDLE && frame.camera3D.enabled &&
-            frame.lighting.contactShadowsEnabled && !frame.contactShadows.empty()) {
+        if (lastContactShadowCount > 0) {
             if (!loggedContactShadowSubmission) {
                 core::logInfo(
                     "render",

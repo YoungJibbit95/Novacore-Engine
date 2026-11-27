@@ -23,6 +23,7 @@ layout(location = 2) out vec2 v_uv;
 layout(location = 3) out vec4 v_light_direction_ambient;
 layout(location = 4) out vec4 v_fill_direction_intensity;
 layout(location = 5) out vec4 v_material_response;
+layout(location = 8) flat out uint v_inspection;
 #ifdef DIRECTIONAL_SHADOW_RECEIVER
 #include "shadow_data.glsl"
 #endif
@@ -43,6 +44,7 @@ vec3 rotateNormal(vec4 rotation, vec3 value) {
 }
 
 void main() {
+    v_inspection = uint(gl_InstanceIndex);
     v_color = pc.color;
     // Inverse transpose of the render instance T*R*S. Imported/skinned vertex
     // normals already include their node transforms; apply the instance once.

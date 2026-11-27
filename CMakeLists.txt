@@ -206,6 +206,7 @@ if(NOVACORE_ENABLE_VULKAN)
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_box_vert.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_vert.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/world_mesh_frag.glsl"
+                        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/surface_inspection.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_data.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/shadow_sampling.glsl"
                         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/vulkan/material_frame.glsl"
@@ -254,6 +255,11 @@ enable_testing()
 include(cmake/Physics.cmake)
 
 if(NOVACORE_BUILD_TESTS)
+    # Manual device fixture, run with the Vulkan SDK screenshot layer on a private test display.
+    add_executable(novacore_surface_inspection_probe EXCLUDE_FROM_ALL tests/surface_inspection_probe.cpp)
+    target_link_libraries(novacore_surface_inspection_probe PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_surface_inspection_probe)
+
     add_executable(novacore_render_normal_tests tests/render_normal_tests.cpp)
     target_link_libraries(novacore_render_normal_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_render_normal_tests)
