@@ -201,7 +201,8 @@ struct WorldLinePushConstants final {
 };
 
 struct UiPushConstants final {
-    std::array<float, 4> viewport{};
+    std::array<float, 2> viewport{};
+    std::array<std::uint32_t, 2> glyphRows{};
     std::array<float, 4> rectOrLine{};
     std::array<float, 4> color{};
 };
@@ -224,6 +225,7 @@ static_assert(offsetof(WorldMeshPushConstants, sunDirection) == 108);
 static_assert(offsetof(WorldMeshPushConstants, lightingMaterial) == 112);
 static_assert(sizeof(WorldLinePushConstants) <= 128, "World line push constants must stay under the Vulkan minimum limit");
 static_assert(sizeof(UiPushConstants) <= 128, "UI push constants must stay under the Vulkan minimum limit");
+static_assert(offsetof(UiPushConstants, glyphRows) == 8 && offsetof(UiPushConstants, rectOrLine) == 16);
 
 [[nodiscard]] std::array<std::uint8_t, 7> glyphRows(char raw) {
     const char c = static_cast<char>(std::toupper(static_cast<unsigned char>(raw)));
@@ -2980,19 +2982,20 @@ struct VulkanBackend::Impl final {
             {
                 static_cast<float>(std::max<std::uint32_t>(swapchainExtent.width, 1U)),
                 static_cast<float>(std::max<std::uint32_t>(swapchainExtent.height, 1U)),
-                0.0F,
-                0.0F,
             },
+            {},
             rectOrLine,
             color,
         };
     }
 
-    void drawUiRect(VkCommandBuffer commandBuffer, const DebugRect& rect) const {
+    void drawUiRect(VkCommandBuffer commandBuffer, const DebugRect& rect,
+                    std::array<std::uint32_t, 2> glyphMask = {}) const {
         if (rect.width <= 0.0F || rect.height <= 0.0F) {
             return;
         }
-        const auto constants = uiConstants({rect.x, rect.y, rect.width, rect.height}, rect.color);
+        auto constants = uiConstants({rect.x, rect.y, rect.width, rect.height}, rect.color);
+        constants.glyphRows = glyphMask;
         vkCmdPushConstants(
             commandBuffer,
             uiRectPipelineLayout,
@@ -3000,7 +3003,8 @@ struct VulkanBackend::Impl final {
             0,
             static_cast<std::uint32_t>(sizeof(UiPushConstants)),
             &constants);
-        vkCmdDraw(commandBuffer, 6, 1, 0, 0);
+        const auto instances = (glyphMask[0] | glyphMask[1]) != 0 ? 35U : 1U;
+        vkCmdDraw(commandBuffer, 6, instances, 0, 0);
     }
 
     void drawUiLine(VkCommandBuffer commandBuffer, const DebugLine& line) const {
@@ -3027,22 +3031,12 @@ struct VulkanBackend::Impl final {
             }
 
             const auto rows = glyphRows(c);
+            std::array<std::uint32_t, 2> mask{};
             for (std::size_t row = 0; row < rows.size(); ++row) {
-                for (std::uint8_t col = 0; col < 5; ++col) {
-                    const auto bit = static_cast<std::uint8_t>(1U << (4U - col));
-                    if ((rows[row] & bit) == 0) {
-                        continue;
-                    }
-                    drawUiRect(
-                        commandBuffer,
-                        DebugRect{
-                            cursorX + static_cast<float>(col) * pixel,
-                            text.y + static_cast<float>(row) * pixel,
-                            pixel,
-                            pixel,
-                            text.color,
-                        });
-                }
+                mask[row / 4] |= static_cast<std::uint32_t>(rows[row]) << (5 * (row % 4));
+            }
+            if ((mask[0] | mask[1]) != 0) {
+                drawUiRect(commandBuffer, {cursorX, text.y, pixel, pixel, text.color}, mask);
             }
             cursorX += step;
         }
