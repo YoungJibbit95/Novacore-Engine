@@ -74,6 +74,7 @@ add_library(novacore_engine
     engine/src/io/FileSystem.cpp
     engine/src/net/BitStream.cpp
     engine/src/net/Client.cpp
+    engine/src/net/LocalDatagram.cpp
     engine/src/net/Loopback.cpp
     engine/src/net/Protocol.cpp
     engine/src/net/Server.cpp
@@ -105,6 +106,9 @@ target_include_directories(novacore_engine
 target_compile_features(novacore_engine PUBLIC cxx_std_23)
 target_include_directories(novacore_engine SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb")
 add_library(Novacore::Engine ALIAS novacore_engine)
+if(WIN32)
+    target_link_libraries(novacore_engine PRIVATE ws2_32)
+endif()
 set_target_properties(novacore_engine PROPERTIES EXPORT_NAME Engine)
 
 if(MSVC)
