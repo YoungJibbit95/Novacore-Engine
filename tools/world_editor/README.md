@@ -12,8 +12,8 @@ the full camera framebuffer (not an independent docked viewport).
 From the engine checkout, with Visual Studio 2022 C++ tools, Vulkan SDK including
 glslc, and SDL3 available (or FetchContent access):
 
-    git fetch origin editor/phase-a-native-viewport
-    git worktree add --detach ../Novacore-Editor-Candidate origin/editor/phase-a-native-viewport
+    git fetch origin editor/phase-a-edit-controls
+    git worktree add --detach ../Novacore-Editor-Candidate origin/editor/phase-a-edit-controls
     cd ../Novacore-Editor-Candidate
     cmake --preset windows-msvc-debug -DNOVACORE_BUILD_WORLD_EDITOR=ON
     cmake --build --preset windows-msvc-debug --target novacore_world_editor
@@ -32,8 +32,9 @@ For a headless compile and CPU contract check (not a graphical test):
 2. Hold RMB inside the viewport to look and fly (WASD, Q/E); release to select.
    LMB a box and check the hierarchy/inspector selection. Click hierarchy rows.
 3. Click Add Box, use inspector +/- for XYZ position and half extents (0.25 m
-   per step), and toggle the collision flag. Axis lines show orientation only;
-   they are not draggable gizmos. Rotation is deliberately unsupported.
+   per step), and toggle the collision flag. Click an inspector value, type a number, and press Enter (Esc cancels).
+   Drag a coloured axis tip to translate with 0.25 m snap. Test Undo/Redo,
+   Duplicate and Delete. Rotation is deliberately unsupported.
 4. Click Save, verify the file, then click Reload. Close and relaunch with
    --map .\room.world.json --save-as .\room.world.json, confirming stable IDs
    and saved transforms. Save replaces only the explicit --save-as path,
@@ -45,7 +46,7 @@ For a headless compile and CPU contract check (not a graphical test):
 
 The generic marker is drawn as a cross; unresolved asset references appear in
 the hierarchy with an explicit status, not as fake meshes. No Blender import,
-asset placement, drag gizmos, undo/redo, file picker, Unicode bitmap UI, quit
+asset placement, rotation gizmos, file picker, Unicode bitmap UI, quit
 confirmation dialog, true docked viewport, or Nemisis runtime loading is
 implemented. Unsaved close warns on stderr only. Do not publish as usable
 release until independent visual/technical review and real GPU acceptance.
