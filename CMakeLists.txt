@@ -64,6 +64,7 @@ add_library(novacore_engine
     engine/src/assets/AssetRegistry.cpp
     engine/src/assets/AssetStreamer.cpp
     engine/src/assets/AssetTypes.cpp
+    engine/src/world/WorldDocument.cpp
     engine/src/core/Application.cpp
     engine/src/core/Config.cpp
     engine/src/core/ConfigDocument.cpp
@@ -292,6 +293,11 @@ if(NOVACORE_BUILD_TESTS)
     target_link_libraries(novacore_smoke_tests PRIVATE novacore_engine)
     novacore_copy_mingw_runtime(novacore_smoke_tests)
     add_test(NAME novacore_smoke_tests COMMAND novacore_smoke_tests)
+
+    add_executable(novacore_world_document_tests tests/world_document_tests.cpp)
+    target_link_libraries(novacore_world_document_tests PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_world_document_tests)
+    add_test(NAME novacore_world_document_tests COMMAND novacore_world_document_tests)
 
     add_executable(novacore_animation_runtime_tests tests/animation_runtime_tests.cpp)
     target_link_libraries(novacore_animation_runtime_tests PRIVATE novacore_engine)
