@@ -779,6 +779,7 @@ int run(Editor& editor,bool vulkanSmoke=false) {
     camera.verticalFovDegrees=65; camera.farPlane=250;
     auto shownCamera=camera;
     unsigned shownW=0,shownH=0;
+    bool readyAnnounced=false;
     bool focused=false,left=false,right=false,navigating=false;
     auto previous=std::chrono::steady_clock::now();
     const auto smokeDeadline=previous+std::chrono::seconds(30);
@@ -815,6 +816,7 @@ int run(Editor& editor,bool vulkanSmoke=false) {
             if (SDL_WaitProcess(gameProcess,false,&exitCode)) {
                 SDL_DestroyProcess(gameProcess); gameProcess=nullptr;
                 editor.status="NEMISIS EXIT CODE "+std::to_string(exitCode);
+                std::cout<<"NOVACORE_PLAYTEST_EXIT code="<<exitCode<<'\n'<<std::flush;
             }
         }
 #else
@@ -878,15 +880,29 @@ int run(Editor& editor,bool vulkanSmoke=false) {
         }
         left=n.left; right=n.right; focused=n.focused;
         const auto before=renderer.backendFrameStats().submittedFrames;
-        renderer.beginFrame(frameFor(editor,camera,l)); renderer.endFrame();
+        const auto frame=frameFor(editor,camera,l);
+        renderer.beginFrame(frame); renderer.endFrame();
         const auto stats=renderer.backendFrameStats();
         if (stats.submittedFrames>before) {
             shownCamera=camera; shownW=stats.swapchainWidth; shownH=stats.swapchainHeight;
         }
         if (renderer.backendName()!="vulkan-world") { std::cerr<<"Vulkan backend lost\n"; return 2; }
-        if (vulkanSmoke && stats.submittedFrames>=3 && stats.swapchainReady &&
-            stats.lastWorldBoxCount>0 && stats.lastWorldLineCount>0 &&
-            stats.lastUiRectCount>0 && stats.lastUiTextCount>0 && !stats.pipelineCreateFailureCount) {
+        // Readiness is a process protocol, not an incidental logger message.
+        // Require a new submitted frame, matching framebuffer, actual scene
+        // and UI submissions, and no pipeline creation failure. Empty maps
+        // are valid; their grid and inspector still have to render.
+        const bool frameReady=stats.submittedFrames>before && stats.submittedFrames>=3 &&
+            stats.swapchainReady && stats.swapchainWidth==n.pixelWidth && stats.swapchainHeight==n.pixelHeight &&
+            stats.lastWorldBoxCount==frame.worldBoxes.size() &&
+            stats.lastWorldLineCount==frame.worldLines.size() && stats.lastWorldLineCount>0 &&
+            stats.lastUiRectCount>0 && stats.lastUiTextCount>0 && !stats.pipelineCreateFailureCount;
+        if (frameReady && !readyAnnounced) {
+            std::cout<<"NOVACORE_EDITOR_READY backend=vulkan-world frames="<<stats.submittedFrames
+                     <<" boxes="<<stats.lastWorldBoxCount<<" lines="<<stats.lastWorldLineCount
+                     <<" extent="<<stats.swapchainWidth<<"x"<<stats.swapchainHeight<<'\n'<<std::flush;
+            readyAnnounced=true;
+        }
+        if (vulkanSmoke && frameReady && stats.lastWorldBoxCount>0) {
             std::cout<<"Vulkan editor smoke passed: backend="<<renderer.backendName()
                      <<" frames="<<stats.submittedFrames<<" boxes="<<stats.lastWorldBoxCount
                      <<" lines="<<stats.lastWorldLineCount<<" extent="<<stats.swapchainWidth<<"x"<<stats.swapchainHeight<<"\n";
