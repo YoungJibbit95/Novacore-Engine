@@ -308,6 +308,41 @@ void testCoyoteTimeAndJumpBuffer() {
 
 } // namespace
 
+namespace {
+void testAuthoredOnlyCollision() {
+    using namespace novacore::physics;
+    PhysicsWorld world;
+    world.setBounds({3, 3, 3});
+    expect(world.implicitBoundaryCollision(), "legacy boundary default unchanged");
+    CharacterQuery query{};
+    query.position = {0, -0.5F, 0};
+    expect(world.resolveCharacter(query).grounded, "legacy floor still exists");
+    world.setImplicitBoundaryCollision(false);
+    auto resolved = world.resolveCharacter(query);
+    expect(!resolved.grounded && near(resolved.position.y, -0.5F), "authored mode has no hidden floor");
+    query.position = {4, -1, 0};
+    resolved = world.resolveCharacter(query);
+    expect(!resolved.blocked && near(resolved.position.x, 4), "authored mode has no hidden bounds");
+    CharacterSweepQuery sweep{};
+    sweep.startPosition = {0, 2, 0};
+    sweep.desiredDisplacement = {5, -4, 0};
+    auto result = world.sweepCharacter(sweep);
+    expect(!result.hit && near(result.resolve.position.x, 5) &&
+        near(result.resolve.position.y, -2), "sweep crosses former synthetic floor and boundary");
+    world.addStaticCollider({"authored-floor", SurfaceKind::Cover, {0,-0.15F,0}, {2,0.15F,2}, true});
+    sweep.startPosition = {0, 2, 0};
+    sweep.desiredDisplacement = {0, -3, 0};
+    result = world.sweepCharacter(sweep);
+    expect(result.resolve.grounded && result.resolve.groundColliderId == "authored-floor" &&
+        near(result.resolve.position.y, 0, 0.01F), "authored floor supports player");
+    world.clearStaticColliders();
+    result = world.sweepCharacter(sweep);
+    expect(!result.resolve.grounded && near(result.resolve.position.y, -1), "deleting authored floor removes support");
+    world.setImplicitBoundaryCollision(true);
+    expect(world.sweepCharacter(sweep).resolve.grounded, "legacy mode can be restored");
+}
+} // namespace
+
 int main() {
     testDeterministicCornerManifold();
     testRoundedCornerSweep();
@@ -316,6 +351,7 @@ int main() {
     testMovingSupportIntegrationAndJumpInheritance();
     testLandingSnapAndReplayDeterminism();
     testCoyoteTimeAndJumpBuffer();
+    testAuthoredOnlyCollision();
     if (failures != 0) {
         std::cerr << failures << " physics KCC test(s) failed\n";
         return 1;

@@ -390,14 +390,15 @@ void resolveGroundSurfaces(
     CharacterResolveResult& result,
     math::Vec3 boundsHalfExtents,
     const std::vector<StaticCollider>& colliders,
-    const CharacterQuery& query) {
+    const CharacterQuery& query,
+    bool implicitBoundaryCollision) {
     const auto floor = floorColliderForBounds(boundsHalfExtents);
     float bestHeight = 0.0F;
     math::Vec3 bestNormal{0.0F, 1.0F, 0.0F};
     const StaticCollider* bestCollider = nullptr;
     bool bestStepped = false;
 
-    if (canSnapToSurface(result, floor, query, 0.0F, {0.0F, 1.0F, 0.0F})) {
+    if (implicitBoundaryCollision && canSnapToSurface(result, floor, query, 0.0F, {0.0F, 1.0F, 0.0F})) {
         bestCollider = &floor;
     }
 
@@ -946,7 +947,8 @@ void considerSweepHit(SweepHitCandidate& best, SweepHitCandidate candidate) {
     const CharacterSweepQuery& query,
     math::Vec3 position,
     math::Vec3 displacement,
-    float sweepDeltaSeconds) {
+    float sweepDeltaSeconds,
+    bool implicitBoundaryCollision) {
     constexpr float kManifoldFractionEpsilon = 0.0001F;
     SweepHitSet hits{};
     hits.primary.fraction = 1.0F;
@@ -1065,7 +1067,7 @@ void considerSweepHit(SweepHitCandidate& best, SweepHitCandidate candidate) {
         }
     }
 
-    if (displacement.y < -0.00001F && position.y > 0.0001F) {
+    if (implicitBoundaryCollision && displacement.y < -0.00001F && position.y > 0.0001F) {
         const float t = -position.y / displacement.y;
         const auto impact = position + (displacement * t);
         if (t >= 0.0F && t <= 1.0F &&
@@ -1082,31 +1084,33 @@ void considerSweepHit(SweepHitCandidate& best, SweepHitCandidate candidate) {
         }
     }
 
-    const float minAllowedX = -boundsHalfExtents.x + query.radius + query.skinWidth;
-    const float maxAllowedX = boundsHalfExtents.x - query.radius - query.skinWidth;
-    const float minAllowedZ = -boundsHalfExtents.z + query.radius + query.skinWidth;
-    const float maxAllowedZ = boundsHalfExtents.z - query.radius - query.skinWidth;
-    const auto considerBound = [&](float t, math::Vec3 normal) {
-        SweepHitCandidate bounds{};
-        if (t < 0.0F || t > 1.0F) {
-            return;
+    if (implicitBoundaryCollision) {
+        const float minAllowedX = -boundsHalfExtents.x + query.radius + query.skinWidth;
+        const float maxAllowedX = boundsHalfExtents.x - query.radius - query.skinWidth;
+        const float minAllowedZ = -boundsHalfExtents.z + query.radius + query.skinWidth;
+        const float maxAllowedZ = boundsHalfExtents.z - query.radius - query.skinWidth;
+        const auto considerBound = [&](float t, math::Vec3 normal) {
+            SweepHitCandidate bounds{};
+            if (t < 0.0F || t > 1.0F) {
+                return;
+            }
+            bounds.hit = true;
+            bounds.fraction = t;
+            bounds.normal = normal;
+            bounds.colliderId = "world_bounds";
+            bounds.kind = SurfaceKind::Wall;
+            addHit(std::move(bounds));
+        };
+        if (displacement.x > 0.00001F && end.x > maxAllowedX) {
+            considerBound((maxAllowedX - position.x) / displacement.x, {-1.0F, 0.0F, 0.0F});
+        } else if (displacement.x < -0.00001F && end.x < minAllowedX) {
+            considerBound((minAllowedX - position.x) / displacement.x, {1.0F, 0.0F, 0.0F});
         }
-        bounds.hit = true;
-        bounds.fraction = t;
-        bounds.normal = normal;
-        bounds.colliderId = "world_bounds";
-        bounds.kind = SurfaceKind::Wall;
-        addHit(std::move(bounds));
-    };
-    if (displacement.x > 0.00001F && end.x > maxAllowedX) {
-        considerBound((maxAllowedX - position.x) / displacement.x, {-1.0F, 0.0F, 0.0F});
-    } else if (displacement.x < -0.00001F && end.x < minAllowedX) {
-        considerBound((minAllowedX - position.x) / displacement.x, {1.0F, 0.0F, 0.0F});
-    }
-    if (displacement.z > 0.00001F && end.z > maxAllowedZ) {
-        considerBound((maxAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, -1.0F});
-    } else if (displacement.z < -0.00001F && end.z < minAllowedZ) {
-        considerBound((minAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, 1.0F});
+        if (displacement.z > 0.00001F && end.z > maxAllowedZ) {
+            considerBound((maxAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, -1.0F});
+        } else if (displacement.z < -0.00001F && end.z < minAllowedZ) {
+            considerBound((minAllowedZ - position.z) / displacement.z, {0.0F, 0.0F, 1.0F});
+        }
     }
     std::stable_sort(
         hits.contacts.begin(),
@@ -1295,7 +1299,7 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
     CharacterResolveResult result{};
     result.position = query.position;
 
-    if (result.position.y <= 0.0F) {
+    if (implicitBoundaryCollision_ && result.position.y <= 0.0F) {
         const auto before = result.position;
         result.position.y = 0.0F;
         result.groundHeight = 0.0F;
@@ -1306,11 +1310,11 @@ CharacterResolveResult PhysicsWorld::resolveCharacter(CharacterQuery query) cons
         result.correction = result.correction + (result.position - before);
     }
 
-    resolveBounds(result, boundsHalfExtents_, query.radius);
-    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query);
+    if (implicitBoundaryCollision_) resolveBounds(result, boundsHalfExtents_, query.radius);
+    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query, implicitBoundaryCollision_);
     resolveSidePenetrations(result, staticColliders_, query);
     clearGroundState(result);
-    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query);
+    resolveGroundSurfaces(result, boundsHalfExtents_, staticColliders_, query, implicitBoundaryCollision_);
 
     const auto wall = probeWall(WallProbe{result.position, query.radius, query.height, query.wallProbeDistance});
     if (wall.hit) {
@@ -1361,7 +1365,8 @@ CharacterSweepResult PhysicsWorld::sweepCharacter(CharacterSweepQuery query) con
         }
 
         auto hits = findEarliestSweepHits(
-            staticColliders_, boundsHalfExtents_, query, position, remaining, remainingTimeSeconds);
+            staticColliders_, boundsHalfExtents_, query, position, remaining, remainingTimeSeconds,
+            implicitBoundaryCollision_);
         const auto& hit = hits.primary;
         if (!hit.hit || hit.fraction >= 0.9999F) {
             position = position + remaining;
