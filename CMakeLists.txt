@@ -21,6 +21,7 @@ option(NOVACORE_FETCH_SDL3 "Fetch and build SDL3 when no installed SDL3 package 
 option(NOVACORE_ENABLE_VULKAN "Enable Vulkan renderer backend when available" ON)
 option(NOVACORE_BUILD_SERVER "Build the NovaCore dedicated server executable" ON)
 option(NOVACORE_BUILD_SANDBOX "Build the standalone NovaCore engine sandbox executable" ON)
+option(NOVACORE_BUILD_WORLD_EDITOR "Build the optional native World Editor candidate" OFF)
 option(NOVACORE_BUILD_TESTS "Build NovaCore contract and integration test suites" ON)
 option(NOVACORE_WARNINGS_AS_ERRORS "Treat warnings as errors" OFF)
 set(NOVACORE_SDL3_FETCH_TAG "release-3.2.22" CACHE STRING "SDL3 git tag used by the CMake FetchContent fallback")
@@ -256,7 +257,17 @@ if(NOVACORE_BUILD_SANDBOX)
     novacore_copy_mingw_runtime(novacore_engine_sandbox)
 endif()
 
+if(NOVACORE_BUILD_WORLD_EDITOR)
+    add_executable(novacore_world_editor tools/world_editor/main.cpp)
+    target_link_libraries(novacore_world_editor PRIVATE novacore_engine)
+    novacore_copy_mingw_runtime(novacore_world_editor)
+endif()
+
 enable_testing()
+if(NOVACORE_BUILD_WORLD_EDITOR AND NOVACORE_BUILD_TESTS)
+    add_test(NAME novacore_world_editor_cpu COMMAND novacore_world_editor --self-test)
+    add_test(NAME novacore_world_editor_help COMMAND novacore_world_editor --help)
+endif()
 
 include(cmake/Physics.cmake)
 

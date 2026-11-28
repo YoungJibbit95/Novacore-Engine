@@ -33,7 +33,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Configure C++23 without SDL3 or Vulkan
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} -DNOVACORE_BUILD_WORLD_EDITOR=ON
       - name: Build engine, server, sandbox and tests
         run: cmake --build --preset ${{ matrix.preset }} --parallel 2
       - name: Test core, ECS, assets, animation, networking and KCC

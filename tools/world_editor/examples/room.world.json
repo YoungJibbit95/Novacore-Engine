@@ -1,0 +1,8 @@
+{"schemaVersion":1,"id":"editor-room","objects":[
+{"id":"floor","name":"Floor","position":[0,-0.15,1],"kind":"box","halfExtents":[5,0.15,5],"blocksMovement":true},
+{"id":"wall-a","name":"Left wall","position":[4.9,1.4,1],"kind":"box","halfExtents":[0.1,1.4,5],"blocksMovement":true},
+{"id":"wall-b","name":"Back wall","position":[0,1.4,5.9],"kind":"box","halfExtents":[5,1.4,0.1],"blocksMovement":true},
+{"id":"partition","name":"Partition","position":[-1.8,1.2,2],"kind":"box","halfExtents":[0.12,1.2,2],"blocksMovement":true},
+{"id":"crate","name":"Greybox crate","position":[1,0.5,0.5],"kind":"box","halfExtents":[0.5,0.5,0.5],"blocksMovement":true},
+{"id":"spawn","name":"Spawn","position":[0,0,-1],"kind":"marker","markerType":"spawn"}
+]}
