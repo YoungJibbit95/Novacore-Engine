@@ -30,6 +30,8 @@ public:
     void shutdown();
 
     [[nodiscard]] bool shouldClose() const;
+    // A document-owning tool may cancel a user-requested close after confirmation.
+    void cancelCloseRequest() { shouldClose_=false; }
     [[nodiscard]] bool isHeadless() const;
     [[nodiscard]] bool relativeMouseMode() const;
     [[nodiscard]] void* nativeHandle() const;

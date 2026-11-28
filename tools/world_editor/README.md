@@ -12,8 +12,8 @@ the full camera framebuffer (not an independent docked viewport).
 From the engine checkout, with Visual Studio 2022 C++ tools, Vulkan SDK including
 glslc, and SDL3 available (or FetchContent access):
 
-    git fetch origin editor/phase-a-edit-controls
-    git worktree add --detach ../Novacore-Editor-Candidate origin/editor/phase-a-edit-controls
+    git fetch origin editor/phase-a-file-playtest
+    git worktree add --detach ../Novacore-Editor-Candidate origin/editor/phase-a-file-playtest
     cd ../Novacore-Editor-Candidate
     cmake --preset windows-msvc-debug -DNOVACORE_BUILD_WORLD_EDITOR=ON
     cmake --build --preset windows-msvc-debug --target novacore_world_editor
@@ -46,7 +46,58 @@ For a headless compile and CPU contract check (not a graphical test):
 
 The generic marker is drawn as a cross; unresolved asset references appear in
 the hierarchy with an explicit status, not as fake meshes. No Blender import,
-asset placement, rotation gizmos, file picker, Unicode bitmap UI, quit
-confirmation dialog, true docked viewport, or Nemisis runtime loading is
-implemented. Unsaved close warns on stderr only. Do not publish as usable
+asset placement, rotation gizmos, Unicode bitmap UI or true docked viewport is
+implemented. Native dialogs and subprocess launch require actual interactive acceptance. Do not publish as usable
 release until independent visual/technical review and real GPU acceptance.
+
+
+## Save/open and Play Map
+
+Open and Save As use the native SDL file chooser. Opening another map or closing
+with unsaved changes requires an explicit discard confirmation. Cancelling
+either leaves the existing document intact. Save As confirms replacing an
+existing file. Save stages a sibling file before renaming it to the authorized
+destination. Reload refuses dirty documents. Opening a different map clears
+the prior save authorization.
+
+Build the Nemisis authored-world candidate (#63) against its exact pinned
+engine candidate (#40). In the Nemisis worktree, run the editor executable
+using absolute paths, for example:
+
+    & $editorExe --map .\configs\maps\editor-room.world.json --save-as .\configs\maps\my-room.world.json --game $gameExe
+
+Save the map first, then click Play Map. The child process receives only
+the configured executable and the saved document via --map, with no shell or
+game recompilation. The working directory must be the Nemisis checkout.
+The editor will not launch a second playtest until the first exits. Closing
+the editor does not terminate a running game. Unsupported assets, missing
+spawn or invalid spawn clearance are diagnosed by the actual game loader.
+
+The CPU self-test verifies actual save, overwrite, reopen and rejection of a
+malformed file in an isolated temporary directory. Native dialogs, window close
+confirmation and launching/playing the game have not been validated here.
+
+
+## Native smoke (not interactive acceptance)
+
+Configure with -DNOVACORE_REQUIRE_EDITOR_NATIVE=ON in addition to the editor
+option to reject a missing SDL3/Vulkan/glslc dependency. Launch with
+--vulkan-smoke to require three actual submitted frames with world geometry,
+grid lines and UI draw counts. CI runs this on a virtual X11 display with
+Mesa lavapipe (software Vulkan), and enables the Khronos validation layer.
+This is not physical-GPU, visual, input, HiDPI or Nemisis round-trip acceptance.
+
+
+## Process readiness contract
+
+When the real Vulkan editor has submitted at least three frames and verified
+the current framebuffer extent, scene geometry/grid and UI draw counts, it
+emits exactly one explicitly flushed line:
+
+    NOVACORE_EDITOR_READY backend=vulkan-world frames=3 boxes=... lines=... extent=1280x800
+
+Consumers must wait for this line while the process is alive, not a renderer
+initialization message (which can remain buffered when redirected to a file).
+A Play Map child that exits is reaped by the editor and reports an explicitly
+flushed `NOVACORE_PLAYTEST_EXIT code=N` line. These signals do not certify
+physical-GPU or human visual acceptance.

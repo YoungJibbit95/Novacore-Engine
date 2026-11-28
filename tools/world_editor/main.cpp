@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <vector>
 #include <cmath>
 #include <filesystem>
@@ -55,6 +56,9 @@ struct Layout {
     Rect erase() const { return {432*s,36*s,72*s,26*s}; }
     Rect undo() const { return {512*s,36*s,72*s,26*s}; }
     Rect redo() const { return {592*s,36*s,72*s,26*s}; }
+    Rect open() const { return {672*s,36*s,64*s,26*s}; }
+    Rect saveAs() const { return {744*s,36*s,96*s,26*s}; }
+    Rect play() const { return {848*s,36*s,96*s,26*s}; }
     Rect numeric(unsigned rowIndex) const {
         return {inspectorX(),(174+30*static_cast<float>(rowIndex))*s,
             w-78*s-inspectorX(),24*s};
@@ -96,11 +100,14 @@ struct AxisDrag {
     float mouseX{},mouseY{},dx{},dy{},metres{};
 };
 
+enum class FileRequest { None, Open, SaveAs, Play };
+
 struct Editor {
     WorldDocument doc = example();
     std::string selected;
     std::string status = "READY - GREYBOX CANDIDATE";
-    std::filesystem::path source, output;
+    std::filesystem::path source, output, game;
+    FileRequest request=FileRequest::None;
     std::size_t firstRow = 0;
     unsigned nextId = 1;
     bool dirty = false;
@@ -290,10 +297,10 @@ struct Editor {
         source=path; select({}); firstRow=0; history.clear(); cursor=0;
         revision=savedRevision=0; nextRevision=1; refreshDirty(); status="MAP LOADED"; return true;
     }
-    void save() {
-        if (output.empty()) { status = "SET --SAVE-AS PATH TO ENABLE SAVE"; return; }
+    bool save() {
+        if (output.empty()) { status="CHOOSE SAVE AS"; return false; }
         std::string data;
-        if (auto error = serializeWorldJson(doc, data)) { status = *error; return; }
+        if (auto error = serializeWorldJson(doc, data)) { status = *error; return false; }
         // Create a private sibling staging directory without clobbering any
         // existing temporary file. Rename only a fully written, closed file.
         std::error_code ec;
@@ -305,7 +312,7 @@ struct Editor {
             if (std::filesystem::create_directory(candidate, ec)) { staging = std::move(candidate); break; }
             if (ec && ec != std::errc::file_exists) break;
         }
-        if (staging.empty()) { status = "CANNOT CREATE SAVE STAGING DIRECTORY"; return; }
+        if (staging.empty()) { status = "CANNOT CREATE SAVE STAGING DIRECTORY"; return false; }
         const auto temp = staging / "world.json";
         bool written = false;
         {
@@ -318,8 +325,8 @@ struct Editor {
         std::error_code cleanup;
         std::filesystem::remove(temp, cleanup);
         std::filesystem::remove(staging, cleanup);
-        if (!success) { status = "SAVE FAILED - PREVIOUS MAP NOT REMOVED"; return; }
-        source=output; savedRevision=revision; refreshDirty(); status="MAP SAVED";
+        if (!success) { status = "SAVE FAILED - PREVIOUS MAP NOT REMOVED"; return false; }
+        source=output; savedRevision=revision; refreshDirty(); status="MAP SAVED"; return true;
     }
     void reload() {
         if (dirty) { status = "SAVE CHANGES BEFORE RELOAD"; return; }
@@ -334,7 +341,14 @@ struct Editor {
         if (l.erase().contains(x,y)) { deleteObject(); return true; }
         if (l.undo().contains(x,y)) { undo(); return true; }
         if (l.redo().contains(x,y)) { redo(); return true; }
-        if (l.save().contains(x,y)) { save(); return true; }
+        if (l.open().contains(x,y)) { request=FileRequest::Open; return true; }
+        if (l.saveAs().contains(x,y)) { request=FileRequest::SaveAs; return true; }
+        if (l.play().contains(x,y)) { request=FileRequest::Play; return true; }
+        if (l.save().contains(x,y)) {
+            if (output.empty()) request=FileRequest::SaveAs;
+            else (void)save();
+            return true;
+        }
         if (l.reload().contains(x,y)) { reload(); return true; }
         if (l.prev().contains(x,y)) { firstRow = firstRow > l.capacity() ? firstRow-l.capacity() : 0; return true; }
         if (l.next().contains(x,y)) {
@@ -463,6 +477,9 @@ render::RenderFrameInfo frameFor(const Editor& e, const render::RenderCamera3D& 
     button(f,l.erase(),s,"DEL");
     button(f,l.undo(),s,"UNDO",e.cursor?buttonColor:panel);
     button(f,l.redo(),s,"REDO",e.cursor<e.history.size()?buttonColor:panel);
+    button(f,l.open(),s,"OPEN");
+    button(f,l.saveAs(),s,"SAVE AS");
+    button(f,l.play(),s,"PLAY MAP",!e.game.empty()&&!e.dirty&&!e.source.empty()?accent:panel);
     text(f,l.w-245*s,12*s,1.0F*s,"GRID 1 M / SNAP 0.25 M",muted);
     text(f,10*s,82*s,1.5F*s,"SCENE HIERARCHY");
     for (std::size_t i=0;i<l.capacity() && e.firstRow+i<e.doc.objects.size();++i) {
@@ -499,7 +516,7 @@ render::RenderFrameInfo frameFor(const Editor& e, const render::RenderCamera3D& 
     } else text(f,ix,112*s,1.5F*s,"SELECT AN OBJECT",muted);
     text(f,8*s,l.h-l.bottom+5*s,1.0F*s,e.status,textColor,
         static_cast<std::size_t>(std::max(0.0F,std::floor((l.w-16*s)/(6*s)))));
-    text(f,8*s,l.h-l.bottom+20*s,1.0F*s,"RMB FLY | LMB SELECT / DRAG AXIS TIP | CLICK VALUE TO TYPE | SAVE-AS VIA CLI",muted);
+    text(f,8*s,l.h-l.bottom+20*s,1.0F*s,"RMB FLY | LMB SELECT / DRAG AXIS TIP | CLICK VALUE TO TYPE | SAVE BEFORE PLAY",muted);
     return f;
 }
 
@@ -545,6 +562,119 @@ NativeInput nativeInput(platform::Window& window) {
 #endif
     return n;
 }
+
+#if NOVACORE_HAS_SDL3
+// SDL's file dialog callback can run on another thread. Copy the result and
+// apply it on the render thread; it must never mutate the document directly.
+struct DialogMailbox {
+    std::mutex mutex;
+    FileRequest kind=FileRequest::None;
+    bool complete=false;
+    std::string path,error;
+};
+DialogMailbox& mailbox() {
+    // Lifetime extends through SDL shutdown, including cancellation callbacks.
+    static DialogMailbox box;
+    return box;
+}
+void SDLCALL fileChosen(void*,const char* const* files,int) {
+    auto& box=mailbox();
+    std::lock_guard lock(box.mutex);
+    if (!files) box.error=SDL_GetError();
+    else if (files[0]) box.path=files[0];
+    box.complete=true;
+}
+bool dialogBusy() {
+    auto& box=mailbox();
+    std::lock_guard lock(box.mutex);
+    return box.kind!=FileRequest::None;
+}
+bool confirm(SDL_Window* window,const char* message,const char* accept) {
+    const SDL_MessageBoxButtonData buttons[]={
+        {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT|SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT,0,"Cancel"},
+        {0,1,accept}
+    };
+    SDL_MessageBoxData data{};
+    data.flags=SDL_MESSAGEBOX_WARNING; data.window=window;
+    data.title="NovaCore World Editor"; data.message=message;
+    data.numbuttons=2; data.buttons=buttons;
+    int chosen=0;
+    return SDL_ShowMessageBox(&data,&chosen) && chosen==1;
+}
+void startDialog(FileRequest request,SDL_Window* window) {
+    auto& box=mailbox();
+    {
+        std::lock_guard lock(box.mutex);
+        if (box.kind!=FileRequest::None) return;
+        box.kind=request; box.complete=false; box.path.clear(); box.error.clear();
+    }
+    static const SDL_DialogFileFilter filters[]={{"World JSON","json"}};
+    if (request==FileRequest::Open) SDL_ShowOpenFileDialog(fileChosen,nullptr,window,filters,1,nullptr,false);
+    else SDL_ShowSaveFileDialog(fileChosen,nullptr,window,filters,1,nullptr);
+}
+bool pumpDialog(Editor& editor,SDL_Window* window) {
+    FileRequest kind;
+    std::string path,error;
+    {
+        auto& box=mailbox();
+        std::lock_guard lock(box.mutex);
+        if (box.kind==FileRequest::None) return false;
+        if (!box.complete) return true;
+        kind=box.kind; path=std::move(box.path); error=std::move(box.error);
+        box.kind=FileRequest::None; box.complete=false;
+    }
+    if (!error.empty()) { editor.status="FILE DIALOG: "+error; return true; }
+    if (path.empty()) { editor.status="FILE DIALOG CANCELLED"; return true; }
+    try {
+        auto chosen=std::filesystem::path(std::u8string(path.begin(),path.end()));
+        if (kind==FileRequest::Open) {
+            if (editor.load(chosen)) editor.output.clear();
+        } else {
+            if (chosen.extension()!=".json") chosen += ".world.json";
+            std::error_code ec;
+            const bool exists=std::filesystem::exists(chosen,ec);
+            if (ec) { editor.status="CANNOT INSPECT SAVE DESTINATION"; return true; }
+            if (exists && !confirm(window,"Replace the selected existing map file?","Replace")) {
+                editor.status="SAVE CANCELLED"; return true;
+            }
+            const auto previous=editor.output;
+            editor.output=std::move(chosen);
+            if (!editor.save()) editor.output=previous;
+        }
+    } catch(const std::filesystem::filesystem_error& e) { editor.status=e.what(); }
+    return true;
+}
+std::string utf8Path(const std::filesystem::path& p) {
+    const auto value=p.u8string();
+    return {value.begin(),value.end()};
+}
+void processRequest(Editor& editor,SDL_Window* window,SDL_Process*& game) {
+    const auto request=std::exchange(editor.request,FileRequest::None);
+    if (request==FileRequest::None) return;
+    if (request==FileRequest::Open || request==FileRequest::SaveAs) {
+        if (request==FileRequest::Open && editor.dirty &&
+            !confirm(window,"This map has unsaved edits. Discard them and open another map?","Discard")) {
+            editor.status="OPEN CANCELLED"; return;
+        }
+        startDialog(request,window); return;
+    }
+    if (game) { editor.status="PLAYTEST ALREADY RUNNING"; return; }
+    if (editor.game.empty()) { editor.status="SET --GAME TO THE NEMISIS CANDIDATE EXECUTABLE"; return; }
+    if (editor.source.empty() || editor.dirty) { editor.status="SAVE THE MAP BEFORE PLAYTEST"; return; }
+    std::error_code ec;
+    auto executable=std::filesystem::absolute(editor.game,ec);
+    if (ec || !std::filesystem::is_regular_file(executable,ec)) { editor.status="GAME EXECUTABLE NOT FOUND"; return; }
+    auto map=std::filesystem::absolute(editor.source,ec);
+    if (ec || !std::filesystem::is_regular_file(map,ec)) { editor.status="SAVED MAP NOT FOUND"; return; }
+    if (!std::filesystem::is_regular_file("configs/assets/nemisis_assets.json",ec)) {
+        editor.status="LAUNCH EDITOR FROM NEMISIS CHECKOUT FOR PLAY MAP"; return;
+    }
+    const auto exe= utf8Path(executable), filename=utf8Path(map);
+    const char* args[]={exe.c_str(),"--map",filename.c_str(),nullptr};
+    game=SDL_CreateProcess(args,false);
+    editor.status=game?"NEMISIS PLAYTEST STARTED":std::string("PLAYTEST LAUNCH FAILED: ")+SDL_GetError();
+}
+#endif
 
 int selfTest() {
     Editor e;
@@ -606,11 +736,33 @@ int selfTest() {
     keys.setButton({platform::InputControlKind::KeyboardKey,13},true,platform::InputDeviceKind::KeyboardMouse);
     e.numericInput(keys);
     if (e.object()->position.x!=2 || e.numericRow) return 21;
-    std::cout<<"World editor CPU scene/UI/history contract passed (no Vulkan execution)\n";
+    // Exercise actual editor file writes, replacement and transactional reopen.
+    std::error_code ec;
+    const auto root=std::filesystem::temp_directory_path(ec);
+    if (ec) return 22;
+    const auto temp=root/("novacore-editor-test-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    if (!std::filesystem::create_directory(temp,ec)) return 23;
+    struct Cleanup {
+        std::filesystem::path p;
+        ~Cleanup(){ std::error_code ignored; std::filesystem::remove_all(p,ignored); }
+    } cleanup{temp};
+    e.output=temp/"room.world.json";
+    if (!e.save() || e.dirty) return 24;
+    e.setValue(0,3.125F);
+    if (!e.save() || e.dirty) return 25;
+    Editor reopened;
+    if (!reopened.load(e.output)) return 26;
+    reopened.select("box-1");
+    if (!reopened.object() || reopened.object()->position.x!=3.125F) return 27;
+    const auto invalid=temp/"invalid.world.json";
+    { std::ofstream malformed(invalid); malformed<<"{\"version\":invalid}"; }
+    if (reopened.load(invalid) || reopened.source!=e.output || !reopened.object() ||
+        reopened.object()->position.x!=3.125F) return 28;
+    std::cout<<"World editor CPU scene/UI/history/file contract passed (no Vulkan execution)\n";
     return 0;
 }
 
-int run(Editor& editor) {
+int run(Editor& editor,bool vulkanSmoke=false) {
     platform::Window window;
     render::Renderer renderer;
     if (!window.create({"NovaCore World Editor - Candidate",1280,800,true}) || window.isHeadless() ||
@@ -627,15 +779,59 @@ int run(Editor& editor) {
     camera.verticalFovDegrees=65; camera.farPlane=250;
     auto shownCamera=camera;
     unsigned shownW=0,shownH=0;
+    bool readyAnnounced=false;
     bool focused=false,left=false,right=false,navigating=false;
     auto previous=std::chrono::steady_clock::now();
-    while (!window.shouldClose()) {
+    const auto smokeDeadline=previous+std::chrono::seconds(30);
+#if NOVACORE_HAS_SDL3
+    auto* native=static_cast<SDL_Window*>(window.nativeHandle());
+    SDL_Process* gameProcess=nullptr;
+    struct ProcessCleanup {
+        SDL_Process*& process;
+        ~ProcessCleanup(){ if (process) SDL_DestroyProcess(process); }
+    } processCleanup{gameProcess};
+#endif
+    while (true) {
         window.pollEvents(input);
-        if (window.shouldClose()) break;
+        if (vulkanSmoke && std::chrono::steady_clock::now()>smokeDeadline) {
+            std::cerr<<"Vulkan smoke timed out waiting for submitted world/UI frames\n"; return 4;
+        }
+        if (window.shouldClose()) {
+            editor.finishDrag(true);
+#if NOVACORE_HAS_SDL3
+            if (navigating) (void)window.setRelativeMouseMode(false);
+            navigating=false;
+            if (dialogBusy()) { window.cancelCloseRequest(); }
+            else if (!editor.dirty || confirm(native,"This map has unsaved edits. Discard them and close?","Discard")) break;
+            else { window.cancelCloseRequest(); editor.status="CLOSE CANCELLED"; }
+            focused=false;
+#else
+            break;
+#endif
+        }
+#if NOVACORE_HAS_SDL3
+        const bool blockedByDialog=pumpDialog(editor,native);
+        if (gameProcess) {
+            int exitCode=0;
+            if (SDL_WaitProcess(gameProcess,false,&exitCode)) {
+                SDL_DestroyProcess(gameProcess); gameProcess=nullptr;
+                editor.status="NEMISIS EXIT CODE "+std::to_string(exitCode);
+                std::cout<<"NOVACORE_PLAYTEST_EXIT code="<<exitCode<<'\n'<<std::flush;
+            }
+        }
+#else
+        constexpr bool blockedByDialog=false;
+#endif
         const auto now=std::chrono::steady_clock::now();
         const float dt=std::clamp(std::chrono::duration<float>(now-previous).count(),0.0F,0.05F);
         previous=now;
         const auto n=nativeInput(window);
+        if (blockedByDialog) {
+            if (navigating) (void)window.setRelativeMouseMode(false);
+            navigating=false; focused=false; left=n.left; right=n.right;
+            editor.numericRow.reset(); editor.finishDrag(true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20)); continue;
+        }
         if (!n.focused || !n.right) {
             if (navigating) (void)window.setRelativeMouseMode(false);
             navigating=false;
@@ -666,6 +862,9 @@ int run(Editor& editor) {
                 editor.select(hit?hit->objectId:std::string{});
             }
         }
+#if NOVACORE_HAS_SDL3
+        if (editor.request!=FileRequest::None) processRequest(editor,native,gameProcess);
+#endif
         if (navigating && n.focused) {
             const auto& snapInput=window.inputSnapshot();
             if (right) {
@@ -681,35 +880,64 @@ int run(Editor& editor) {
         }
         left=n.left; right=n.right; focused=n.focused;
         const auto before=renderer.backendFrameStats().submittedFrames;
-        renderer.beginFrame(frameFor(editor,camera,l)); renderer.endFrame();
+        const auto frame=frameFor(editor,camera,l);
+        renderer.beginFrame(frame); renderer.endFrame();
         const auto stats=renderer.backendFrameStats();
         if (stats.submittedFrames>before) {
             shownCamera=camera; shownW=stats.swapchainWidth; shownH=stats.swapchainHeight;
         }
         if (renderer.backendName()!="vulkan-world") { std::cerr<<"Vulkan backend lost\n"; return 2; }
+        // Readiness is a process protocol, not an incidental logger message.
+        // Require a new submitted frame, matching framebuffer, actual scene
+        // and UI submissions, and no pipeline creation failure. Empty maps
+        // are valid; their grid and inspector still have to render.
+        const bool frameReady=stats.submittedFrames>before && stats.submittedFrames>=3 &&
+            stats.swapchainReady && stats.swapchainWidth==n.pixelWidth && stats.swapchainHeight==n.pixelHeight &&
+            stats.lastWorldBoxCount==frame.worldBoxes.size() &&
+            stats.lastWorldLineCount==frame.worldLines.size() && stats.lastWorldLineCount>0 &&
+            stats.lastUiRectCount>0 && stats.lastUiTextCount>0 && !stats.pipelineCreateFailureCount;
+        if (frameReady && !readyAnnounced) {
+            std::cout<<"NOVACORE_EDITOR_READY backend=vulkan-world frames="<<stats.submittedFrames
+                     <<" boxes="<<stats.lastWorldBoxCount<<" lines="<<stats.lastWorldLineCount
+                     <<" extent="<<stats.swapchainWidth<<"x"<<stats.swapchainHeight<<'\n'<<std::flush;
+            readyAnnounced=true;
+        }
+        if (vulkanSmoke && frameReady && stats.lastWorldBoxCount>0) {
+            std::cout<<"Vulkan editor smoke passed: backend="<<renderer.backendName()
+                     <<" frames="<<stats.submittedFrames<<" boxes="<<stats.lastWorldBoxCount
+                     <<" lines="<<stats.lastWorldLineCount<<" extent="<<stats.swapchainWidth<<"x"<<stats.swapchainHeight<<"\n";
+            return 0;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     editor.finishDrag(true);
     if (editor.dirty) std::cerr<<"Unsaved document changes; no automatic overwrite performed.\n";
     if (navigating) (void)window.setRelativeMouseMode(false);
-    return 0;
+    return vulkanSmoke?5:0;
 }
 } // namespace
 
 int main(int argc,char** argv) {
     if (argc==2 && std::string_view(argv[1])=="--self-test") return selfTest();
+    if (argc==2 && std::string_view(argv[1])=="--vulkan-smoke") {
+        Editor editor; return run(editor,true);
+    }
     if (argc==2 && std::string_view(argv[1])=="--help") {
-        std::cout<<"novacore_world_editor [--map FILE] [--save-as FILE]\n"
+        std::cout<<"novacore_world_editor [--map FILE] [--save-as FILE] [--game EXE]\n"
             <<"SDL3/Vulkan required. RMB look/fly, LMB select/drag axis tip, click numeric value to edit.\n"
-            <<"--save-as explicitly authorizes replacing that file on Save. --self-test is CPU-only.\n";
+            <<"--save-as explicitly authorizes replacing that file on Save. --self-test is CPU-only.\n"
+            <<"Play Map needs --game and the Nemisis checkout as the current working directory.\n"
+            <<"--vulkan-smoke requires real Vulkan submission and exits after three rendered frames.\n";
         return 0;
     }
     Editor editor;
     std::filesystem::path map;
     for (int i=1;i<argc;++i) {
         const std::string_view arg=argv[i];
-        if ((arg=="--map" || arg=="--save-as") && i+1<argc) {
-            if (arg=="--map") map=argv[++i]; else editor.output=argv[++i];
+        if ((arg=="--map" || arg=="--save-as" || arg=="--game") && i+1<argc) {
+            if (arg=="--map") map=argv[++i];
+            else if (arg=="--game") editor.game=argv[++i];
+            else editor.output=argv[++i];
         } else { std::cerr<<"Unknown or incomplete argument: "<<arg<<'\n'; return 2; }
     }
     if (!map.empty() && !editor.load(map)) { std::cerr<<editor.status<<'\n'; return 3; }
