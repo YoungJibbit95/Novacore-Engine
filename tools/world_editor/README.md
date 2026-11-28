@@ -86,3 +86,18 @@ option to reject a missing SDL3/Vulkan/glslc dependency. Launch with
 grid lines and UI draw counts. CI runs this on a virtual X11 display with
 Mesa lavapipe (software Vulkan), and enables the Khronos validation layer.
 This is not physical-GPU, visual, input, HiDPI or Nemisis round-trip acceptance.
+
+
+## Process readiness contract
+
+When the real Vulkan editor has submitted at least three frames and verified
+the current framebuffer extent, scene geometry/grid and UI draw counts, it
+emits exactly one explicitly flushed line:
+
+    NOVACORE_EDITOR_READY backend=vulkan-world frames=3 boxes=... lines=... extent=1280x800
+
+Consumers must wait for this line while the process is alive, not a renderer
+initialization message (which can remain buffered when redirected to a file).
+A Play Map child that exits is reaped by the editor and reports an explicitly
+flushed `NOVACORE_PLAYTEST_EXIT code=N` line. These signals do not certify
+physical-GPU or human visual acceptance.
