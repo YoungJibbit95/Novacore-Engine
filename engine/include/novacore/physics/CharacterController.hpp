@@ -193,6 +193,10 @@ struct MantleProbeResult final {
 class PhysicsWorld final {
 public:
     void setBounds(math::Vec3 halfExtents);
+    // Legacy sandbox collision is enabled by default. Authored scenes opt out
+    // of the synthetic Y=0 floor and horizontal boundary walls.
+    void setImplicitBoundaryCollision(bool enabled) { implicitBoundaryCollision_ = enabled; }
+    [[nodiscard]] bool implicitBoundaryCollision() const { return implicitBoundaryCollision_; }
     [[nodiscard]] math::Vec3 boundsHalfExtents() const;
 
     void clearStaticColliders();
@@ -213,6 +217,7 @@ public:
 
 private:
     math::Vec3 boundsHalfExtents_{100.0F, 100.0F, 100.0F};
+    bool implicitBoundaryCollision_ = true;
     std::vector<StaticCollider> staticColliders_;
 };
 
