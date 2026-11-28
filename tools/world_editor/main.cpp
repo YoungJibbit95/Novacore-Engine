@@ -254,7 +254,7 @@ render::RenderFrameInfo frameFor(const Editor& e, const render::RenderCamera3D& 
     button(f,l.add(),s,"ADD BOX",accent);
     button(f,l.save(),s,"SAVE");
     button(f,l.reload(),s,"RELOAD");
-    text(f,360*s,43*s,1.5F*s,"PERSPECTIVE / GRID 0.25 M",muted);
+    text(f,360*s,43*s,1.5F*s,"PERSPECTIVE / GRID 1 M / SNAP 0.25 M",muted);
     text(f,10*s,82*s,1.5F*s,"SCENE HIERARCHY");
     for (std::size_t i=0;i<l.capacity() && e.firstRow+i<e.doc.objects.size();++i) {
         const auto& o=e.doc.objects[e.firstRow+i];
@@ -358,6 +358,11 @@ int selfTest() {
         {"right","Right",{-3,0,5},WorldBox{}}}};
     auto hit=pick(d,c,1280,720,640,360);
     if (!hit || hit->objectId!="center") return 7;
+    const auto projection=render::detail::cameraProjection(c,1280,720);
+    const float rightPixel=640.0F*(1.0F+0.6F/projection.horizontalRayScale);
+    hit=pick(d,c,1280,720,rightPixel,360);
+    if (!hit || hit->objectId!="right") return 10;
+    if (pick(d,c,1280,720,1280-rightPixel,360)) return 11;
     const auto f=frameFor(e,c,l);
     if (f.worldBoxes.size()!=6 || f.worldLines.size()<82 || f.debugRects.empty() || f.debugTexts.empty()) return 8;
     if (l.viewport().contains(l.add().x,l.add().y) || !l.viewport().contains(640,360)) return 9;
