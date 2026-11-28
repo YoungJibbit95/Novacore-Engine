@@ -76,3 +76,13 @@ spawn or invalid spawn clearance are diagnosed by the actual game loader.
 The CPU self-test verifies actual save, overwrite, reopen and rejection of a
 malformed file in an isolated temporary directory. Native dialogs, window close
 confirmation and launching/playing the game have not been validated here.
+
+
+## Native smoke (not interactive acceptance)
+
+Configure with -DNOVACORE_REQUIRE_EDITOR_NATIVE=ON in addition to the editor
+option to reject a missing SDL3/Vulkan/glslc dependency. Launch with
+--vulkan-smoke to require three actual submitted frames with world geometry,
+grid lines and UI draw counts. CI runs this on a virtual X11 display with
+Mesa lavapipe (software Vulkan), and enables the Khronos validation layer.
+This is not physical-GPU, visual, input, HiDPI or Nemisis round-trip acceptance.

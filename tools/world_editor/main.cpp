@@ -762,7 +762,7 @@ int selfTest() {
     return 0;
 }
 
-int run(Editor& editor) {
+int run(Editor& editor,bool vulkanSmoke=false) {
     platform::Window window;
     render::Renderer renderer;
     if (!window.create({"NovaCore World Editor - Candidate",1280,800,true}) || window.isHeadless() ||
@@ -781,6 +781,7 @@ int run(Editor& editor) {
     unsigned shownW=0,shownH=0;
     bool focused=false,left=false,right=false,navigating=false;
     auto previous=std::chrono::steady_clock::now();
+    const auto smokeDeadline=previous+std::chrono::seconds(30);
 #if NOVACORE_HAS_SDL3
     auto* native=static_cast<SDL_Window*>(window.nativeHandle());
     SDL_Process* gameProcess=nullptr;
@@ -791,6 +792,9 @@ int run(Editor& editor) {
 #endif
     while (true) {
         window.pollEvents(input);
+        if (vulkanSmoke && std::chrono::steady_clock::now()>smokeDeadline) {
+            std::cerr<<"Vulkan smoke timed out waiting for submitted world/UI frames\n"; return 4;
+        }
         if (window.shouldClose()) {
             editor.finishDrag(true);
 #if NOVACORE_HAS_SDL3
@@ -880,22 +884,34 @@ int run(Editor& editor) {
             shownCamera=camera; shownW=stats.swapchainWidth; shownH=stats.swapchainHeight;
         }
         if (renderer.backendName()!="vulkan-world") { std::cerr<<"Vulkan backend lost\n"; return 2; }
+        if (vulkanSmoke && stats.submittedFrames>=3 && stats.swapchainReady &&
+            stats.lastWorldBoxCount>0 && stats.lastWorldLineCount>0 &&
+            stats.lastUiRectCount>0 && stats.lastUiTextCount>0 && !stats.pipelineCreateFailureCount) {
+            std::cout<<"Vulkan editor smoke passed: backend="<<renderer.backendName()
+                     <<" frames="<<stats.submittedFrames<<" boxes="<<stats.lastWorldBoxCount
+                     <<" lines="<<stats.lastWorldLineCount<<" extent="<<stats.swapchainWidth<<"x"<<stats.swapchainHeight<<"\n";
+            return 0;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     editor.finishDrag(true);
     if (editor.dirty) std::cerr<<"Unsaved document changes; no automatic overwrite performed.\n";
     if (navigating) (void)window.setRelativeMouseMode(false);
-    return 0;
+    return vulkanSmoke?5:0;
 }
 } // namespace
 
 int main(int argc,char** argv) {
     if (argc==2 && std::string_view(argv[1])=="--self-test") return selfTest();
+    if (argc==2 && std::string_view(argv[1])=="--vulkan-smoke") {
+        Editor editor; return run(editor,true);
+    }
     if (argc==2 && std::string_view(argv[1])=="--help") {
         std::cout<<"novacore_world_editor [--map FILE] [--save-as FILE] [--game EXE]\n"
             <<"SDL3/Vulkan required. RMB look/fly, LMB select/drag axis tip, click numeric value to edit.\n"
             <<"--save-as explicitly authorizes replacing that file on Save. --self-test is CPU-only.\n"
-            <<"Play Map needs --game and the Nemisis checkout as the current working directory.\n";
+            <<"Play Map needs --game and the Nemisis checkout as the current working directory.\n"
+            <<"--vulkan-smoke requires real Vulkan submission and exits after three rendered frames.\n";
         return 0;
     }
     Editor editor;
