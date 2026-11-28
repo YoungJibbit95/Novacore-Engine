@@ -120,6 +120,10 @@ void Window::pollEvents(InputSystem& input) {
         case SDL_EVENT_QUIT:
             shouldClose_ = true;
             break;
+        case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+            if (handle_ && event.window.windowID==SDL_GetWindowID(static_cast<SDL_Window*>(handle_)))
+                shouldClose_ = true;
+            break;
         case SDL_EVENT_KEY_DOWN:
             input.noteKeyboardMouseActivity();
             inputSnapshot_.setButton(
